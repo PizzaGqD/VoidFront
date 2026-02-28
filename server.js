@@ -5,6 +5,10 @@ const path = require("path");
 const os = require("os");
 
 const PORT = process.env.PORT || 3040;
+const SLOTS = 5;
+const COLOR_COUNT = 36;
+
+// ─── LAN / VPN detection ──────────────────────────────────────────
 
 function getServerLanUrl() {
   try {
@@ -20,39 +24,65 @@ function getServerLanUrl() {
     const radmin = candidates.find((a) => a.startsWith("26."));
     const addr = radmin || candidates.find((a) => !a.startsWith("127.")) || candidates[0];
     return "http://" + addr + ":" + PORT;
-  } catch (e) {}
+  } catch (_) { /* ignore */ }
   return null;
 }
-const SLOTS = 5;
-const COLOR_COUNT = 36;
 
-const server = http.createServer((req, res) => {
-  const clientIp = req.socket.remoteAddress || req.socket.remoteFamily || "?";
+// ─── Static HTTP server ───────────────────────────────────────────
+
+const MIME = {
+  ".html": "text/html",
+  ".js":   "application/javascript",
+  ".css":  "text/css",
+  ".json": "application/json"
+};
+
+const httpServer = http.createServer((req, res) => {
+  const clientIp = req.socket.remoteAddress || "?";
   console.log("[HTTP]", req.method, req.url, "from", clientIp);
-  const file = req.url === "/" || req.url === "" ? "index.html" : req.url.replace(/^\//, "").replace(/[?].*$/, "");
+
+  const file = (req.url === "/" || req.url === "")
+    ? "index.html"
+    : req.url.replace(/^\//, "").replace(/[?].*$/, "");
+
   const filePath = path.join(__dirname, file);
   const ext = path.extname(filePath);
-  const types = { ".html": "text/html", ".js": "application/javascript", ".css": "text/css", ".json": "application/json" };
+
   fs.readFile(filePath, (err, data) => {
     if (err) {
       console.log("[HTTP] 404", filePath);
       res.writeHead(404);
       return res.end();
     }
-    res.writeHead(200, { "Content-Type": types[ext] || "text/plain", "Cache-Control": "no-store, no-cache, must-revalidate" });
+    res.writeHead(200, {
+      "Content-Type": MIME[ext] || "text/plain",
+      "Cache-Control": "no-store, no-cache, must-revalidate"
+    });
     res.end(data);
   });
 });
 
-const io = new Server(server, { cors: { origin: "*" }, maxHttpBufferSize: 5e6 });
+// ─── Socket.IO setup ─────────────────────────────────────────────
+
+const io = new Server(httpServer, {
+  cors: { origin: "*" },
+  maxHttpBufferSize: 5e6
+});
+
+// ─── Room management ─────────────────────────────────────────────
 
 const rooms = new Map();
+/** Комнаты без игроков показываем в списке ещё N мс (хост мог отключиться) */
+const ROOM_GRACE_MS = 5 * 60 * 1000;
 
 function getRoom(roomId) {
   if (!rooms.has(roomId)) {
     rooms.set(roomId, {
       hostId: null,
-      slots: Array.from({ length: SLOTS }, () => ({ id: null, name: null, colorIndex: 0, isBot: false })),
+      createdAt: Date.now(),
+      slots: Array.from({ length: SLOTS }, () => ({
+        id: null, name: null, colorIndex: 0, isBot: false
+      })),
       chat: []
     });
   }
@@ -69,13 +99,46 @@ function slotSummary(room) {
   }));
 }
 
+function removePlayerFromRoom(socket) {
+  const roomId = socket.roomId;
+  if (!roomId) return;
+  const room = getRoom(roomId);
+
+  for (let i = 0; i < SLOTS; i++) {
+    if (room.slots[i].id === socket.id) {
+      room.slots[i] = {
+        id: null, name: null,
+        colorIndex: room.slots[i].colorIndex, isBot: false
+      };
+      break;
+    }
+  }
+
+  if (room.hostId === socket.id) {
+    const next = room.slots.find((s) => s.id);
+    room.hostId = next ? next.id : null;
+  }
+
+  socket.roomId = null;
+  socket.leave(roomId);
+  io.to(roomId).emit("slots", slotSummary(room));
+}
+
+// ─── Connection handler ──────────────────────────────────────────
+
 io.on("connection", (socket) => {
-  const clientIp = socket.handshake.address || socket.conn?.remoteAddress || "?";
-  console.log("[Socket] подключение:", socket.id, "IP:", clientIp);
+  const clientIp = socket.handshake.address || "?";
+  console.log("[Socket] connect:", socket.id, "IP:", clientIp);
 
   const lanUrl = getServerLanUrl();
   if (lanUrl) socket.emit("serverUrl", lanUrl);
 
+  // ── RTT measurement ──
+  socket.on("net:ping", (seq) => {
+    socket.emit("net:pong", seq);
+  });
+
+  // ── Lobby: create room ──
   socket.on("create", (nickname, cb) => {
     const name = String(nickname || "Игрок").trim().slice(0, 24) || "Игрок";
     const roomId = "r_" + Math.random().toString(36).slice(2, 10);
@@ -86,21 +149,26 @@ io.on("connection", (socket) => {
     socket.roomId = roomId;
     socket.slotIndex = 0;
     socket.isHost = true;
-    console.log("[Socket] create room", roomId.replace(/^r_/, ""), "host:", name, "IP:", clientIp);
-    if (typeof cb === "function") cb({ roomId, slots: slotSummary(room), mySlot: 0, isHost: true });
+    console.log("[Socket] create room", roomId.replace(/^r_/, ""),
+      "host:", name, "IP:", clientIp);
+    if (typeof cb === "function")
+      cb({ roomId, slots: slotSummary(room), mySlot: 0, isHost: true });
   });
 
+  // ── Lobby: list rooms ──
   socket.on("listRooms", (cb) => {
     const list = [];
+    const now = Date.now();
     for (const [roomId, room] of rooms) {
-      const hasHost = room.slots.some(s => s.id);
-      if (!hasHost) continue;
-      const slotsUsed = room.slots.filter(s => s.id || s.isBot).length;
-      const hostSlot = room.slots.find(s => s.id === room.hostId);
+      const hasPlayers = room.slots.some((s) => s.id);
+      const recent = room.createdAt && (now - room.createdAt) < ROOM_GRACE_MS;
+      if (!hasPlayers && !recent) continue;
+      const slotsUsed = room.slots.filter((s) => s.id || s.isBot).length;
+      const hostSlot = room.slots.find((s) => s.id === room.hostId);
       list.push({
         roomId,
         code: roomId.replace(/^r_/, ""),
-        hostName: hostSlot ? (hostSlot.name || "Хост") : "Хост",
+        hostName: hostSlot ? (hostSlot.name || "Хост") : (hasPlayers ? "Хост" : "—"),
         slotsUsed,
         slotsTotal: SLOTS
       });
@@ -108,30 +176,44 @@ io.on("connection", (socket) => {
     if (typeof cb === "function") cb(list);
   });
 
+  // ── Lobby: join room ──
   socket.on("join", (roomId, nickname, cb) => {
     const name = String(nickname || "Игрок").trim().slice(0, 24) || "Игрок";
     let rid = String(roomId || "").trim();
     if (rid && !rid.startsWith("r_")) rid = "r_" + rid;
     const room = getRoom(rid);
+
     let slotIndex = -1;
     for (let i = 0; i < SLOTS; i++) {
       if (!room.slots[i].id && !room.slots[i].isBot) { slotIndex = i; break; }
     }
     if (slotIndex < 0) {
-      console.log("[Socket] join FAIL (нет слотов) room:", rid.replace(/^r_/, ""), "nick:", name, "IP:", clientIp);
+      console.log("[Socket] join FAIL room:", rid.replace(/^r_/, ""),
+        "nick:", name, "IP:", clientIp);
       if (typeof cb === "function") cb({ error: "Нет свободных слотов" });
       return;
     }
-    room.slots[slotIndex] = { id: socket.id, name, colorIndex: slotIndex % COLOR_COUNT, isBot: false };
+
+    room.slots[slotIndex] = {
+      id: socket.id, name,
+      colorIndex: slotIndex % COLOR_COUNT, isBot: false
+    };
+    if (!room.hostId) {
+      room.hostId = socket.id;
+    }
     socket.join(rid);
     socket.roomId = rid;
     socket.slotIndex = slotIndex;
     socket.isHost = room.hostId === socket.id;
-    console.log("[Socket] join OK room:", rid.replace(/^r_/, ""), "slot:", slotIndex, "nick:", name, "IP:", clientIp);
+    console.log("[Socket] join OK room:", rid.replace(/^r_/, ""),
+      "slot:", slotIndex, "nick:", name, "isHost:", socket.isHost, "IP:", clientIp);
     io.to(rid).emit("slots", slotSummary(room));
-    if (typeof cb === "function") cb({ roomId: rid, slots: slotSummary(room), mySlot: slotIndex, isHost: socket.isHost });
+    if (typeof cb === "function")
+      cb({ roomId: rid, slots: slotSummary(room),
+           mySlot: slotIndex, isHost: socket.isHost });
   });
 
+  // ── Lobby: slot / color / chat ──
   socket.on("setSlot", (slotIndex, isBot) => {
     const roomId = socket.roomId;
     if (!roomId) return;
@@ -139,9 +221,15 @@ io.on("connection", (socket) => {
     if (room.hostId !== socket.id) return;
     if (slotIndex < 0 || slotIndex >= SLOTS) return;
     if (isBot) {
-      room.slots[slotIndex] = { id: null, name: "Бот", colorIndex: room.slots[slotIndex].colorIndex, isBot: true };
+      room.slots[slotIndex] = {
+        id: null, name: "Бот",
+        colorIndex: room.slots[slotIndex].colorIndex, isBot: true
+      };
     } else {
-      room.slots[slotIndex] = { id: null, name: null, colorIndex: room.slots[slotIndex].colorIndex, isBot: false };
+      room.slots[slotIndex] = {
+        id: null, name: null,
+        colorIndex: room.slots[slotIndex].colorIndex, isBot: false
+      };
     }
     io.to(roomId).emit("slots", slotSummary(room));
   });
@@ -150,10 +238,9 @@ io.on("connection", (socket) => {
     const roomId = socket.roomId;
     if (!roomId) return;
     const room = getRoom(roomId);
-    const idx = room.slots.findIndex(s => s.id === socket.id);
+    const idx = room.slots.findIndex((s) => s.id === socket.id);
     if (idx < 0) return;
-    const c = Math.max(0, Math.min(COLOR_COUNT - 1, colorIndex | 0));
-    room.slots[idx].colorIndex = c;
+    room.slots[idx].colorIndex = Math.max(0, Math.min(COLOR_COUNT - 1, colorIndex | 0));
     io.to(roomId).emit("slots", slotSummary(room));
   });
 
@@ -161,51 +248,42 @@ io.on("connection", (socket) => {
     const roomId = socket.roomId;
     if (!roomId) return;
     const room = getRoom(roomId);
-    const idx = room.slots.findIndex(s => s.id === socket.id);
+    const idx = room.slots.findIndex((s) => s.id === socket.id);
     const name = idx >= 0 ? (room.slots[idx].name || "Игрок") : "?";
     const msg = { name, text: String(text).slice(0, 200), t: Date.now() };
     room.chat.push(msg);
-    if (room.chat.length > 80) room.chat.shift();
+    if (room.chat.length > 100) room.chat.shift();
     io.to(roomId).emit("chat", msg);
   });
 
-  socket.on("leave", () => {
-    const roomId = socket.roomId;
-    if (!roomId) return;
-    const room = getRoom(roomId);
-    for (let i = 0; i < SLOTS; i++) {
-      if (room.slots[i].id === socket.id) {
-        room.slots[i] = { id: null, name: null, colorIndex: room.slots[i].colorIndex, isBot: false };
-        break;
-      }
-    }
-    if (room.hostId === socket.id) {
-      const next = room.slots.find(s => s.id);
-      room.hostId = next ? next.id : null;
-    }
-    socket.roomId = null;
-    socket.leave(roomId);
-    io.to(roomId).emit("slots", slotSummary(room));
-  });
+  // ── Lobby: leave ──
+  socket.on("leave", () => removePlayerFromRoom(socket));
 
+  // ── Game: state relay (host → clients) ──
   let _gsLogCtr = 0;
   socket.on("gameState", (data) => {
     const roomId = socket.roomId;
     if (!roomId) return;
     _gsLogCtr++;
-    if (_gsLogCtr % 100 === 1) {
-      const size = JSON.stringify(data).length;
-      console.log("[Socket] gameState relay #" + _gsLogCtr, "size:", size, "bytes, units:", (data?.units||[]).length, "players:", (data?.players||[]).length);
+    if (_gsLogCtr % 500 === 1) {
+      const seq = data?._seq ?? "?";
+      const full = data?._fullSync ? "FULL" : "delta";
+      console.log(`[Relay] #${_gsLogCtr} seq=${seq} ${full}` +
+        ` units=${(data?.units || []).length}`);
     }
     socket.to(roomId).emit("gameState", data);
   });
+
+  // ── Game: player actions (client → host) ──
   socket.on("playerAction", (data) => {
     const roomId = socket.roomId;
     if (!roomId) return;
     const room = getRoom(roomId);
-    console.log("[Socket] playerAction from", socket.id, "type:", data?.type, "pid:", data?.pid, "-> host:", room.hostId);
-    if (room.hostId) io.to(room.hostId).emit("playerAction", data);
+    if (room.hostId)
+      io.to(room.hostId).emit("playerAction", data);
   });
+
+  // ── Game: map regeneration (host → clients) ──
   socket.on("mapRegenerate", (data) => {
     const roomId = socket.roomId;
     if (!roomId) return;
@@ -214,52 +292,46 @@ io.on("connection", (socket) => {
     socket.to(roomId).emit("mapRegenerate", data);
   });
 
+  // ── Game: start ──
   socket.on("start", (payload) => {
     const roomId = socket.roomId;
     if (!roomId) return;
     const room = getRoom(roomId);
     if (room.hostId !== socket.id) return;
     const slots = slotSummary(room);
-    const seed = (payload && typeof payload.seed === "number") ? payload.seed : (Date.now() >>> 0);
+    const seed = (payload && typeof payload.seed === "number")
+      ? payload.seed
+      : (Date.now() >>> 0);
     io.to(roomId).emit("gameStart", { slots, seed });
   });
 
+  // ── Disconnect ──
   socket.on("disconnect", (reason) => {
-    console.log("[Socket] отключение:", socket.id, "reason:", reason);
-    const roomId = socket.roomId;
-    if (!roomId) return;
-    const room = getRoom(roomId);
-    for (let i = 0; i < SLOTS; i++) {
-      if (room.slots[i].id === socket.id) {
-        room.slots[i] = { id: null, name: null, colorIndex: room.slots[i].colorIndex, isBot: false };
-        break;
-      }
-    }
-    if (room.hostId === socket.id) {
-      const next = room.slots.find(s => s.id);
-      room.hostId = next ? next.id : null;
-    }
-    io.to(roomId).emit("slots", slotSummary(room));
+    console.log("[Socket] disconnect:", socket.id, "reason:", reason);
+    removePlayerFromRoom(socket);
   });
 
-  socket.on("error", (err) => console.error("[Socket] error", socket.id, err));
+  socket.on("error", (err) => {
+    console.error("[Socket] error", socket.id, err);
+  });
 });
 
-server.listen(PORT, "0.0.0.0", () => {
+// ─── Start ────────────────────────────────────────────────────────
+
+httpServer.listen(PORT, "0.0.0.0", () => {
   const lanUrl = getServerLanUrl();
   const useTunnel = process.env.USE_TUNNEL === "1" || process.argv.includes("--tunnel");
+
   console.log("Hoi2D lobby server: http://localhost:" + PORT);
-  if (lanUrl) console.log("  По локальной сети: " + lanUrl);
-  console.log("  Логи: каждое HTTP-запрос и Socket подключение/отключение/join/create.");
+  if (lanUrl) console.log("  LAN: " + lanUrl);
 
   if (useTunnel) {
     require("localtunnel")({ port: PORT })
       .then((tunnel) => {
-        console.log("  По интернету (туннель): " + tunnel.url);
-        console.log("  Отправь эту ссылку тому, с кем играешь — пусть откроет в браузере.");
-        tunnel.on("close", () => console.log("  Туннель закрыт."));
-        tunnel.on("error", (err) => console.error("  Туннель ошибка:", err.message));
+        console.log("  Tunnel: " + tunnel.url);
+        tunnel.on("close", () => console.log("  Tunnel closed."));
+        tunnel.on("error", (err) => console.error("  Tunnel error:", err.message));
       })
-      .catch((err) => console.error("  Туннель не запустился:", err.message));
+      .catch((err) => console.error("  Tunnel failed:", err.message));
   }
 });

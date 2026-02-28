@@ -91,6 +91,16 @@
   </div>
 
   <div id="gameWrap" style="display:none">
+  <div id="gameTopCenter" class="game-top-center">
+    <div id="dominationTimer" style="display:none"></div>
+    <div id="lvlUpWrap" class="lvlup-wrap">
+      <div class="lvlup-progress-wrap"><div id="lvlUpProgress" class="lvlup-progress"></div></div>
+      <button type="button" id="lvlUpBtn" class="lvlup-btn lvlup-btn-gray" title="Выбрать улучшение за уровень">LVL Up <span id="lvlUpCount">0</span></button>
+      <div id="lvlUpLevelText" class="lvlup-level-text">Ур. 1</div>
+      <div id="lvlUpXpText" class="lvlup-xp-text">(0)</div>
+    </div>
+    <button type="button" id="abilitiesBtn" class="abilities-btn-stub" disabled title="В разработке">Способности</button>
+  </div>
   <div id="hud">
     <div class="title">Territorial Dominion</div>
 
@@ -107,9 +117,6 @@
       <button type="button" class="speed-btn pill" data-speed="6">x6</button>
       <button type="button" class="speed-btn pill" data-speed="8">x8</button>
       <button type="button" class="speed-btn pill" data-speed="10">x10</button>
-    </div>
-    <div class="row" style="margin-top:4px">
-      <button type="button" id="lvlUpBtn" class="lvlup-btn" style="display:none" title="Выбрать улучшение за уровень">LVL Up <span id="lvlUpCount">0</span></button>
     </div>
     <div id="perfLogWrap" class="perf-log-wrap" style="display:none">
       <pre id="perfLog" class="perf-log"></pre>
@@ -147,13 +154,30 @@
       <div class="subtitle">Управление отрядом</div>
       <div id="squadControlOne" style="display:none">
         <div class="row">
+          <button type="button" id="splitSquadBtnOne">Разделить</button>
+        </div>
+        <div class="row">
           <label>Строй</label>
           <select id="formationSelect">
-            <option value="pig">Свинья клином</option>
+            <option value="pig">Свинья</option>
             <option value="line" selected>Шеренга</option>
           </select>
-          <label>Рядов</label>
-          <input id="formationRows" type="number" min="1" value="2" style="width:3em" />
+          <span id="formationLineRow" class="formation-row-controls">
+            <label>Рядов</label>
+            <button type="button" id="formationRowsMinus" class="pill">−</button>
+            <input id="formationRows" type="number" min="1" value="2" style="width:2.5em" />
+            <button type="button" id="formationRowsPlus" class="pill">+</button>
+          </span>
+          <span id="formationPigRow" class="formation-row-controls" style="display:none">
+            <label>Глубина</label>
+            <button type="button" id="formationPigDepthMinus" class="pill">−</button>
+            <span id="formationPigDepthVal" class="mono">3</span>
+            <button type="button" id="formationPigDepthPlus" class="pill">+</button>
+            <label>Ширина</label>
+            <button type="button" id="formationPigWidthMinus" class="pill">−</button>
+            <span id="formationPigWidthVal" class="mono">1.0</span>
+            <button type="button" id="formationPigWidthPlus" class="pill">+</button>
+          </span>
         </div>
         <div class="muted">Меняете — применяется сразу. Ctrl+1…9 — бинд, 1…9 — выбор.</div>
       </div>
@@ -165,11 +189,25 @@
         <div class="row">
           <label>Строй</label>
           <select id="formationSelectMulti">
-            <option value="pig">Свинья клином</option>
+            <option value="pig">Свинья</option>
             <option value="line" selected>Шеренга</option>
           </select>
-          <label>Рядов</label>
-          <input id="formationRowsMulti" type="number" min="1" value="2" style="width:3em" />
+          <span id="formationLineRowMulti" class="formation-row-controls">
+            <label>Рядов</label>
+            <button type="button" id="formationRowsMinusMulti" class="pill">−</button>
+            <input id="formationRowsMulti" type="number" min="1" value="2" style="width:2.5em" />
+            <button type="button" id="formationRowsPlusMulti" class="pill">+</button>
+          </span>
+          <span id="formationPigRowMulti" class="formation-row-controls" style="display:none">
+            <label>Глубина</label>
+            <button type="button" id="formationPigDepthMinusMulti" class="pill">−</button>
+            <span id="formationPigDepthValMulti" class="mono">3</span>
+            <button type="button" id="formationPigDepthPlusMulti" class="pill">+</button>
+            <label>Ширина</label>
+            <button type="button" id="formationPigWidthMinusMulti" class="pill">−</button>
+            <span id="formationPigWidthValMulti" class="mono">1.0</span>
+            <button type="button" id="formationPigWidthPlusMulti" class="pill">+</button>
+          </span>
         </div>
         <div class="muted">Формация применяется ко всем выделенным.</div>
       </div>
@@ -201,7 +239,13 @@
     <canvas id="minimapCanvas"></canvas>
   </div>
 
-  <div id="dominationTimer" style="display:none"></div>
+  <div id="enemyCityPanel" class="enemy-city-panel" style="display:none">
+    <div class="enemy-city-panel-header">
+      <span id="enemyCityPanelTitle" class="enemy-city-panel-title">Противник</span>
+      <button type="button" id="enemyCityPanelClose" class="enemy-city-panel-close" title="Закрыть">×</button>
+    </div>
+    <div id="enemyCityPanelContent" class="enemy-city-panel-content"></div>
+  </div>
 
   <div id="victoryOverlay" style="display:none">
     <div class="victory-box">
@@ -213,9 +257,36 @@
 
   <div id="cardModal" class="modal-overlay" style="display:none">
     <div class="modal-card-pick">
-      <div class="subtitle">Выберите улучшение</div>
-      <p class="muted">Осталось выборов: <span id="cardPicksLeft">0</span></p>
+      <div class="modal-card-pick-header">
+        <div class="subtitle">Выберите улучшение</div>
+        <p class="muted">Осталось выборов: <span id="cardPicksLeft">0</span></p>
+        <span id="cardRerollWrap" class="card-reroll-wrap" title="Реролл: заменить текущие 3 карты на новые случайные. Даётся 1 раз за каждые 5 уровней.">
+          <span class="card-reroll-icon">🔄</span>
+          <span id="cardRerollCount" class="card-reroll-count">0</span>
+          <span class="card-reroll-label">реролл</span>
+        </span>
+        <button type="button" id="cardModalClose" class="menu-btn secondary" title="Закрыть без выбора (те же карты при повторном открытии)">Закрыть</button>
+      </div>
       <div id="cardChoices" class="card-choices"></div>
+    </div>
+  </div>
+
+  <div id="gameChatWrap" class="game-chat-wrap" style="display:none">
+    <div class="game-chat-title-row">
+      <span class="game-chat-title">Чат</span>
+      <button type="button" id="gameChatToggle" class="game-chat-toggle" title="Свернуть/развернуть">−</button>
+    </div>
+    <div id="gameChatBody" class="game-chat-body">
+      <div id="gameChatMessages" class="game-chat-messages"></div>
+      <div id="gameChatEmojiRow" class="game-chat-emoji-row"></div>
+      <div class="game-chat-input-row">
+        <input type="text" id="gameChatInput" class="game-chat-input" placeholder="Сообщение или эмодзи..." maxlength="200" />
+        <button type="button" id="gameChatSend" class="menu-btn game-chat-send">Отпр.</button>
+      </div>
+    </div>
+    <div id="gameChatBar" class="game-chat-bar" title="Непрочитанные сообщения">
+      <span class="game-chat-bar-label">Чат</span>
+      <span id="gameChatUnreadBadge" class="game-chat-unread-badge">0</span>
     </div>
   </div>
 
@@ -265,7 +336,8 @@
   <script src="https://cdn.jsdelivr.net/npm/pixi.js@8.6.6/dist/pixi.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/pixi-filters@6.1.1/dist/pixi-filters.min.js"></script>
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-  <script src="client.js?v=7"></script>
+  <script src="net.js?v=2"></script>
+  <script src="client.js?v=9"></script>
   <script>
   (function(){
     var b = document.getElementById("btnCreateRoom");

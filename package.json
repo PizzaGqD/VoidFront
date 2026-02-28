@@ -6,10 +6,16 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "tunnel": "node server.js --tunnel"
+    "tunnel": "node server.js --tunnel",
+    "stop": "node stop-server.js",
+    "restart": "node stop-server.js && node server.js",
+    "test": "node tests/network-protocol.test.js"
   },
   "dependencies": {
     "localtunnel": "^2.0.2",
     "socket.io": "^4.7.2"
+  },
+  "overrides": {
+    "axios": "^1.7.0"
   }
 }
