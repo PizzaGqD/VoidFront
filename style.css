@@ -109,6 +109,11 @@ input[type="range"] { flex: 1; }
   border-color: rgba(255, 220, 100, 0.7);
   box-shadow: 0 0 12px rgba(255, 220, 100, 0.3);
 }
+.squad-strength {
+  font-size: 1.35em;
+  font-weight: 800;
+  margin-left: 2px;
+}
 
 .stats-columns {
   display: flex;
