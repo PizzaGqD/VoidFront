@@ -1,0 +1,15 @@
+{
+  "name": "hoi2d",
+  "version": "1.0.0",
+  "description": "Territorial Dominion lobby server",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "tunnel": "node server.js --tunnel"
+  },
+  "dependencies": {
+    "localtunnel": "^2.0.2",
+    "socket.io": "^4.7.2"
+  }
+}
