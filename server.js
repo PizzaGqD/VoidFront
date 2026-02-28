@@ -165,7 +165,7 @@ io.on("connection", (socket) => {
     const name = idx >= 0 ? (room.slots[idx].name || "Игрок") : "?";
     const msg = { name, text: String(text).slice(0, 200), t: Date.now() };
     room.chat.push(msg);
-    if (room.chat.length > 80) room.chat.shift();
+    if (room.chat.length > 100) room.chat.shift();
     io.to(roomId).emit("chat", msg);
   });
 
@@ -193,9 +193,8 @@ io.on("connection", (socket) => {
     const roomId = socket.roomId;
     if (!roomId) return;
     _gsLogCtr++;
-    if (_gsLogCtr % 100 === 1) {
-      const size = JSON.stringify(data).length;
-      console.log("[Socket] gameState relay #" + _gsLogCtr, "size:", size, "bytes, units:", (data?.units||[]).length, "players:", (data?.players||[]).length);
+    if (_gsLogCtr % 500 === 1) {
+      console.log("[Socket] gameState relay #" + _gsLogCtr, "units:", (data?.units||[]).length, "players:", (data?.players||[]).length);
     }
     socket.to(roomId).emit("gameState", data);
   });

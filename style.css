@@ -470,3 +470,161 @@ input[type="range"] { flex: 1; }
   border-top: 1px solid rgba(100,150,255,0.2);
 }
 .chat-input { flex: 1; min-width: 0; padding: 8px 12px; border-radius: 10px; border: 1px solid rgba(100,150,255,0.3); background: rgba(10,15,28,0.9); color: #e0e8ff; font-size: 14px; }
+
+/* In-game chat (bottom-right) */
+.game-chat-wrap {
+  position: fixed;
+  right: 14px;
+  bottom: 14px;
+  width: 280px;
+  max-height: 220px;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  border-radius: 12px;
+  background: rgba(10, 14, 26, 0.88);
+  border: 1px solid rgba(120, 160, 255, 0.22);
+  box-shadow: 0 0 18px rgba(80, 120, 255, 0.2);
+  backdrop-filter: blur(8px);
+}
+.game-chat-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  font-weight: 700;
+  font-size: 13px;
+  border-bottom: 1px solid rgba(100,150,255,0.2);
+}
+.game-chat-title { margin: 0; }
+.game-chat-toggle {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  font-size: 18px;
+  line-height: 1;
+  border-radius: 6px;
+  background: rgba(100,150,255,0.2);
+  border: 1px solid rgba(120,160,255,0.3);
+  color: #e0e8ff;
+  cursor: pointer;
+}
+.game-chat-toggle:hover { background: rgba(100,150,255,0.35); }
+.game-chat-body { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.game-chat-wrap.game-chat-collapsed .game-chat-body { display: none; }
+.game-chat-wrap.game-chat-collapsed { max-height: none; width: auto; min-width: 100px; }
+.game-chat-bar {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(40, 30, 10, 0.9);
+  border: 1px solid rgba(180, 140, 60, 0.4);
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 13px;
+}
+.game-chat-wrap.game-chat-collapsed .game-chat-bar { display: flex; }
+.game-chat-unread-badge {
+  background: #d4a012;
+  color: #1a1a0a;
+  min-width: 22px;
+  height: 22px;
+  border-radius: 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 800;
+}
+.game-chat-messages {
+  flex: 1;
+  min-height: 80px;
+  max-height: 140px;
+  overflow-y: auto;
+  padding: 8px;
+  font-size: 13px;
+  line-height: 1.35;
+}
+.game-chat-messages .msg { margin-bottom: 4px; word-break: break-word; }
+.game-chat-messages .msg .sender { font-weight: 700; margin-right: 6px; }
+.game-chat-emoji-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px 8px;
+  border-top: 1px solid rgba(100,150,255,0.15);
+  max-height: 60px;
+  overflow-y: auto;
+}
+.game-chat-emoji-btn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  font-size: 16px;
+  line-height: 1;
+  border-radius: 6px;
+  background: rgba(60, 100, 180, 0.2);
+  border: 1px solid rgba(100,150,255,0.25);
+  color: inherit;
+  cursor: pointer;
+}
+.game-chat-emoji-btn:hover { background: rgba(80, 130, 255, 0.3); }
+.game-chat-input-row {
+  display: flex;
+  gap: 6px;
+  padding: 8px;
+  border-top: 1px solid rgba(100,150,255,0.2);
+}
+.game-chat-input { flex: 1; min-width: 0; padding: 6px 10px; border-radius: 8px; border: 1px solid rgba(100,150,255,0.3); background: rgba(10,15,28,0.9); color: #e0e8ff; font-size: 13px; }
+.game-chat-send { padding: 6px 10px; font-size: 12px; }
+
+/* Enemy city info panel — same look as #hud */
+.enemy-city-panel {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 430px;
+  max-height: 85vh;
+  z-index: 100;
+  padding: 12px;
+  border-radius: 14px;
+  background: rgba(10, 14, 26, 0.72);
+  border: 1px solid rgba(120, 160, 255, 0.18);
+  box-shadow: 0 0 18px rgba(80, 120, 255, 0.25), inset 0 0 22px rgba(80, 120, 255, 0.12);
+  backdrop-filter: blur(8px);
+  overflow: hidden;
+}
+.enemy-city-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(120, 160, 255, 0.18);
+}
+.enemy-city-panel-title { font-weight: 900; font-size: 15px; letter-spacing: 0.6px; }
+.enemy-city-panel-close {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  font-size: 20px;
+  line-height: 1;
+  border-radius: 8px;
+  cursor: pointer;
+  background: rgba(60, 110, 255, 0.22);
+  border: 1px solid rgba(120, 160, 255, 0.35);
+  color: #e9eefc;
+}
+.enemy-city-panel-close:hover { background: rgba(80, 130, 255, 0.35); }
+.enemy-city-panel-content {
+  padding: 0;
+  overflow-y: auto;
+  max-height: 60vh;
+}
+.enemy-city-panel-content .box { margin: 0; }
+.enemy-city-panel-content .me-stats .stat-line { margin: 3px 0; font-size: 14px; }
+.enemy-city-panel-content .me-stats .stat-label { opacity: 0.9; }
+.enemy-city-panel-content .me-stats .stat-val { font-weight: 700; font-family: ui-monospace, monospace; font-size: 13px; }

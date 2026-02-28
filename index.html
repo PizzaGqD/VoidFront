@@ -149,11 +149,25 @@
         <div class="row">
           <label>Строй</label>
           <select id="formationSelect">
-            <option value="pig">Свинья клином</option>
+            <option value="pig">Свинья</option>
             <option value="line" selected>Шеренга</option>
           </select>
-          <label>Рядов</label>
-          <input id="formationRows" type="number" min="1" value="2" style="width:3em" />
+          <span id="formationLineRow" class="formation-row-controls">
+            <label>Рядов</label>
+            <button type="button" id="formationRowsMinus" class="pill">−</button>
+            <input id="formationRows" type="number" min="1" value="2" style="width:2.5em" />
+            <button type="button" id="formationRowsPlus" class="pill">+</button>
+          </span>
+          <span id="formationPigRow" class="formation-row-controls" style="display:none">
+            <label>Глубина</label>
+            <button type="button" id="formationPigDepthMinus" class="pill">−</button>
+            <span id="formationPigDepthVal" class="mono">3</span>
+            <button type="button" id="formationPigDepthPlus" class="pill">+</button>
+            <label>Ширина</label>
+            <button type="button" id="formationPigWidthMinus" class="pill">−</button>
+            <span id="formationPigWidthVal" class="mono">1.0</span>
+            <button type="button" id="formationPigWidthPlus" class="pill">+</button>
+          </span>
         </div>
         <div class="muted">Меняете — применяется сразу. Ctrl+1…9 — бинд, 1…9 — выбор.</div>
       </div>
@@ -165,11 +179,25 @@
         <div class="row">
           <label>Строй</label>
           <select id="formationSelectMulti">
-            <option value="pig">Свинья клином</option>
+            <option value="pig">Свинья</option>
             <option value="line" selected>Шеренга</option>
           </select>
-          <label>Рядов</label>
-          <input id="formationRowsMulti" type="number" min="1" value="2" style="width:3em" />
+          <span id="formationLineRowMulti" class="formation-row-controls">
+            <label>Рядов</label>
+            <button type="button" id="formationRowsMinusMulti" class="pill">−</button>
+            <input id="formationRowsMulti" type="number" min="1" value="2" style="width:2.5em" />
+            <button type="button" id="formationRowsPlusMulti" class="pill">+</button>
+          </span>
+          <span id="formationPigRowMulti" class="formation-row-controls" style="display:none">
+            <label>Глубина</label>
+            <button type="button" id="formationPigDepthMinusMulti" class="pill">−</button>
+            <span id="formationPigDepthValMulti" class="mono">3</span>
+            <button type="button" id="formationPigDepthPlusMulti" class="pill">+</button>
+            <label>Ширина</label>
+            <button type="button" id="formationPigWidthMinusMulti" class="pill">−</button>
+            <span id="formationPigWidthValMulti" class="mono">1.0</span>
+            <button type="button" id="formationPigWidthPlusMulti" class="pill">+</button>
+          </span>
         </div>
         <div class="muted">Формация применяется ко всем выделенным.</div>
       </div>
@@ -201,6 +229,14 @@
     <canvas id="minimapCanvas"></canvas>
   </div>
 
+  <div id="enemyCityPanel" class="enemy-city-panel" style="display:none">
+    <div class="enemy-city-panel-header">
+      <span id="enemyCityPanelTitle" class="enemy-city-panel-title">Противник</span>
+      <button type="button" id="enemyCityPanelClose" class="enemy-city-panel-close" title="Закрыть">×</button>
+    </div>
+    <div id="enemyCityPanelContent" class="enemy-city-panel-content"></div>
+  </div>
+
   <div id="dominationTimer" style="display:none"></div>
 
   <div id="victoryOverlay" style="display:none">
@@ -216,6 +252,25 @@
       <div class="subtitle">Выберите улучшение</div>
       <p class="muted">Осталось выборов: <span id="cardPicksLeft">0</span></p>
       <div id="cardChoices" class="card-choices"></div>
+    </div>
+  </div>
+
+  <div id="gameChatWrap" class="game-chat-wrap" style="display:none">
+    <div class="game-chat-title-row">
+      <span class="game-chat-title">Чат</span>
+      <button type="button" id="gameChatToggle" class="game-chat-toggle" title="Свернуть/развернуть">−</button>
+    </div>
+    <div id="gameChatBody" class="game-chat-body">
+      <div id="gameChatMessages" class="game-chat-messages"></div>
+      <div id="gameChatEmojiRow" class="game-chat-emoji-row"></div>
+      <div class="game-chat-input-row">
+        <input type="text" id="gameChatInput" class="game-chat-input" placeholder="Сообщение или эмодзи..." maxlength="200" />
+        <button type="button" id="gameChatSend" class="menu-btn game-chat-send">Отпр.</button>
+      </div>
+    </div>
+    <div id="gameChatBar" class="game-chat-bar" style="display:none" title="Непрочитанные сообщения">
+      <span class="game-chat-bar-label">Чат</span>
+      <span id="gameChatUnreadBadge" class="game-chat-unread-badge">0</span>
     </div>
   </div>
 
