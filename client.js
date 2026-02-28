@@ -446,18 +446,51 @@
       u.waypointIndex = 0;
       u.straightMode = false;
     }
-  });
-
-  if (splitSquadBtn) splitSquadBtn.addEventListener("click", () => {
-    for (const id of state.selectedUnitIds) {
-      const u = state.units.get(id);
-      if (u && u.owner === state.myPlayerId) {
-        u.leaderId = null;
-        u.formationOffsetX = 0;
-        u.formationOffsetY = 0;
-      }
+    if (state._multiSlots && !state._multiIsHost && state._socket) {
+      state._socket.emit("playerAction", {
+        type: "mergeSquad",
+        pid: state.myPlayerId,
+        unitIds: units.map(u => u.id),
+        formationType,
+        formationRows,
+        formationPigWidth: pigW,
+        waypoints
+      });
     }
   });
+
+  function doSplitSquad() {
+    const squads = getSelectedSquads();
+    if (squads.length !== 1 || squads[0].length < 2) return;
+    const squad = squads[0].slice();
+    const n = squad.length;
+    const k = Math.floor(n / 2);
+    const first = squad.slice(0, k);
+    const second = squad.slice(k, n);
+    const centerIdx = (arr) => Math.min(Math.floor((arr.length - 1) / 2), arr.length - 1);
+    const leader1 = first[centerIdx(first)];
+    const leader2 = second[centerIdx(second)];
+    for (const u of first) {
+      u.leaderId = leader1.id;
+      u.formationOffsetX = 0;
+      u.formationOffsetY = 0;
+    }
+    leader1.leaderId = null;
+    for (const u of second) {
+      u.leaderId = leader2.id;
+      u.formationOffsetX = 0;
+      u.formationOffsetY = 0;
+    }
+    leader2.leaderId = null;
+    applyFormationToSquad(first, leader1.formationType || "pig", leader1.formationRows ?? 1, null, null, leader1.formationPigWidth);
+    applyFormationToSquad(second, leader2.formationType || "pig", leader2.formationRows ?? 1, null, null, leader2.formationPigWidth);
+    if (state._multiSlots && !state._multiIsHost && state._socket) {
+      state._socket.emit("playerAction", { type: "splitSquad", leader1Id: leader1.id, leader2Id: leader2.id, unitIds: squad.map(u => u.id) });
+    }
+  }
+  if (splitSquadBtn) splitSquadBtn.addEventListener("click", doSplitSquad);
+  const splitSquadBtnOne = document.getElementById("splitSquadBtnOne");
+  if (splitSquadBtnOne) splitSquadBtnOne.addEventListener("click", doSplitSquad);
 
   function updateSquadControlBox() {
     const squads = getSelectedSquads();
@@ -1170,7 +1203,8 @@
       popFloat: startPop,
       level: 1,
       xp: 0,
-      xpNext: Math.floor(CFG.XP_BASE + CFG.XP_PER_LEVEL * CFG.XP_LEVEL_MUL),
+      xpNext: Math.floor(CFG.XP_BASE + CFG.XP_PER_LEVEL * 1 * CFG.XP_LEVEL_MUL),
+      _levelBonusMul: 1.01,
       cooldown: 0,
       sendDelay: 0,
       pendingSend: null,
@@ -1191,8 +1225,16 @@
     };
   }
 
-  function xpNeed(level) {
-    return Math.floor(CFG.XP_BASE + CFG.XP_PER_LEVEL * level * CFG.XP_LEVEL_MUL);
+  function getLevelBonusMul(p) {
+    return p ? (p._levelBonusMul ?? (1 + (p.level || 1) * 0.01)) : 1;
+  }
+  function xpNeed(level, p) {
+    let base = Math.floor(CFG.XP_BASE + CFG.XP_PER_LEVEL * level * CFG.XP_LEVEL_MUL);
+    if (p && typeof p.xpZonePct === "number") {
+      if (p.xpZonePct >= 5) base = Math.floor(base * (1 + (p.xpZonePct / 10) * 0.11));
+      else base = Math.floor(base * 0.80);
+    }
+    return Math.max(1, base);
   }
 
   const CARD_RARITY_WEIGHTS = { common: 46, uncommon: 26, rare: 15, epic: 10, legendary: 3 };
@@ -1511,7 +1553,7 @@
     if (fixedCount === 0) p._fixedTurretCount = turretCount;
     const stepDist = perim / turretCount;
 
-    const turretHpMul = p.turretHpMul != null ? p.turretHpMul : 1;
+    const turretHpMul = (p.turretHpMul != null ? p.turretHpMul : 1) * getLevelBonusMul(p);
     const maxHp = Math.max(1, Math.round(p.pop * (CFG.TURRET_HP_RATIO ?? 0.1) * turretHpMul));
 
     const oldTurrets = new Map();
@@ -1646,7 +1688,7 @@
       if (alive) {
         t.gfx.visible = true;
         t.labelGfx.visible = true;
-        const turretDmgMul = p.turretDmgMul != null ? p.turretDmgMul : 1;
+        const turretDmgMul = (p.turretDmgMul != null ? p.turretDmgMul : 1) * getLevelBonusMul(p);
         const dps = ((CFG.TURRET_ATTACK_DMG ?? 3) * (CFG.TURRET_ATTACK_RATE ?? 1.2) * turretDmgMul).toFixed(1);
         t.labelGfx.text = t.hp + "hp " + dps + "dps";
         t.labelGfx.position.set(t.x, t.y - 14);
@@ -1698,7 +1740,7 @@
         }
       }
       if (bestTarget) {
-        const turretDmgMul = p.turretDmgMul != null ? p.turretDmgMul : 1;
+        const turretDmgMul = (p.turretDmgMul != null ? p.turretDmgMul : 1) * getLevelBonusMul(p);
         const dmg = Math.max(1, Math.round((CFG.TURRET_ATTACK_DMG ?? 3) * turretDmgMul));
         t.atkCd = 1 / (CFG.TURRET_ATTACK_RATE ?? 1.2);
         const bx = bestTarget.x;
@@ -1743,7 +1785,7 @@
       if (t.hp <= 0 && t._diedAt && state.t - t._diedAt >= 60) {
         const p = state.players.get(t.owner);
         if (p && p.pop > 0) {
-          const turretHpMul = p.turretHpMul != null ? p.turretHpMul : 1;
+          const turretHpMul = (p.turretHpMul != null ? p.turretHpMul : 1) * getLevelBonusMul(p);
           t.maxHp = Math.max(1, Math.round(p.pop * (CFG.TURRET_HP_RATIO ?? 0.1) * turretHpMul));
           t.hp = t.maxHp;
           t._diedAt = null;
@@ -1871,7 +1913,7 @@
         maxHp += CFG.UNIT_HP;
         const unitDps = (u.dmg || 1) * CFG.UNIT_ATK_RATE;
         dps += unitDps;
-        const mul = u._territoryMul ?? (() => { const zo = getZoneOwnerFast(u.x, u.y); return zo === u.owner ? 1.1 : (zo > 0 ? 0.9 : 1); })();
+        const mul = u._territoryMul ?? (() => { const zo = getZoneOwnerFast(u.x, u.y); return zo === u.owner ? 1.1 : (zo !== 0 && zo !== u.owner ? 0.9 : 1); })();
         effectiveHp += u.hp / mul;
         effectiveDps += unitDps * mul;
       }
@@ -2191,8 +2233,38 @@
     return out;
   }
 
+  const FORCE_PREVIEW_RADIUS = 180;
   function updateCombatUI() {
     destroyChildren(combatLayer);
+    state._forcePreview = null;
+    if (state.selectedUnitIds.size > 0 && state._hoverTarget && state._hoverWorld) {
+      const ht = state._hoverTarget;
+      let enemyCx, enemyCy, enemyHp = 0, myHp = 0;
+      const me = state.players.get(state.myPlayerId);
+      const myColor = me ? me.color : 0x4488ff;
+      if (ht.x != null && ht.y != null) {
+        if (ht.owner != null) {
+          const enemySquad = getSquads().find(s => s.some(u => u.id === ht.id));
+          if (enemySquad) {
+            enemyCx = enemySquad.reduce((s, u) => s + u.x, 0) / enemySquad.length;
+            enemyCy = enemySquad.reduce((s, u) => s + u.y, 0) / enemySquad.length;
+            for (const u of state.units.values()) {
+              if (u.owner !== state.myPlayerId && Math.hypot(u.x - enemyCx, u.y - enemyCy) <= FORCE_PREVIEW_RADIUS) enemyHp += u.hp;
+            }
+          } else { enemyCx = ht.x; enemyCy = ht.y; enemyHp = ht.hp || 0; }
+        } else {
+          enemyCx = ht.x; enemyCy = ht.y;
+          for (const u of state.units.values()) {
+            if (u.owner !== state.myPlayerId && Math.hypot(u.x - enemyCx, u.y - enemyCy) <= FORCE_PREVIEW_RADIUS) enemyHp += u.hp;
+          }
+        }
+      }
+      if (enemyCx != null) {
+        let myTotal = 0;
+        for (const id of state.selectedUnitIds) { const u = state.units.get(id); if (u) myTotal += u.hp; }
+        if (myTotal > 0 || enemyHp > 0) state._forcePreview = { enemyCx, enemyCy, myHp: myTotal, enemyHp, myColor, enemyColor: ht.color || 0xcc2222 };
+      }
+    }
     const battles = getBattlingSquadPairs();
     const usedKeys = new Set();
     for (const { a, b } of battles) {
@@ -2249,8 +2321,7 @@
       if (remaining.length > 15) for (let i = 0; i < remaining.length - 12; i++) delete state.smoothedFronts[remaining[i]];
     }
     const toDraw = Object.values(state.persistentBattles);
-    if (toDraw.length === 0) return;
-
+    if (toDraw.length > 0) {
     for (const pb of toDraw) {
       const a = pb.a; const b = pb.b;
       let hpA = pb.hpA, hpB = pb.hpB;
@@ -2352,6 +2423,40 @@
       nameLabel.anchor.set(0.5, 0);
       nameLabel.position.set(cx, cy - lift + 38 + barH + 3);
       combatLayer.addChild(nameLabel);
+    }
+    }
+    if (state._forcePreview) {
+      const fp = state._forcePreview;
+      const circle = new PIXI.Graphics();
+      circle.lineStyle(2, 0xffffff, 0.6);
+      circle.drawCircle(fp.enemyCx, fp.enemyCy, FORCE_PREVIEW_RADIUS);
+      combatLayer.addChild(circle);
+      const totalHp = fp.myHp + fp.enemyHp || 1;
+      const barW = 160;
+      const barH = 18;
+      const lift = 70;
+      const barBg = new PIXI.Graphics();
+      barBg.lineStyle(2, 0xffffff, 0.5);
+      barBg.beginFill(0x111111, 0.9);
+      barBg.drawRoundedRect(fp.enemyCx - barW / 2, fp.enemyCy - lift, barW, barH, 4);
+      barBg.endFill();
+      combatLayer.addChild(barBg);
+      const myPct = fp.myHp / totalHp;
+      const segW = barW * myPct;
+      const seg1 = new PIXI.Graphics();
+      seg1.beginFill(fp.myColor, 1);
+      seg1.drawRect(fp.enemyCx - barW / 2, fp.enemyCy - lift, segW, barH);
+      seg1.endFill();
+      combatLayer.addChild(seg1);
+      const seg2 = new PIXI.Graphics();
+      seg2.beginFill(fp.enemyColor, 1);
+      seg2.drawRect(fp.enemyCx - barW / 2 + segW, fp.enemyCy - lift, barW - segW, barH);
+      seg2.endFill();
+      combatLayer.addChild(seg2);
+      const icon = new PIXI.Text("⚔", { fontSize: 32, fill: 0xffffff, fontWeight: "bold", stroke: 0x000000, strokeThickness: 3 });
+      icon.anchor.set(0.5, 1);
+      icon.position.set(fp.enemyCx, fp.enemyCy - lift - 4);
+      combatLayer.addChild(icon);
     }
     if (state.floatingDamage.length > 36) state.floatingDamage.splice(0, state.floatingDamage.length - 36);
   }
@@ -3208,9 +3313,10 @@
     for (let i = 0; i < n; i++) {
       const id = state.nextUnitId++;
       const off = offsets[i] || { x: 0, y: 0 };
-      const hpMul = p.unitHpMul != null ? p.unitHpMul : 1;
-      const dmgMul = p.unitDmgMul != null ? p.unitDmgMul : 1;
-      const atkRateMul = p.unitAtkRateMul != null ? p.unitAtkRateMul : 1;
+      const lb = getLevelBonusMul(p);
+      const hpMul = (p.unitHpMul != null ? p.unitHpMul : 1) * lb;
+      const dmgMul = (p.unitDmgMul != null ? p.unitDmgMul : 1) * lb;
+      const atkRateMul = (p.unitAtkRateMul != null ? p.unitAtkRateMul : 1) * lb;
       const u = {
         id,
         owner: ownerId,
@@ -3477,7 +3583,7 @@
     for (const p of state.players.values()) {
       p.cityAtkCd = (p.cityAtkCd ?? 0) - dt;
       if (p.cityAtkCd > 0) continue;
-      const turretDmgMul = p.turretDmgMul != null ? p.turretDmgMul : 1;
+      const turretDmgMul = (p.turretDmgMul != null ? p.turretDmgMul : 1) * getLevelBonusMul(p);
       const turretRangeMul = p.turretRangeMul != null ? p.turretRangeMul : 1;
       const cityAtkRadius = CFG.CITY_ATTACK_RADIUS * turretRangeMul * (p.waterBonus ? 1.25 : 1);
       const cityR2 = cityAtkRadius * cityAtkRadius;
@@ -3561,6 +3667,25 @@
           if (u) { u.hp -= b.dmg; if (u.hp <= 0) killUnit(u, "city"); }
           state.bullets.splice(i, 1);
         }
+      }
+    }
+  }
+
+  /** Visual-only bullet simulation for remote clients (no damage, no hit detection). */
+  function stepBulletsVisual(dt) {
+    for (let i = state.bullets.length - 1; i >= 0; i--) {
+      const b = state.bullets[i];
+      if (b.type === "ranged") {
+        const dx = b.toX - b.x, dy = b.toY - b.y;
+        const dl = Math.hypot(dx, dy) || 1;
+        const step = (b.speed || 160) * dt;
+        b.x += (dx / dl) * step;
+        b.y += (dy / dl) * step;
+        b.traveled = (b.traveled || 0) + step;
+        if (b.traveled > (b.maxDist || 80)) state.bullets.splice(i, 1);
+      } else {
+        b.progress = (b.progress || 0) + dt / (b.duration || 0.5);
+        if (b.progress >= 1) state.bullets.splice(i, 1);
       }
     }
   }
@@ -3755,10 +3880,10 @@
       }
 
       const zoneOwner = getZoneOwnerFast(u.x, u.y);
-      u._territoryMul = zoneOwner === u.owner ? 1.1 : (zoneOwner !== 0 ? 0.9 : 1);
+      u._territoryMul = zoneOwner === u.owner ? 1.1 : (zoneOwner !== 0 && zoneOwner !== u.owner ? 0.9 : 1);
       const speedMul = getTerrainSpeedMultiplier(u.x, u.y);
       const owner = state.players.get(u.owner);
-      const unitSpeedMul = owner && owner.unitSpeedMul != null ? owner.unitSpeedMul : 1;
+      const unitSpeedMul = (owner && owner.unitSpeedMul != null ? owner.unitSpeedMul : 1) * getLevelBonusMul(owner);
       const speed = CFG.UNIT_SPEED * speedMul * unitSpeedMul * (u._territoryMul ?? 1);
       if (inCombatSet.has(u.id)) {
         const slot = getUnitFrontSlot(u);
@@ -4037,11 +4162,16 @@
   // ------------------------------------------------------------
   function gainXP(p, amount) {
     const prevLevel = p.level;
-    p.xp += amount;
+    const gainMul = p.xpGainMul != null ? p.xpGainMul : 1;
+    p.xp += amount * gainMul;
     while (p.xp >= p.xpNext) {
       p.xp -= p.xpNext;
       p.level++;
-      p.xpNext = xpNeed(p.level);
+      if (p.level % 5 === 0) p.rerollCount = (p.rerollCount || 0) + 1;
+      p.pop = (p.pop || 0) + 10;
+      p.popFloat = (p.popFloat || p.pop) + 10;
+      p._levelBonusMul = 1 + p.level * 0.01;
+      p.xpNext = xpNeed(p.level, p);
       p.pendingCardPicks = (p.pendingCardPicks || 0) + 1;
     }
     if (p.id === state.myPlayerId && p.level > prevLevel) levelUpSound();
@@ -4236,6 +4366,11 @@
         if (dd > maxR2) maxR2 = dd;
       }
       p.influenceR = maxR2;
+      const totalArea = CFG.WORLD_W * CFG.WORLD_H;
+      const zoneArea = polygonArea(p.influencePolygon);
+      p.xpZonePct = totalArea > 0 ? (zoneArea / totalArea * 100) : 0;
+      p.xpGainMul = p.xpZonePct < 5 ? 1.2 : 1;
+      p.xpNext = xpNeed(p.level, p);
       redrawZone(p);
     }
   }
@@ -4397,7 +4532,15 @@
     return best;
   }
 
+  function statDiffHTML(enemyVal, myVal) {
+    if (myVal == null || myVal === 0) return "";
+    const pct = ((enemyVal - myVal) / myVal) * 100;
+    if (Math.abs(pct) < 0.5) return "";
+    if (pct > 0) return " <span class='stat-diff stat-diff-red'>↑ (+" + pct.toFixed(1) + "%)</span>";
+    return " <span class='stat-diff stat-diff-green'>↓ (" + pct.toFixed(1) + "%)</span>";
+  }
   function getEnemyCityStatsHTML(p) {
+    const me = state.players.get(state.myPlayerId);
     const base = CFG.GROWTH_BASE_PER_MIN + Math.floor(p.pop / 100) * CFG.GROWTH_PER_100;
     const pen = Math.min(CFG.ACTIVE_SOLDIER_PENALTY_CAP, (p.activeUnits || 0) * CFG.ACTIVE_SOLDIER_PENALTY_PER);
     const killBonus = 0.30 * ((p.killGrowthStacks || []).filter(et => et > state.t).length);
@@ -4406,31 +4549,44 @@
     const perMin = (base * (1 - pen) + killBonus + cityDestroyBonus) * growthMul;
     const turretCount = (p.turretIds || []).filter(tid => { const t = state.turrets.get(tid); return t && t.hp > 0; }).length;
     const cityDmgMul = p.turretDmgMul != null ? p.turretDmgMul : 1;
-    const cityDmg = Math.max(1, Math.round(CFG.CITY_ATTACK_DMG * cityDmgMul * (p.waterBonus ? 1.25 : 1)));
+    const cityDmg = Math.max(1, Math.round(CFG.CITY_ATTACK_DMG * cityDmgMul * (p.waterBonus ? 1.25 : 1) * getLevelBonusMul(p)));
     const infSpdMul = p.influenceSpeedMul != null ? p.influenceSpeedMul : 1;
-    const unitHpMul = p.unitHpMul != null ? p.unitHpMul : 1;
-    const unitDmgMul = p.unitDmgMul != null ? p.unitDmgMul : 1;
-    const unitSpdMul = p.unitSpeedMul != null ? p.unitSpeedMul : 1;
-    const unitAtkRMul = p.unitAtkRateMul != null ? p.unitAtkRateMul : 1;
+    const unitHpMul = (p.unitHpMul != null ? p.unitHpMul : 1) * getLevelBonusMul(p);
+    const unitDmgMul = (p.unitDmgMul != null ? p.unitDmgMul : 1) * getLevelBonusMul(p);
+    const unitSpdMul = (p.unitSpeedMul != null ? p.unitSpeedMul : 1) * getLevelBonusMul(p);
+    const unitAtkRMul = (p.unitAtkRateMul != null ? p.unitAtkRateMul : 1) * getLevelBonusMul(p);
     const unitAtkRngMul = Math.min(UNIT_ATK_RANGE_MAX_MUL, p.unitAtkRangeMul != null ? p.unitAtkRangeMul : 1);
     const meleeR = CFG.UNIT_VISION;
     const atkR = Math.round(CFG.UNIT_VISION * unitAtkRngMul);
     const isRanged = atkR > meleeR + 1;
+    const myPop = me ? me.pop : 0;
+    const myLevel = me ? me.level : 0;
+    const myXpNext = me ? me.xpNext : 1;
+    const myPerMin = me ? (() => { const b = CFG.GROWTH_BASE_PER_MIN + Math.floor(me.pop / 100) * CFG.GROWTH_PER_100; const penM = Math.min(CFG.ACTIVE_SOLDIER_PENALTY_CAP, (me.activeUnits || 0) * CFG.ACTIVE_SOLDIER_PENALTY_PER); const killM = 0.30 * ((me.killGrowthStacks || []).filter(et => et > state.t).length); const cityM = ((me._growthBonuses || []).filter(b => b.expiresAt > state.t)).reduce((s, b) => s + b.amount, 0); return (b * (1 - penM) + killM + cityM) * (me.growthMul != null ? me.growthMul : 1); })() : 0;
+    const myCityDmg = me ? Math.max(1, Math.round(CFG.CITY_ATTACK_DMG * (me.turretDmgMul != null ? me.turretDmgMul : 1) * getLevelBonusMul(me))) : 0;
+    const myInfR = me ? (me.influenceR || 0) : 0;
+    const myInfSpd = me ? (me.influenceSpeedMul != null ? me.influenceSpeedMul : 1) : 1;
+    const myTurretCount = me ? (me.turretIds || []).filter(tid => { const t = state.turrets.get(tid); return t && t.hp > 0; }).length : 0;
+    const myCooldown = me ? (me.cooldown ?? 0) : 0;
+    const myUnitHp = me ? Math.round(CFG.UNIT_HP * (me.unitHpMul != null ? me.unitHpMul : 1) * getLevelBonusMul(me)) : 0;
+    const myUnitDmg = me ? (CFG.UNIT_DMG * (me.unitDmgMul != null ? me.unitDmgMul : 1) * getLevelBonusMul(me)) : 0;
+    const myUnitSpd = me ? (CFG.UNIT_SPEED * (me.unitSpeedMul != null ? me.unitSpeedMul : 1) * getLevelBonusMul(me)) : 0;
+    const myUnitAtkR = me ? (CFG.UNIT_ATK_RATE * (me.unitAtkRateMul != null ? me.unitAtkRateMul : 1) * getLevelBonusMul(me)) : 0;
     const cityPart =
-      "<div class='stat-line'><span class='stat-label'>Население</span><span class='stat-val'>" + p.pop + "</span></div>" +
-      "<div class='stat-line'><span class='stat-label'>Уровень</span><span class='stat-val'>" + p.level + "</span></div>" +
+      "<div class='stat-line'><span class='stat-label'>Население</span><span class='stat-val'>" + p.pop + statDiffHTML(p.pop, myPop) + "</span></div>" +
+      "<div class='stat-line'><span class='stat-label'>Уровень</span><span class='stat-val'>" + p.level + statDiffHTML(p.level, myLevel) + "</span></div>" +
       "<div class='stat-line'><span class='stat-label'>Опыт</span><span class='stat-val'>" + p.xp + "/" + p.xpNext + "</span></div>" +
-      "<div class='stat-line'><span class='stat-label'>Рост</span><span class='stat-val'>" + perMin.toFixed(1) + "/мин</span></div>" +
-      "<div class='stat-line'><span class='stat-label'>Урон города</span><span class='stat-val'>" + cityDmg + "</span></div>" +
-      "<div class='stat-line'><span class='stat-label'>Зона</span><span class='stat-val'>R " + (p.influenceR || 0).toFixed(0) + "</span></div>" +
-      "<div class='stat-line'><span class='stat-label'>Скор. зоны</span><span class='stat-val'>×" + infSpdMul.toFixed(2) + "</span></div>" +
-      "<div class='stat-line'><span class='stat-label'>Турели</span><span class='stat-val'>" + turretCount + "</span></div>" +
-      "<div class='stat-line'><span class='stat-label'>КД</span><span class='stat-val'>" + (p.cooldown ?? 0).toFixed(1) + "с</span></div>";
+      "<div class='stat-line'><span class='stat-label'>Рост</span><span class='stat-val'>" + perMin.toFixed(1) + "/мин" + statDiffHTML(perMin, myPerMin) + "</span></div>" +
+      "<div class='stat-line'><span class='stat-label'>Урон города</span><span class='stat-val'>" + cityDmg + statDiffHTML(cityDmg, myCityDmg) + "</span></div>" +
+      "<div class='stat-line'><span class='stat-label'>Зона</span><span class='stat-val'>R " + (p.influenceR || 0).toFixed(0) + statDiffHTML(p.influenceR || 0, myInfR) + "</span></div>" +
+      "<div class='stat-line'><span class='stat-label'>Скор. зоны</span><span class='stat-val'>×" + infSpdMul.toFixed(2) + statDiffHTML(infSpdMul, myInfSpd) + "</span></div>" +
+      "<div class='stat-line'><span class='stat-label'>Турели</span><span class='stat-val'>" + turretCount + statDiffHTML(turretCount, myTurretCount) + "</span></div>" +
+      "<div class='stat-line'><span class='stat-label'>КД</span><span class='stat-val'>" + (p.cooldown ?? 0).toFixed(1) + "с" + statDiffHTML((p.cooldown ?? 0), myCooldown) + "</span></div>";
     const armyPart =
-      "<div class='stat-line'><span class='stat-label'>ХП</span><span class='stat-val'>" + Math.round(CFG.UNIT_HP * unitHpMul) + "</span></div>" +
-      "<div class='stat-line'><span class='stat-label'>Урон</span><span class='stat-val'>" + (CFG.UNIT_DMG * unitDmgMul).toFixed(1) + "</span></div>" +
-      "<div class='stat-line'><span class='stat-label'>Скорость движения</span><span class='stat-val'>" + (CFG.UNIT_SPEED * unitSpdMul).toFixed(1) + "</span></div>" +
-      "<div class='stat-line'><span class='stat-label'>Атак/с</span><span class='stat-val'>" + (CFG.UNIT_ATK_RATE * unitAtkRMul).toFixed(1) + "</span></div>" +
+      "<div class='stat-line'><span class='stat-label'>ХП</span><span class='stat-val'>" + Math.round(CFG.UNIT_HP * unitHpMul) + statDiffHTML(Math.round(CFG.UNIT_HP * unitHpMul), myUnitHp) + "</span></div>" +
+      "<div class='stat-line'><span class='stat-label'>Урон</span><span class='stat-val'>" + (CFG.UNIT_DMG * unitDmgMul).toFixed(1) + statDiffHTML(CFG.UNIT_DMG * unitDmgMul, myUnitDmg) + "</span></div>" +
+      "<div class='stat-line'><span class='stat-label'>Скорость движения</span><span class='stat-val'>" + (CFG.UNIT_SPEED * unitSpdMul).toFixed(1) + statDiffHTML(CFG.UNIT_SPEED * unitSpdMul, myUnitSpd) + "</span></div>" +
+      "<div class='stat-line'><span class='stat-label'>Атак/с</span><span class='stat-val'>" + (CFG.UNIT_ATK_RATE * unitAtkRMul).toFixed(1) + statDiffHTML(CFG.UNIT_ATK_RATE * unitAtkRMul, myUnitAtkR) + "</span></div>" +
       "<div class='stat-line'><span class='stat-label'>Р. сцепки</span><span class='stat-val'>" + meleeR + "</span></div>" +
       "<div class='stat-line'><span class='stat-label'>Р. атаки</span><span class='stat-val'>" + atkR + (isRanged ? " ⚔→" : "") + "</span></div>";
     return "<div class='box stats-columns'>" +
@@ -4443,11 +4599,14 @@
     const content = document.getElementById("enemyCityPanelContent");
     const titleEl = document.getElementById("enemyCityPanelTitle");
     if (!el || !content) return;
+    state._enemyCityPanelPlayerId = p ? p.id : null;
+    if (!p) { el.style.display = "none"; return; }
     if (titleEl) titleEl.textContent = (p.name || "Противник");
     content.innerHTML = getEnemyCityStatsHTML(p);
     el.style.display = "block";
   }
   function closeEnemyCityPanel() {
+    state._enemyCityPanelPlayerId = null;
     const el = document.getElementById("enemyCityPanel");
     if (el) el.style.display = "none";
   }
@@ -4661,11 +4820,29 @@
       app.canvas.style.cursor = "default";
     }
     state._hoverTarget = isEnemyUnit ? enemyU : (isEnemyCity ? enemyC : null);
+    state._hoverWorld = pt;
+    let attackCursorEl = document.getElementById("attackCursorEmoji");
+    if (!attackCursorEl) {
+      attackCursorEl = document.createElement("div");
+      attackCursorEl.id = "attackCursorEmoji";
+      attackCursorEl.style.cssText = "position:fixed;pointer-events:none;z-index:9999;font-size:28px;text-shadow:0 0 4px #000, 0 0 8px #000;";
+      document.body.appendChild(attackCursorEl);
+    }
+    if (state.selectedUnitIds.size > 0 && state._hoverTarget) {
+      attackCursorEl.textContent = "⚔️";
+      attackCursorEl.style.display = "block";
+      attackCursorEl.style.left = (e.clientX - 14) + "px";
+      attackCursorEl.style.top = (e.clientY - 36) + "px";
+    } else {
+      attackCursorEl.style.display = "none";
+    }
   });
 
   app.canvas.addEventListener("pointerleave", () => {
     if (state.boxStart) { state.boxStart = null; state.boxEnd = null; }
     if (state.formationPreview) state.formationPreview = null;
+    const attackCursorEl = document.getElementById("attackCursorEmoji");
+    if (attackCursorEl) attackCursorEl.style.display = "none";
   });
 
   app.canvas.addEventListener("wheel", (e) => {
@@ -4821,10 +4998,21 @@
     const me = state.players.get(state.myPlayerId);
     const btn = document.getElementById("lvlUpBtn");
     const countEl = document.getElementById("lvlUpCount");
+    const progressEl = document.getElementById("lvlUpProgress");
+    const levelTextEl = document.getElementById("lvlUpLevelText");
+    const xpTextEl = document.getElementById("lvlUpXpText");
     if (!btn || !me) return;
     const n = me.pendingCardPicks || 0;
-    btn.style.display = n > 0 ? "inline-block" : "none";
+    const xpNext = me.xpNext || 1;
+    const pct = Math.min(1, (me.xp || 0) / xpNext);
+    if (progressEl) progressEl.style.width = (pct * 100) + "%";
     if (countEl) countEl.textContent = n;
+    if (levelTextEl) levelTextEl.textContent = "Ур. " + (me.level || 1);
+    const gainMod = me.xpGainMul != null && me.xpGainMul !== 1 ? " " + (me.xpGainMul > 1 ? "+" : "") + (Math.round((me.xpGainMul - 1) * 100)) + "%" : "";
+    if (xpTextEl) xpTextEl.textContent = "(" + Math.floor(me.xp || 0) + gainMod + ")";
+    btn.classList.toggle("lvlup-btn-gray", n === 0);
+    btn.classList.toggle("lvlup-btn-ready", n > 0);
+    btn.style.visibility = "visible";
   }
 
   function getCardEmoji(card) {
@@ -4868,6 +5056,23 @@
     if (keys.some(k => k.startsWith("turret"))) return CARD_PARAM_TOOLTIPS.turret;
     return "";
   }
+  function getCardCurrentParamText(p, card) {
+    if (!p) return "";
+    if (card.popBonus) return "Сейчас население: " + p.pop;
+    const keys = Object.keys(card);
+    const uHp = (p.unitHpMul != null ? p.unitHpMul : 1) * (p._levelBonusMul ?? 1);
+    const uDmg = (p.unitDmgMul != null ? p.unitDmgMul : 1) * (p._levelBonusMul ?? 1);
+    if (keys.some(k => k.startsWith("unitHp"))) return "Сейчас: HP " + Math.round(CFG.UNIT_HP * uHp);
+    if (keys.some(k => k.startsWith("unitDmg"))) return "Сейчас: урон " + (CFG.UNIT_DMG * uDmg).toFixed(1);
+    if (keys.some(k => k.startsWith("unitAtkRate"))) return "Сейчас: ×" + ((p.unitAtkRateMul ?? 1) * (p._levelBonusMul ?? 1)).toFixed(2);
+    if (keys.some(k => k.startsWith("unitSpeed"))) return "Сейчас: ×" + ((p.unitSpeedMul ?? 1) * (p._levelBonusMul ?? 1)).toFixed(2);
+    if (keys.some(k => k.startsWith("unitAtkRange"))) return "Сейчас: ×" + (p.unitAtkRangeMul ?? 1).toFixed(2);
+    if (keys.some(k => k.startsWith("growth"))) return "Сейчас: ×" + (p.growthMul ?? 1).toFixed(2);
+    if (keys.some(k => k.startsWith("influence"))) return "Сейчас: ×" + (p.influenceSpeedMul ?? 1).toFixed(2);
+    if (keys.some(k => k.startsWith("sendCooldown"))) return "Сейчас: ×" + (p.sendCooldownMul ?? 1).toFixed(2);
+    if (keys.some(k => k.startsWith("turret"))) return "Сейчас: урон " + (p.turretDmgMul ?? 1).toFixed(2) + ", HP " + (p.turretHpMul ?? 1).toFixed(2);
+    return "";
+  }
 
   function drumHit(ctx, time, vol) {
     const o = ctx.createOscillator();
@@ -4909,14 +5114,32 @@
     const modal = document.getElementById("cardModal");
     const choicesEl = document.getElementById("cardChoices");
     const picksLeftEl = document.getElementById("cardPicksLeft");
+    const closeBtn = document.getElementById("cardModalClose");
     if (!modal || !choicesEl) return;
+
+    if (closeBtn) closeBtn.onclick = () => { modal.style.display = "none"; updateLvlUpButton(); };
+    const rerollWrap = document.getElementById("cardRerollWrap");
+    const rerollCountEl = document.getElementById("cardRerollCount");
+    if (rerollWrap) rerollWrap.title = "Реролл: заменить текущие 3 карты на новые случайные. Даётся 1 раз за каждые 5 уровней (уровни 5, 10, 15…).";
+    if (rerollWrap) rerollWrap.onclick = () => {
+      const rc = me.rerollCount || 0;
+      if (rc <= 0) return;
+      me.rerollCount = rc - 1;
+      state._pendingCardChoices = getRandomCards(3);
+      renderPick();
+    };
 
     function renderPick() {
       const picks = me.pendingCardPicks || 0;
       if (picksLeftEl) picksLeftEl.textContent = picks;
-      if (picks <= 0) { modal.style.display = "none"; updateLvlUpButton(); return; }
+      if (rerollCountEl) rerollCountEl.textContent = String(me.rerollCount || 0);
+      if (picks <= 0) { modal.style.display = "none"; state._pendingCardChoices = null; updateLvlUpButton(); return; }
 
-      const cards = getRandomCards(3);
+      let cards = state._pendingCardChoices;
+      if (!cards || cards.length === 0) {
+        cards = getRandomCards(3);
+        state._pendingCardChoices = cards;
+      }
       const hasEpicOrLegendary = cards.some(c => c.rarity === "epic" || c.rarity === "legendary");
       if (hasEpicOrLegendary) {
         const best = cards.find(c => c.rarity === "legendary") || cards.find(c => c.rarity === "epic");
@@ -4928,10 +5151,11 @@
       for (const card of cards) {
         const emoji = getCardEmoji(card);
         const paramHint = getCardParamTooltip(card);
+        const currentText = getCardCurrentParamText(me, card);
         const div = document.createElement("div");
         const flashClass = card.rarity === "legendary" ? " flash" : "";
         div.className = "card-option " + card.rarity + flashClass;
-        div.innerHTML = "<div class='card-name'>" + emoji + " " + card.name + "</div><div class='card-desc'>" + card.desc + "</div>";
+        div.innerHTML = "<div class='card-emoji'>" + emoji + "</div><div class='card-name'>" + (card.name || "").replace(/</g, "&lt;") + "</div><div class='card-desc'>" + (card.desc || "").replace(/</g, "&lt;") + "</div>" + (currentText ? "<div class='card-param-now'>" + currentText.replace(/</g, "&lt;") + "</div>" : "");
         if (paramHint) {
           div.title = paramHint;
           div.addEventListener("mouseenter", (e) => {
@@ -4960,6 +5184,7 @@
           }
           applyCard(me, card);
           me.pendingCardPicks = picks - 1;
+          state._pendingCardChoices = null;
           renderPick();
         });
         choicesEl.appendChild(div);
@@ -4999,6 +5224,14 @@
     const cityDmg = Math.max(1, Math.round(CFG.CITY_ATTACK_DMG * cityDmgMul));
 
     const infSpdMul = me.influenceSpeedMul != null ? me.influenceSpeedMul : 1;
+    if (state._enemyCityPanelPlayerId) {
+      const ep = state.players.get(state._enemyCityPanelPlayerId);
+      const panelEl = document.getElementById("enemyCityPanel");
+      if (ep && panelEl && panelEl.style.display === "block") {
+        const content = document.getElementById("enemyCityPanelContent");
+        if (content) content.innerHTML = getEnemyCityStatsHTML(ep);
+      }
+    }
     if (cityStatsEl) cityStatsEl.innerHTML =
       "<div class='stat-line'><span class='stat-label'>Население</span><span class='stat-val'>" + me.pop + "</span></div>" +
       "<div class='stat-line'><span class='stat-label'>Уровень</span><span class='stat-val'>" + me.level + "</span></div>" +
@@ -5593,70 +5826,18 @@
     }
   }
 
-  const PLAYER_LIGHT_SYNC_KEYS = ["id", "x", "y", "pop", "popFloat", "activeUnits", "influenceR", "influenceRayDistances"];
-  const PLAYER_SYNC_KEYS = ["id", "name", "x", "y", "pop", "popFloat", "level", "xp", "xpNext", "cooldown", "sendDelay", "activeUnits", "deadUnits", "influenceR", "turretIds", "waterBonus", "color", "turretDmgMul", "turretHpMul", "turretRangeMul", "unitHpMul", "unitDmgMul", "unitSpeedMul", "unitAtkRateMul", "unitAtkRangeMul", "growthMul", "influenceSpeedMul", "sendCooldownMul", "pendingCardPicks"];
-  const PLAYER_FULL_SYNC_KEYS = [...PLAYER_SYNC_KEYS, "influencePolygon", "influenceRayDistances"];
-  const UNIT_SYNC_KEYS = ["id", "x", "y", "vx", "vy", "hp"];
-  const UNIT_FULL_SYNC_KEYS = ["id", "owner", "x", "y", "vx", "vy", "hp", "dmg", "atkCd", "leaderId", "formationOffsetX", "formationOffsetY", "color", "chaseTargetUnitId", "chaseTargetCityId", "waypoints", "waypointIndex", "formationType", "formationRows", "formationPigWidth", "straightMode"];
+  // ─── Networking: use NET module (net.js) ───
+  const PLAYER_LIGHT_SYNC_KEYS = NET.PLAYER_LIGHT_KEYS;
+  const PLAYER_FULL_SYNC_KEYS  = NET.PLAYER_FULL_KEYS;
+  const UNIT_SYNC_KEYS         = NET.UNIT_LIGHT_KEYS;
+  const UNIT_FULL_SYNC_KEYS    = NET.UNIT_FULL_KEYS;
 
-  const FULL_SYNC_INTERVAL_FRAMES = 30;
-
-  function serializeStorm() {
-    const s = state.storm;
-    if (!s) return null;
-    return {
-      x: s.x, y: s.y, vx: s.vx, vy: s.vy,
-      spawnedAt: s.spawnedAt, lastDirChange: s.lastDirChange, lastDmgTick: s.lastDmgTick,
-      rotAngle: s.rotAngle, stretch: s.stretch, blobs: s.blobs
-    };
-  }
+  const _netSerializer = new NET.SnapshotSerializer();
+  const _netSendScheduler = new NET.SendScheduler();
+  const _netPing = new NET.PingTracker();
 
   function serializeGameState() {
-    const fullSync = (state._frameCtr % FULL_SYNC_INTERVAL_FRAMES === 0);
-    const syncKeys = fullSync ? PLAYER_FULL_SYNC_KEYS : PLAYER_LIGHT_SYNC_KEYS;
-    const unitKeys = fullSync ? UNIT_FULL_SYNC_KEYS : UNIT_SYNC_KEYS;
-    const players = [];
-    for (const p of state.players.values()) {
-      const o = {};
-      for (const k of syncKeys) if (p[k] !== undefined) o[k] = p[k];
-      players.push(o);
-    }
-    let units;
-    if (fullSync) {
-      units = [];
-      for (const u of state.units.values()) {
-        const o = {};
-        for (const k of unitKeys) if (u[k] !== undefined) o[k] = u[k];
-        units.push(o);
-      }
-    } else {
-      units = [];
-      for (const u of state.units.values()) {
-        units.push([u.id, Math.round(u.x * 10) / 10, Math.round(u.y * 10) / 10, Math.round((u.vx || 0) * 1000) / 1000, Math.round((u.vy || 0) * 1000) / 1000, Math.round(u.hp * 10) / 10]);
-      }
-    }
-    const gs = { t: state.t, nextUnitId: state.nextUnitId, players, units, _fullSync: fullSync };
-    if (fullSync) {
-      gs.timeScale = state.timeScale ?? 1;
-      gs.nextResId = state.nextResId;
-    }
-    if (fullSync) {
-      gs.bullets = state.bullets.slice();
-      const turrets = [];
-      for (const t of state.turrets.values()) {
-        const o = { id: t.id, owner: t.owner, x: t.x, y: t.y, nx: t.nx, ny: t.ny, hp: t.hp, maxHp: t.maxHp };
-        if (t._diedAt != null) o._diedAt = t._diedAt;
-        turrets.push(o);
-      }
-      gs.turrets = turrets;
-    }
-    const resources = [];
-    for (const r of state.res.values()) {
-      resources.push({ id: r.id, type: r.type, xp: r.xp, x: r.x, y: r.y, color: r.color });
-    }
-    gs.resources = resources;
-    gs.storm = serializeStorm();
-    return gs;
+    return _netSerializer.serialize(state);
   }
 
   function applyGameState(snap) {
@@ -5665,16 +5846,27 @@
   }
   function _applyGameStateInner(snap) {
     if (state._frameCtr % 300 === 0) {
-      console.log("[MP-SYNC] snap: players=", (snap.players||[]).length, "units=", (snap.units||[]).length);
+      console.log("[MP-SYNC] snap seq=", snap._seq ?? "?",
+        "players=", (snap.players||[]).length,
+        "units=", (snap.units||[]).length,
+        snap._fullSync ? "FULL" : "delta");
     }
+
     state.t = snap.t;
+    state._lastSnapT = snap.t;
+    state._lastSnapRealTime = Date.now();
     if (snap.timeScale != null) state.timeScale = snap.timeScale;
     if (snap.nextUnitId != null) state.nextUnitId = snap.nextUnitId;
     if (snap.nextResId != null) state.nextResId = snap.nextResId;
+
     const isRemote = !!(state._multiSlots && !state._multiIsHost);
+    const isFull = !!snap._fullSync;
+
+    // ── Players ──
     const wantPlayerIds = new Set((snap.players || []).map((p) => p.id));
     const oldPlayerColors = new Map();
     for (const [id, pl] of state.players) oldPlayerColors.set(id, pl.color);
+
     for (const p of snap.players || []) {
       let pl = state.players.get(p.id);
       if (!pl) {
@@ -5684,21 +5876,20 @@
         makeCityVisual(pl);
         makeZoneVisual(pl);
       }
-      const pKeys = snap._fullSync ? PLAYER_FULL_SYNC_KEYS : PLAYER_LIGHT_SYNC_KEYS;
+      const pKeys = isFull ? PLAYER_FULL_SYNC_KEYS : PLAYER_LIGHT_SYNC_KEYS;
       for (const k of pKeys) {
         if (k === "influenceRayDistances" && isRemote && p.influenceRayDistances) {
-          pl._srvRayDistances = p.influenceRayDistances.slice();
-          if (!pl.influenceRayDistances || pl.influenceRayDistances.length !== pl._srvRayDistances.length)
-            pl.influenceRayDistances = pl._srvRayDistances.slice();
+          NET.Interp.setZoneTarget(pl, p.influenceRayDistances);
           continue;
         }
         if (p[k] !== undefined) pl[k] = p[k];
       }
-      if (snap._fullSync) {
+      if (isFull) {
         if (p.influencePolygon) pl.influencePolygon = p.influencePolygon;
         if (p.color != null) PLAYER_COLORS[p.id] = p.color;
       }
     }
+
     for (const p of snap.players || []) {
       const pl = state.players.get(p.id);
       if (!pl || p.color == null) continue;
@@ -5709,7 +5900,16 @@
       makeCityVisual(pl);
       makeZoneVisual(pl);
     }
-    for (const id of [...state.players.keys()]) if (!wantPlayerIds.has(id)) { const pl = state.players.get(id); if (pl && pl.cityGfx) { cityLayer.removeChild(pl.cityGfx); pl.cityGfx = null; } if (pl && pl.zoneGfx) { zonesLayer.removeChild(pl.zoneGfx); zonesLayer.removeChild(pl.zoneGlow); pl.zoneGfx = null; pl.zoneGlow = null; } state.players.delete(id); }
+
+    for (const id of [...state.players.keys()]) {
+      if (!wantPlayerIds.has(id)) {
+        const pl = state.players.get(id);
+        if (pl && pl.cityGfx) { cityLayer.removeChild(pl.cityGfx); pl.cityGfx = null; }
+        if (pl && pl.zoneGfx) { zonesLayer.removeChild(pl.zoneGfx); zonesLayer.removeChild(pl.zoneGlow); pl.zoneGfx = null; pl.zoneGlow = null; }
+        state.players.delete(id);
+      }
+    }
+
     const numRays = CFG.TERRAIN_RAYS ?? 96;
     for (const pl of state.players.values()) {
       if (pl.influenceRayDistances && pl.influenceRayDistances.length === numRays) {
@@ -5733,33 +5933,44 @@
         }
       }
     }
-    const isFull = !!snap._fullSync;
+
+    // ── Units ──
     const wantUnitIds = new Set();
     for (const raw of snap.units || []) {
       const isCompact = Array.isArray(raw);
       const uid = isCompact ? raw[0] : raw.id;
+
+      if (isCompact && raw.length === 2 && raw[1] === NET.DESTROYED_SENTINEL) {
+        const dead = state.units.get(uid);
+        if (dead) {
+          if (dead.gfx) unitsLayer.removeChild(dead.gfx);
+          state.units.delete(uid);
+        }
+        continue;
+      }
+
       wantUnitIds.add(uid);
       let un = state.units.get(uid);
+
       if (isCompact) {
         const sx = raw[1], sy = raw[2], svx = raw[3], svy = raw[4], shp = raw[5];
         if (!un) continue;
         if (isRemote) {
-          un._srvX = sx; un._srvY = sy; un._srvVx = svx; un._srvVy = svy;
-          un.hp = shp;
+          NET.Interp.setTarget(un, sx, sy, svx, svy, shp);
         } else {
           un.x = sx; un.y = sy; un.vx = svx; un.vy = svy; un.hp = shp;
         }
       } else {
         if (!un) {
           un = { ...raw, gfx: null };
-          if (isRemote) {
-            un._srvX = raw.x; un._srvY = raw.y; un._srvVx = raw.vx; un._srvVy = raw.vy;
-          }
           state.units.set(un.id, un);
+          if (isRemote) {
+            NET.Interp.setTarget(un, raw.x, raw.y, raw.vx || 0, raw.vy || 0, raw.hp);
+          }
         } else if (isRemote) {
-          un._srvX = raw.x; un._srvY = raw.y; un._srvVx = raw.vx; un._srvVy = raw.vy;
+          NET.Interp.setTarget(un, raw.x, raw.y, raw.vx || 0, raw.vy || 0, raw.hp);
           for (const k of UNIT_FULL_SYNC_KEYS) {
-            if (k === 'x' || k === 'y') continue;
+            if (k === "x" || k === "y") continue;
             if (raw[k] !== undefined) un[k] = raw[k];
           }
         } else {
@@ -5768,6 +5979,7 @@
         if (!un.gfx) makeUnitVisual(un);
       }
     }
+
     if (isFull) {
       for (const id of [...state.units.keys()]) {
         if (!wantUnitIds.has(id)) {
@@ -5777,8 +5989,16 @@
         }
       }
     }
+
     if (snap.bullets) state.bullets = snap.bullets;
 
+    // ── Resources: full sync = spawn/despawn; zone sync = position update ──
+    if (snap.resDelta && !snap.resources) {
+      for (const [id, x, y] of snap.resDelta) {
+        const res = state.res.get(id);
+        if (res) NET.Interp.setResTarget(res, x, y);
+      }
+    }
     if (snap.resources) {
       const wantResIds = new Set(snap.resources.map(r => r.id));
       for (const r of snap.resources) {
@@ -5788,13 +6008,16 @@
           state.res.set(res.id, res);
           makeResVisual(res);
         } else {
-          res.x = r.x; res.y = r.y; res.xp = r.xp; res.type = r.type; res.color = r.color;
+          NET.Interp.setResTarget(res, r.x, r.y);
+          res.xp = r.xp; res.type = r.type; res.color = r.color;
         }
       }
       for (const id of [...state.res.keys()]) {
         if (!wantResIds.has(id)) deleteResource(id);
       }
     }
+
+    // ── Turrets (full sync only) ──
     if (snap.turrets) {
       const wantTurretIds = new Set(snap.turrets.map(t => t.id));
       for (const t of snap.turrets) {
@@ -5818,6 +6041,7 @@
       }
     }
 
+    // ── Storm ──
     if (snap.storm !== undefined) {
       if (snap.storm === null) {
         if (state.storm) {
@@ -5827,13 +6051,11 @@
         }
       } else {
         if (!state.storm) {
-          state.storm = { ...snap.storm, gfx: null, emojiContainer: null, particles: [], _srvX: snap.storm.x, _srvY: snap.storm.y, _srvVx: snap.storm.vx, _srvVy: snap.storm.vy };
+          state.storm = { ...snap.storm, gfx: null, emojiContainer: null, particles: [] };
+          NET.Interp.setStormTarget(state.storm, snap.storm.x, snap.storm.y, snap.storm.vx, snap.storm.vy);
         } else {
-          state.storm._srvX = snap.storm.x;
-          state.storm._srvY = snap.storm.y;
-          state.storm._srvVx = snap.storm.vx;
-          state.storm._srvVy = snap.storm.vy;
-          if (snap._fullSync) {
+          NET.Interp.setStormTarget(state.storm, snap.storm.x, snap.storm.y, snap.storm.vx, snap.storm.vy);
+          if (isFull) {
             state.storm.spawnedAt = snap.storm.spawnedAt;
             state.storm.lastDirChange = snap.storm.lastDirChange;
             state.storm.lastDmgTick = snap.storm.lastDmgTick;
@@ -6025,9 +6247,14 @@
         }
       }
     });
+    socket.on("net:pong", (seq) => _netPing.onPong(seq));
+
     socket.on("gameStart", (data) => {
       console.log("[MP] gameStart received. _mySlot=", state._mySlot, "_isHost=", state._isHost, "seed=", data.seed);
       state._gameSeed = typeof data.seed === "number" ? data.seed : null;
+      _netPing.start(socket);
+      _netSerializer.reset();
+      _netSendScheduler.start();
       startGameMulti(data.slots, state._mySlot);
     });
     socket.on("gameState", (data) => {
@@ -6084,6 +6311,57 @@
               v.waypointIndex = 0;
               v.straightMode = false;
             }
+          }
+        }
+      } else if (action.type === "mergeSquad") {
+        const units = (action.unitIds || []).map(id => state.units.get(id)).filter(Boolean);
+        if (units.length >= 2) {
+          const leader = units[0];
+          const formationType = action.formationType || "pig";
+          const formationRows = action.formationRows || 1;
+          const pigW = action.formationPigWidth || 1;
+          const waypoints = Array.isArray(action.waypoints) && action.waypoints.length > 0
+            ? action.waypoints.map(w => ({ x: w.x, y: w.y }))
+            : [{ x: leader.x + 280, y: leader.y }];
+          const dx = waypoints[0].x - leader.x, dy = waypoints[0].y - leader.y;
+          const dl = Math.hypot(dx, dy) || 1;
+          const vx = dx / dl, vy = dy / dl;
+          const offsets = getFormationOffsets(units.length, formationType, formationRows, vx, vy, pigW);
+          const leaderId = leader.id;
+          leader.leaderId = null;
+          leader.formationType = formationType;
+          leader.formationRows = formationRows;
+          if (formationType === "pig") leader.formationPigWidth = pigW;
+          leader.waypoints = waypoints;
+          leader.waypointIndex = 0;
+          leader.straightMode = false;
+          for (let i = 0; i < units.length; i++) {
+            const u = units[i];
+            u.leaderId = i === 0 ? null : leaderId;
+            u.formationOffsetX = i === 0 ? 0 : (offsets[i]?.x ?? 0);
+            u.formationOffsetY = i === 0 ? 0 : (offsets[i]?.y ?? 0);
+            u.waypoints = waypoints.map(w => ({ x: w.x, y: w.y }));
+            u.waypointIndex = 0;
+            u.straightMode = false;
+          }
+        }
+      } else if (action.type === "splitSquad") {
+        const allUnits = (action.unitIds || []).map(id => state.units.get(id)).filter(Boolean);
+        if (allUnits.length >= 2) {
+          const n = allUnits.length;
+          const k = Math.floor(n / 2);
+          const first = allUnits.slice(0, k);
+          const second = allUnits.slice(k);
+          const centerIdx = arr => Math.min(Math.floor((arr.length - 1) / 2), arr.length - 1);
+          const leader1 = state.units.get(action.leader1Id) || first[centerIdx(first)];
+          const leader2 = state.units.get(action.leader2Id) || second[centerIdx(second)];
+          if (leader1 && leader2) {
+            for (const u of first) { u.leaderId = leader1.id; u.formationOffsetX = 0; u.formationOffsetY = 0; }
+            leader1.leaderId = null;
+            for (const u of second) { u.leaderId = leader2.id; u.formationOffsetX = 0; u.formationOffsetY = 0; }
+            leader2.leaderId = null;
+            applyFormationToSquad(first, leader1.formationType || "pig", leader1.formationRows ?? 1, null, null, leader1.formationPigWidth);
+            applyFormationToSquad(second, leader2.formationType || "pig", leader2.formationRows ?? 1, null, null, leader2.formationPigWidth);
           }
         }
       } else if (action.type === "cardChoice") {
@@ -6211,6 +6489,7 @@
       perfEndStep("stepPickups");
       stepStorm(dt);
     } else {
+      // ── Remote client: apply pending snapshots, then interpolate ──
       if (state._pendingFullSnap) {
         applyGameState(state._pendingFullSnap);
         state._pendingFullSnap = null;
@@ -6220,41 +6499,24 @@
         state._pendingSnap = null;
       }
       if (state._frameCtr % 4 === 0) rebuildZoneGrid();
-      const lerpSpeed = 0.35;
+
+      const interpMs = _netPing.getInterpDurationMs();
+
       for (const u of state.units.values()) {
-        if (u._srvX != null) {
-          const svx = u._srvVx ?? 0, svy = u._srvVy ?? 0;
-          const predX = u._srvX + svx * 2, predY = u._srvY + svy * 2;
-          const dx = predX - u.x, dy = predY - u.y;
-          const dist = Math.hypot(dx, dy);
-          if (dist > 400) {
-            u.x = u._srvX;
-            u.y = u._srvY;
-          } else if (dist > 0.5) {
-            u.x += dx * lerpSpeed;
-            u.y += dy * lerpSpeed;
-          }
-          u.vx = svx;
-          u.vy = svy;
-        }
+        NET.Interp.tickUnit(u, interpMs);
       }
       updateUnitVisualsOnly();
-      if (state.storm && state.storm._srvX != null) {
-        const s = state.storm;
-        const lerp = 0.35;
-        s.x += (s._srvX - s.x) * lerp;
-        s.y += (s._srvY - s.y) * lerp;
-        s.vx = s._srvVx ?? s.vx;
-        s.vy = s._srvVy ?? s.vy;
-      }
+
+      // Simulate bullets visually — smooth movement between zone syncs (266 ms)
+      stepBulletsVisual(dt);
+
+      NET.Interp.tickStorm(state.storm, interpMs);
+
       const numRays = CFG.TERRAIN_RAYS ?? 96;
       for (const pl of state.players.values()) {
-        if (pl._srvRayDistances && pl._srvRayDistances.length === numRays) {
-          if (!pl.influenceRayDistances || pl.influenceRayDistances.length !== numRays)
-            pl.influenceRayDistances = pl._srvRayDistances.slice();
-          const zoneLerp = 0.35;
-          for (let i = 0; i < numRays; i++)
-            pl.influenceRayDistances[i] += (pl._srvRayDistances[i] - pl.influenceRayDistances[i]) * zoneLerp;
+        // Use full zone sync interval (266 ms) for proper linear interpolation
+        NET.Interp.tickZoneRays(pl, numRays, NET.ZONE_SYNC_INTERVAL_MS);
+        if (pl.influenceRayDistances && pl.influenceRayDistances.length === numRays) {
           if (!pl._polyBuf || pl._polyBuf.length !== numRays) {
             pl._polyBuf = [];
             for (let i = 0; i < numRays; i++) pl._polyBuf.push({ x: 0, y: 0 });
@@ -6269,7 +6531,9 @@
           if (pl._lastZoneHash !== undefined) pl._lastZoneHash = null;
         }
       }
+
       for (const r of state.res.values()) {
+        NET.Interp.tickRes(r, NET.ZONE_SYNC_INTERVAL_MS);
         if (r.gfx) {
           r.gfx.visible = inView(r.x, r.y);
           if (r.gfx.visible) r.gfx.position.set(r.x, r.y);
@@ -6277,17 +6541,24 @@
       }
     }
 
-    if (state._multiIsHost && state._socket && state._roomId && state._frameCtr % 2 === 0) {
-      const gs = serializeGameState();
-      state._socket.emit("gameState", gs);
+    // ── Host: send snapshots at fixed 30 Hz (decoupled from render rate) ──
+    if (state._multiIsHost && state._socket && state._roomId) {
+      const dtMs = (now - (state._lastSendCheck || now));
+      state._lastSendCheck = now;
+      if (_netSendScheduler.update(dtMs)) {
+        const gs = serializeGameState();
+        state._socket.emit("gameState", gs);
+      }
     }
 
     // visuals: zones & overlaps (redraw only when shape changed; throttle overlaps)
     perfStartStep("zones");
     if (state.zonesEnabled) {
+      const isRemote = state._multiSlots && !state._multiIsHost;
+      const zoneRedrawThisFrame = !isRemote || (state._frameCtr % 2 === 0);
       for (const p of state.players.values()) {
         const oldHash = p._lastZoneHash;
-        redrawZone(p);
+        if (zoneRedrawThisFrame) redrawZone(p);
         if (p._lastZoneHash !== oldHash || (state._frameCtr % 8 === 0)) rebuildTurrets(p);
       }
       state._zoneFrameCounter = (state._zoneFrameCounter || 0) + 1;

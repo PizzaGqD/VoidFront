@@ -13,6 +13,8 @@ html, body {
   left: 14px;
   top: 14px;
   width: 430px;
+  max-width: calc(100vw - 28px);
+  box-sizing: border-box;
   z-index: 10;
   pointer-events: auto;
   padding: 12px;
@@ -223,9 +225,33 @@ input[type="range"] { flex: 1; }
   border: 2px solid rgba(255, 220, 100, 0.5);
   border-radius: 16px;
   padding: 24px;
-  max-width: 750px;
+  width: 720px;
+  max-width: 95vw;
   box-shadow: 0 0 40px rgba(255, 200, 80, 0.25);
 }
+.modal-card-pick-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.modal-card-pick-header .subtitle { margin: 0; }
+.modal-card-pick-header .muted { margin: 0; margin-right: auto; }
+.card-reroll-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: rgba(80, 80, 100, 0.3);
+  cursor: pointer;
+  font-size: 12px;
+}
+.card-reroll-wrap:hover { background: rgba(100, 100, 130, 0.4); }
+.card-reroll-icon { font-size: 14px; }
+.card-reroll-count { font-weight: 800; min-width: 1.2em; text-align: center; }
+.card-reroll-label { opacity: 0.9; }
 .card-choices {
   display: flex;
   gap: 12px;
@@ -233,14 +259,17 @@ input[type="range"] { flex: 1; }
   flex-wrap: nowrap;
 }
 .card-option {
-  flex: 1;
-  min-width: 0;
+  width: 220px;
+  min-width: 220px;
   padding: 14px 10px;
   border-radius: 12px;
   border: 2px solid;
   cursor: pointer;
   text-align: center;
   transition: transform 0.15s, box-shadow 0.15s;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
 .card-option:hover { transform: scale(1.03); box-shadow: 0 4px 20px rgba(0,0,0,0.4); }
 .card-option.common { border-color: #888; background: rgba(80,80,90,0.4); }
@@ -251,15 +280,23 @@ input[type="range"] { flex: 1; }
 .card-option.legendary.flash { animation: legendaryFlash 0.3s ease-out, legendaryGlow 2s ease-in-out 0.3s infinite; }
 @keyframes legendaryFlash { 0% { box-shadow: 0 0 60px 20px rgba(255,215,0,1), 0 0 120px 40px rgba(255,180,0,0.6); border-color: #fff; } 100% { box-shadow: 0 0 18px rgba(255,215,0,0.7); border-color: #ffd700; } }
 @keyframes legendaryGlow { 0%,100% { box-shadow: 0 0 8px rgba(255,215,0,0.3); } 50% { box-shadow: 0 0 18px rgba(255,215,0,0.7); } }
-.card-option .card-name { font-weight: 800; margin-bottom: 4px; }
-.card-option .card-desc { font-size: 13px; opacity: 0.9; }
+.card-option .card-emoji { font-size: 28px; line-height: 1.2; margin-bottom: 6px; }
+.card-option .card-name { font-weight: 800; margin-bottom: 6px; font-size: 14px; }
+.card-option .card-desc { font-size: 12px; opacity: 0.9; word-wrap: break-word; white-space: normal; line-height: 1.35; }
+.card-option .card-param-now { font-size: 11px; opacity: 0.85; margin-top: 6px; color: #b0c0e0; }
 
-#dominationTimer {
+.game-top-center {
   position: fixed;
   top: 12px;
   left: 50%;
   transform: translateX(-50%);
-  z-index: 100;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+#dominationTimer {
   padding: 10px 28px;
   border-radius: 14px;
   background: rgba(10, 14, 26, 0.85);
@@ -270,6 +307,51 @@ input[type="range"] { flex: 1; }
   text-align: center;
   color: #ffe066;
   backdrop-filter: blur(6px);
+}
+.lvlup-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.lvlup-progress-wrap {
+  width: 120px;
+  height: 6px;
+  background: rgba(60, 60, 70, 0.9);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.lvlup-progress {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #c9a227, #ffd700);
+  border-radius: 3px;
+  transition: width 0.15s ease-out;
+}
+.lvlup-level-text { font-size: 12px; font-weight: 700; color: #b0b8d0; }
+.lvlup-xp-text { font-size: 11px; color: #8890a8; }
+.lvlup-btn-gray {
+  background: rgba(80, 80, 90, 0.6) !important;
+  border-color: rgba(120, 120, 130, 0.6) !important;
+  box-shadow: none !important;
+  animation: none !important;
+  color: #a0a8c0 !important;
+}
+.lvlup-btn.lvlup-btn-ready {
+  background: linear-gradient(135deg, rgba(255, 200, 50, 0.4), rgba(255, 150, 30, 0.35)) !important;
+  border-color: rgba(255, 220, 100, 0.8) !important;
+  color: #fff8e0 !important;
+  box-shadow: 0 0 20px rgba(255, 200, 80, 0.5) !important;
+  animation: lvlup-pulse 1.5s ease-in-out infinite;
+}
+.abilities-btn-stub {
+  padding: 6px 12px;
+  font-size: 12px;
+  background: rgba(70, 70, 80, 0.6);
+  border: 1px solid rgba(100, 100, 110, 0.5);
+  color: #808890;
+  cursor: not-allowed;
+  border-radius: 8px;
 }
 
 #victoryOverlay {
@@ -525,7 +607,8 @@ input[type="range"] { flex: 1; }
   font-weight: 700;
   font-size: 13px;
 }
-.game-chat-wrap.game-chat-collapsed .game-chat-bar { display: flex; }
+.game-chat-bar { display: none; }
+.game-chat-wrap.game-chat-collapsed .game-chat-bar { display: flex !important; }
 .game-chat-unread-badge {
   background: #d4a012;
   color: #1a1a0a;
@@ -587,6 +670,7 @@ input[type="range"] { flex: 1; }
   top: 50%;
   transform: translate(-50%, -50%);
   width: 430px;
+  max-width: calc(100vw - 24px);
   max-height: 85vh;
   z-index: 100;
   padding: 12px;
@@ -628,3 +712,92 @@ input[type="range"] { flex: 1; }
 .enemy-city-panel-content .me-stats .stat-line { margin: 3px 0; font-size: 14px; }
 .enemy-city-panel-content .me-stats .stat-label { opacity: 0.9; }
 .enemy-city-panel-content .me-stats .stat-val { font-weight: 700; font-family: ui-monospace, monospace; font-size: 13px; }
+.stat-diff { font-size: 11px; font-weight: 700; }
+.stat-diff-red { color: #ff6666; }
+.stat-diff-green { color: #66cc66; }
+
+/* ─── Responsive layout ─── */
+
+/* Tablet: ≤ 768 px */
+@media (max-width: 768px) {
+  /* Lobby: stack panels vertically */
+  .lobby-layout {
+    flex-direction: column;
+    max-height: none;
+    overflow-y: auto;
+  }
+  .lobby-chat {
+    width: 100%;
+    min-width: 0;
+  }
+
+  /* Card choices wrap on small screens */
+  .card-choices {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .card-option {
+    width: calc(50% - 8px);
+    min-width: 150px;
+  }
+}
+
+/* Mobile: ≤ 480 px */
+@media (max-width: 480px) {
+  html, body { font-size: 13px; }
+
+  /* HUD shrinks to full width */
+  #hud {
+    width: calc(100vw - 20px);
+    left: 10px;
+    top: 8px;
+    padding: 8px 10px;
+    border-radius: 10px;
+  }
+
+  /* Speed buttons wrap */
+  #hud .row { flex-wrap: wrap; gap: 4px; }
+
+  /* Minimap — smaller */
+  #minimapWrap {
+    width: 120px;
+    height: 75px;
+    left: 8px;
+    bottom: 8px;
+  }
+
+  /* In-game chat — full bottom width */
+  .game-chat-wrap {
+    width: calc(100vw - 20px);
+    right: 10px;
+    bottom: 8px;
+    border-radius: 10px;
+  }
+
+  /* Victory screen */
+  .victory-box {
+    padding: 24px 16px;
+    border-radius: 14px;
+  }
+  .victory-title { font-size: 30px; }
+  .victory-desc  { font-size: 15px; }
+
+  /* Cards: single column on very small screens */
+  .card-option {
+    width: 100%;
+    min-width: 0;
+  }
+
+  /* Domination timer */
+  #dominationTimer {
+    font-size: 14px;
+    padding: 7px 16px;
+  }
+
+  /* Menu box full width */
+  .menu-box {
+    max-width: calc(100vw - 24px);
+    padding: 20px 16px;
+    border-radius: 14px;
+  }
+}
