@@ -310,6 +310,18 @@
     const dirX = wp && idx < wp.length && wp[idx] ? wp[idx].x - leader.x : null;
     const dirY = wp && idx < wp.length && wp[idx] ? wp[idx].y - leader.y : null;
     applyFormationToSquad(squad, formationType, formationRows, dirX, dirY, formationPigWidth);
+    // Sync to host in multiplayer: host applies to authoritative state → full sync distributes
+    if (state._multiSlots && !state._multiIsHost && state._socket) {
+      state._socket.emit("playerAction", {
+        type: "formation",
+        pid: state.myPlayerId,
+        leaderId: leader.id,
+        unitIds: squad.map(u => u.id),
+        formationType,
+        formationRows,
+        formationPigWidth: formationPigWidth || 1
+      });
+    }
   }
 
   const formationLineRowEl = document.getElementById("formationLineRow");
@@ -697,7 +709,11 @@
   const ghostLayer = new PIXI.Container();
   const pathPreviewLayer = new PIXI.Container();
   const selectionBoxLayer = new PIXI.Container();
-  world.addChild(mapLayer, gridLayer, zonesLayer, turretLayer, resLayer, activityZoneLayer, unitsLayer, cityLayer, squadLabelsLayer, combatLayer, floatingDamageLayer, bulletsLayer, ghostLayer);
+  // Zone visual effects: running border lights and contact glows (above zone fill, below units)
+  const zoneEffectsLayer = new PIXI.Container();
+  const contactGfx = new PIXI.Graphics();
+  zoneEffectsLayer.addChild(contactGfx);
+  world.addChild(mapLayer, gridLayer, zonesLayer, zoneEffectsLayer, turretLayer, resLayer, activityZoneLayer, unitsLayer, cityLayer, squadLabelsLayer, combatLayer, floatingDamageLayer, bulletsLayer, ghostLayer);
   world.addChild(fogLayer);
   world.addChild(pathPreviewLayer, selectionBoxLayer);
   fogLayer.visible = false;
@@ -1416,12 +1432,147 @@
   function makeZoneVisual(p) {
     const g = new PIXI.Graphics();
     const glow = new PIXI.Graphics();
+    const light = new PIXI.Graphics();
 
     zonesLayer.addChild(glow, g);
+    zoneEffectsLayer.addChild(light);
 
     p.zoneGfx = g;
     p.zoneGlow = glow;
+    p.zoneLightGfx = light;
+    p._lightT = Math.random(); // stagger each player's light position
     redrawZone(p);
+  }
+
+  // ── Zone border perimeter helpers ──────────────────────────────
+  function calcPerim(poly) {
+    let totalLen = 0;
+    const segs = new Float32Array(poly.length);
+    for (let i = 0; i < poly.length; i++) {
+      const j = (i + 1) % poly.length;
+      const sl = Math.hypot(poly[j].x - poly[i].x, poly[j].y - poly[i].y);
+      segs[i] = sl;
+      totalLen += sl;
+    }
+    return { segs, totalLen };
+  }
+
+  function getPolyPerimeterPoint(poly, segs, totalLen, t) {
+    const target = ((t % 1) + 1) % 1 * totalLen;
+    let acc = 0;
+    for (let i = 0; i < poly.length; i++) {
+      const sl = segs[i];
+      if (acc + sl >= target) {
+        const frac = sl > 0 ? (target - acc) / sl : 0;
+        const j = (i + 1) % poly.length;
+        return {
+          x: poly[i].x + (poly[j].x - poly[i].x) * frac,
+          y: poly[i].y + (poly[j].y - poly[i].y) * frac
+        };
+      }
+      acc += sl;
+    }
+    return { x: poly[0].x, y: poly[0].y };
+  }
+
+  // Running comet-light along each player's zone border
+  function updateZoneLights(dt) {
+    const LIGHT_SPEED = 0.1;   // fraction of perimeter / second
+    const TAIL_STEPS  = 16;    // number of trail dots
+    const TAIL_COVER  = 0.06;  // tail spans this fraction of perimeter
+
+    for (const p of state.players.values()) {
+      const light = p.zoneLightGfx;
+      if (!light || light.destroyed) continue;
+      const poly = p.influencePolygon;
+      if (!poly || poly.length < 3 || p.color == null) { light.clear(); continue; }
+
+      // Cache perimeter when zone shape changes
+      if (!p._perimCache || p._perimCache.hash !== p._lastZoneHash) {
+        p._perimCache = { hash: p._lastZoneHash, ...calcPerim(poly) };
+      }
+      const { segs, totalLen } = p._perimCache;
+      if (totalLen < 1) continue;
+
+      p._lightT = ((p._lightT ?? 0) + dt * LIGHT_SPEED) % 1;
+
+      const r = (p.color >> 16) & 0xff;
+      const g = (p.color >> 8) & 0xff;
+      const b = p.color & 0xff;
+
+      light.clear();
+
+      // Tail — draw from oldest to newest (fades in)
+      for (let i = TAIL_STEPS; i >= 1; i--) {
+        const t = ((p._lightT - (i / TAIL_STEPS) * TAIL_COVER) + 2) % 1;
+        const pt = getPolyPerimeterPoint(poly, segs, totalLen, t);
+        const progress = 1 - i / TAIL_STEPS; // 0..1
+        const alpha  = progress * 0.65;
+        const radius = 2 + progress * 6;
+        light.beginFill(p.color, alpha);
+        light.drawCircle(pt.x, pt.y, radius);
+        light.endFill();
+      }
+
+      // Head — bright white core + color halo
+      const head = getPolyPerimeterPoint(poly, segs, totalLen, p._lightT);
+      // Outer glow ring
+      light.beginFill(p.color, 0.45);
+      light.drawCircle(head.x, head.y, 12);
+      light.endFill();
+      // Mid ring in brightened player color
+      const bright = ((Math.min(255, r + 80) << 16) | (Math.min(255, g + 80) << 8) | Math.min(255, b + 80));
+      light.beginFill(bright, 0.75);
+      light.drawCircle(head.x, head.y, 6);
+      light.endFill();
+      // White hot core
+      light.beginFill(0xffffff, 0.95);
+      light.drawCircle(head.x, head.y, 2.5);
+      light.endFill();
+    }
+  }
+
+  // Glow at zone contact points — where two players' borders meet
+  const _contactPulse = { t: 0 };
+  function updateZoneContacts(dt) {
+    _contactPulse.t += dt;
+    const pulse = 0.55 + 0.45 * Math.sin(_contactPulse.t * Math.PI * 2.5);
+
+    contactGfx.clear();
+
+    const players = [];
+    for (const p of state.players.values()) {
+      if (p.influencePolygon && p.influencePolygon.length >= 3 && p.color != null) players.push(p);
+    }
+    if (players.length < 2) return;
+
+    const THRESHOLD = 75;   // pixels — considered "touching"
+    const GLOW_R    = 22;
+
+    for (let i = 0; i < players.length; i++) {
+      for (let j = i + 1; j < players.length; j++) {
+        const A = players[i], B = players[j];
+        const polyA = A.influencePolygon, polyB = B.influencePolygon;
+
+        for (let ai = 0; ai < polyA.length; ai++) {
+          const pa = polyA[ai];
+          for (let bi = 0; bi < polyB.length; bi++) {
+            const pb = polyB[bi];
+            const dx = pa.x - pb.x, dy = pa.y - pb.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist < THRESHOLD) {
+              const str = (1 - dist / THRESHOLD) * pulse;
+              contactGfx.beginFill(A.color, 0.55 * str);
+              contactGfx.drawCircle(pa.x, pa.y, GLOW_R);
+              contactGfx.endFill();
+              contactGfx.beginFill(B.color, 0.55 * str);
+              contactGfx.drawCircle(pb.x, pb.y, GLOW_R);
+              contactGfx.endFill();
+            }
+          }
+        }
+      }
+    }
   }
 
   function zoneShapeHash(p) {
@@ -5695,6 +5846,7 @@
     }
     const me = state.players.get(state.myPlayerId);
     if (me) {
+      cam.zoom = CFG.CAMERA_START_ZOOM;
       centerOn(me.x, me.y);
       const cx = CFG.WORLD_W / 2, cy = CFG.WORLD_H / 2;
       const dx = cx - me.x, dy = cy - me.y;
@@ -5737,6 +5889,7 @@
     }
     const me = state.players.get(state.myPlayerId);
     if (me) {
+      cam.zoom = CFG.CAMERA_START_ZOOM;
       centerOn(me.x, me.y);
       const cx = CFG.WORLD_W / 2, cy = CFG.WORLD_H / 2;
       const dx = cx - me.x, dy = cy - me.y;
@@ -5897,6 +6050,7 @@
       if (pl.cityGfx) { cityLayer.removeChild(pl.cityGfx); pl.cityGfx = null; }
       if (pl.zoneGfx) { zonesLayer.removeChild(pl.zoneGfx); pl.zoneGfx = null; }
       if (pl.zoneGlow) { zonesLayer.removeChild(pl.zoneGlow); pl.zoneGlow = null; }
+      if (pl.zoneLightGfx) { zoneEffectsLayer.removeChild(pl.zoneLightGfx); pl.zoneLightGfx = null; }
       makeCityVisual(pl);
       makeZoneVisual(pl);
     }
@@ -5906,6 +6060,7 @@
         const pl = state.players.get(id);
         if (pl && pl.cityGfx) { cityLayer.removeChild(pl.cityGfx); pl.cityGfx = null; }
         if (pl && pl.zoneGfx) { zonesLayer.removeChild(pl.zoneGfx); zonesLayer.removeChild(pl.zoneGlow); pl.zoneGfx = null; pl.zoneGlow = null; }
+        if (pl && pl.zoneLightGfx) { zoneEffectsLayer.removeChild(pl.zoneLightGfx); pl.zoneLightGfx = null; }
         state.players.delete(id);
       }
     }
@@ -6313,6 +6468,16 @@
             }
           }
         }
+      } else if (action.type === "formation") {
+        const squad = (action.unitIds || []).map(id => state.units.get(id)).filter(Boolean);
+        if (squad.length > 0) {
+          const leader = squad.find(u => !u.leaderId) || squad[0];
+          const wp = leader.waypoints;
+          const idx = leader.waypointIndex ?? 0;
+          const dirX = wp && idx < wp.length && wp[idx] ? wp[idx].x - leader.x : null;
+          const dirY = wp && idx < wp.length && wp[idx] ? wp[idx].y - leader.y : null;
+          applyFormationToSquad(squad, action.formationType || "pig", action.formationRows || 1, dirX, dirY, action.formationPigWidth || 1);
+        }
       } else if (action.type === "mergeSquad") {
         const units = (action.unitIds || []).map(id => state.units.get(id)).filter(Boolean);
         if (units.length >= 2) {
@@ -6563,6 +6728,16 @@
       }
       state._zoneFrameCounter = (state._zoneFrameCounter || 0) + 1;
       if (state._zoneFrameCounter % 2 === 0) updateZoneOverlaps();
+      // Running border lights (every frame, smooth animation)
+      updateZoneLights(dt);
+      // Zone contact glow (throttled — zones move slowly)
+      if (state._frameCtr % 3 === 0) updateZoneContacts(dt);
+    } else {
+      // Hide effects when zones are toggled off
+      contactGfx.clear();
+      for (const p of state.players.values()) {
+        if (p.zoneLightGfx) p.zoneLightGfx.clear();
+      }
     }
     perfEndStep("zones");
 

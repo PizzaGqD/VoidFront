@@ -1,0 +1,12 @@
+client.js?v=8:103 [Меню] Сокет готов, __createRoom задан (кнопки через onclick в HTML).
+:3040/favicon.ico:1  Failed to load resource: the server responded with a status of 404 (Not Found)
+client.js?v=8:6072 [Лобби] Подключение к серверу: http://localhost:3040 OK
+:3040/favicon.ico:1  Failed to load resource: the server responded with a status of 404 (Not Found)
+client.js?v=8:5612 [Лобби] Список комнат: 0 Array(0)
+client.js?v=8:6077 [Лобби] Socket отключён, причина: transport close
+websocket.js:43 WebSocket connection to 'ws://localhost:3040/socket.io/?EIO=4&transport=websocket' failed: 
+value @ websocket.js:43
+client.js?v=8:6076 [Лобби] Ошибка подключения: websocket error
+(anonymous) @ client.js?v=8:6076
+client.js?v=8:6075 [Лобби] Socket подключён, id: vcyG7GVjZKyAMsFMAAAB
+client.js?v=8:6078 [Лобби] Адрес сервера для сети: http://26.22.34.223:3040
