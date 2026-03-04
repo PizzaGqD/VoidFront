@@ -369,7 +369,7 @@
   function getFormationValuesFromUI(single) {
     const sel = single ? formationSelect : formationSelectMulti;
     const rowsEl = single ? formationRowsEl : formationRowsMultiEl;
-    const type = (sel && sel.value) || "pig";
+    const type = (sel && sel.value) || "line";
     let rows = parseInt(rowsEl?.value ?? 1, 10) || 1;
     let pigW = 1;
     if (type === "pig") {
@@ -1790,7 +1790,7 @@
     const baseInflR = CFG.INFLUENCE_BASE_R || 240;
     const curR = p.influenceR || baseInflR;
     const s = Math.max(1, Math.min(2.5, curR / baseInflR));
-    return 32 * s;
+    return 16 * s;
   }
 
   function shieldRadius(p) {
@@ -3202,6 +3202,37 @@
         selectionBoxLayer.addChild(back);
       }
     }
+    const attackTargets = new Set();
+    for (const sq of squads) {
+      const leader = sq.find(v => (v.leaderId || v.id) === (sq[0].leaderId || sq[0].id)) || sq[0];
+      if (leader.chaseTargetUnitId != null) attackTargets.add("u:" + leader.chaseTargetUnitId);
+      if (leader.chaseTargetCityId != null) attackTargets.add("c:" + leader.chaseTargetCityId);
+    }
+    const pulse = 0.4 + 0.35 * Math.sin(performance.now() / 250);
+    for (const key of attackTargets) {
+      const tg = new PIXI.Graphics();
+      if (key.startsWith("u:")) {
+        const tu = state.units.get(parseInt(key.slice(2)));
+        if (tu && tu.hp > 0) {
+          const r = getUnitHitRadius(tu) + 10;
+          tg.circle(tu.x, tu.y, r);
+          tg.stroke({ color: 0xff2222, width: 2.5, alpha: pulse });
+          tg.circle(tu.x, tu.y, r + 4);
+          tg.stroke({ color: 0xff4444, width: 1, alpha: pulse * 0.4 });
+        }
+      } else {
+        const cid = parseInt(key.slice(2));
+        const tc = state.players.get(cid);
+        if (tc && !tc.eliminated) {
+          const r = getPlanetRadius(tc) + 8;
+          tg.circle(tc.x, tc.y, r);
+          tg.stroke({ color: 0xff2222, width: 3, alpha: pulse });
+          tg.circle(tc.x, tc.y, r + 5);
+          tg.stroke({ color: 0xff4444, width: 1.5, alpha: pulse * 0.4 });
+        }
+      }
+      selectionBoxLayer.addChild(tg);
+    }
   }
 
   function updatePathPreview() {
@@ -3214,7 +3245,7 @@
       const sinA = Math.sin(fp.angle);
       for (const squad of squads) {
         const leader = squad.find(u => (u.leaderId || u.id) === (squad[0].leaderId || squad[0].id)) || squad[0];
-        const formationType = leader.formationType || "pig";
+        const formationType = leader.formationType || "line";
         const formationRows = fp.dragRows != null ? fp.dragRows : (leader.formationRows || 1);
         const pigW = fp.dragWidth != null ? fp.dragWidth : (leader.formationPigWidth ?? 1);
         const offsets = getFormationOffsets(squad.length, formationType, formationRows, cosA, sinA, pigW, squad);
@@ -3222,11 +3253,14 @@
           const o = offsets[i] || { x: 0, y: 0 };
           const u = squad[i] || squad[0];
           const unitType = u.unitType || "fighter";
+          const uHitR = getUnitHitRadius(u);
           const ghostG = new PIXI.Graphics();
           drawShipShape(ghostG, unitType, 0xffffff, 0xffffff);
           ghostG.alpha = 0.3;
           ghostG.position.set(fp.x + o.x, fp.y + o.y);
           ghostG.rotation = fp.angle;
+          ghostG.circle(0, 0, uHitR);
+          ghostG.stroke({ color: 0xffffff, width: 1, alpha: 0.15 });
           pathPreviewLayer.addChild(ghostG);
         }
       }
@@ -4100,8 +4134,9 @@
       neb._glowPhase = (neb._glowPhase || 0) + dt * 0.008;
       neb._glowAlpha = 0.09;
 
-      const spawnRate = 0.08 + neb.radius * 0.0004;
-      if (Math.random() < dt * spawnRate) {
+      const maxDischarges = 6;
+      const spawnRate = 0.06 + neb.radius * 0.0003;
+      if (neb.discharges.length < maxDischarges && Math.random() < dt * spawnRate) {
         const a = Math.random() * Math.PI * 2;
         const d = Math.random() * neb.radius * 0.4;
         const sx = neb.x + Math.cos(a) * d;
@@ -4411,12 +4446,13 @@
   const FORM_ELONGATE = 1.85;
   const FORM_MIN_SPACING = 50;
 
-  function pigFormationOffsets(n, dirX, dirY, depth, widthMul, sizeMul) {
+  function pigFormationOffsets(n, dirX, dirY, depth, widthMul, sizeMul, hitSpacing) {
     const depthRows = Math.max(1, depth || 3);
     const wMul = Math.max(0.5, Math.min(2, widthMul || 1));
     const sm = sizeMul || 1;
-    const sx = Math.max((CFG.FORM_SPACING_X || 18) * wMul * sm, FORM_MIN_SPACING * wMul);
-    const sy = Math.max(CFG.FORM_SPACING_Y * sm, FORM_MIN_SPACING);
+    const hs = hitSpacing || FORM_MIN_SPACING;
+    const sx = Math.max((CFG.FORM_SPACING_X || 18) * wMul * sm, hs * wMul);
+    const sy = Math.max(CFG.FORM_SPACING_Y * sm, hs);
     const out = [];
     let placed = 0;
     let row = 0;
@@ -4452,10 +4488,11 @@
 
   const FORM_TYPE_ORDER = ["fighter", "destroyer", "cruiser", "battleship", "hyperDestroyer"];
 
-  function lineFormationOffsets(n, rows, dirX, dirY, sizeMul) {
+  function lineFormationOffsets(n, rows, dirX, dirY, sizeMul, hitSpacing) {
     const sm = sizeMul || 1;
-    const sx = Math.max((CFG.FORM_SPACING_X || 18) * sm, FORM_MIN_SPACING);
-    const sy = Math.max((CFG.FORM_SPACING_Y || 22) * sm, FORM_MIN_SPACING);
+    const hs = hitSpacing || FORM_MIN_SPACING;
+    const sx = Math.max((CFG.FORM_SPACING_X || 18) * sm, hs);
+    const sy = Math.max((CFG.FORM_SPACING_Y || 22) * sm, hs);
     const cols = Math.ceil(n / Math.max(1, rows));
     const out = [];
     let idx = 0;
@@ -4489,8 +4526,14 @@
         row.push(formationOrder[j++]);
       }
       const maxSm = Math.max(...row.map(unit => Math.max(1, (UNIT_TYPES[unit.unitType] || UNIT_TYPES.fighter).sizeMultiplier * 0.7 + 0.5)), 1);
-      const sx = Math.max((CFG.FORM_SPACING_X || 18) * maxSm, FORM_MIN_SPACING);
-      const sy = Math.max((CFG.FORM_SPACING_Y || 22) * maxSm, FORM_MIN_SPACING);
+      let maxRowHitR = 0;
+      for (const ru of row) {
+        const hr = getUnitHitRadius(ru);
+        if (hr > maxRowHitR) maxRowHitR = hr;
+      }
+      const hitSp = maxRowHitR * 2 + 8;
+      const sx = Math.max((CFG.FORM_SPACING_X || 18) * maxSm, hitSp);
+      const sy = Math.max((CFG.FORM_SPACING_Y || 22) * maxSm, hitSp);
       for (let c = 0; c < row.length; c++) {
         const x = (c - (row.length - 1) / 2) * sx;
         const y = yAcc;
@@ -4508,17 +4551,21 @@
 
   function getFormationOffsets(n, formationType, formationRows, dirX, dirY, formationPigWidth, squad) {
     let sizeMul = 1;
+    let maxHitR = 12;
     if (squad && squad.length > 0) {
       let maxSz = 0;
       for (const u of squad) {
         const t = UNIT_TYPES[u.unitType] || UNIT_TYPES.fighter;
         if (t.sizeMultiplier > maxSz) maxSz = t.sizeMultiplier;
+        const hr = (t.sizeMultiplier * 6 + 6) * (UNIT_BOUNDING_MUL[u.unitType || "fighter"] ?? 1.8);
+        if (hr > maxHitR) maxHitR = hr;
       }
       sizeMul = Math.max(1, maxSz * 0.6 + 0.4);
     }
+    const hitSpacing = maxHitR * 2 + 8;
     if (formationType === "lineByType" && squad && squad.length > 0) return lineFormationOffsetsByType(squad, dirX, dirY);
-    if (formationType === "line") return lineFormationOffsets(n, Math.max(1, formationRows || 1), dirX, dirY, sizeMul);
-    return pigFormationOffsets(n, dirX, dirY, formationRows || 3, formationPigWidth ?? 1, sizeMul);
+    if (formationType === "line") return lineFormationOffsets(n, Math.max(1, formationRows || 1), dirX, dirY, sizeMul, hitSpacing);
+    return pigFormationOffsets(n, dirX, dirY, formationRows || 3, formationPigWidth ?? 1, sizeMul, hitSpacing);
   }
 
   function getFormationCenter(offsets) {
@@ -5456,8 +5503,8 @@
         if (!city) u.chaseTargetCityId = undefined;
         else {
           const planetR = getPlanetRadius(city);
-          const noFlyR = planetR + 18;
-          const stopR = Math.max(noFlyR + 6, planetR * CFG.PLANET_ATTACK_R_MUL * 0.95);
+          const noFlyR = planetR + 10;
+          const stopR = Math.max(noFlyR + 8, getUnitAtkRange(u) * 0.85);
           const dToCity = Math.hypot(u.x - city.x, u.y - city.y);
           if (dToCity > stopR + 5) {
             const ang = Math.atan2(city.y - u.y, city.x - u.x);
@@ -5492,8 +5539,8 @@
         const city = state.players.get(leader.chaseTargetCityId);
         if (city) {
           const planetR = getPlanetRadius(city);
-          const noFlyR = planetR + 18;
-          const stopR = Math.max(noFlyR + 6, planetR * CFG.PLANET_ATTACK_R_MUL * 0.95);
+          const noFlyR = planetR + 10;
+          const stopR = Math.max(noFlyR + 8, getUnitAtkRange(u) * 0.85);
           const dToCity = Math.hypot(u.x - city.x, u.y - city.y);
           if (dToCity > stopR + 5) {
             const ang = Math.atan2(city.y - u.y, city.x - u.x);
@@ -5655,7 +5702,7 @@
         for (const cp of state.players.values()) {
           if (cp.eliminated) continue;
           const pR = getPlanetRadius(cp);
-          const noFlyR = pR + 18;
+          const noFlyR = pR + 10;
           const dToCity = Math.hypot(u.x - cp.x, u.y - cp.y);
           if (dToCity > 0 && dToCity < noFlyR) {
             const scale = noFlyR / dToCity;
@@ -5675,10 +5722,12 @@
       }
 
       const uR = getUnitHitRadius(u);
-      const UNIT_GAP = 4;
-      const UNIT_MIN_DIST = uR * 2 + UNIT_GAP;
-      const atRest = (dx === 0 && dy === 0);
-      const nearU = queryHash(u.x, u.y, UNIT_MIN_DIST);
+      const UNIT_GAP = 3;
+      const searchR = uR * 2 + UNIT_GAP + 10;
+      const nearU = queryHash(u.x, u.y, searchR);
+      const isMoving = (dx !== 0 || dy !== 0);
+      const moveDirX = isMoving ? dx / (Math.hypot(dx, dy) || 1) : 0;
+      const moveDirY = isMoving ? dy / (Math.hypot(dx, dy) || 1) : 0;
       for (let ni = 0; ni < nearU.length; ni++) {
         const v = nearU[ni];
         if (v.id === u.id) continue;
@@ -5688,19 +5737,32 @@
         const sd = Math.hypot(sx, sy);
         if (sd < minD && sd > 0.01) {
           const sameOwner = v.owner === u.owner;
-          const bigShip = uR > 14 || vR > 14;
-          let force = sameOwner ? (bigShip ? 0.35 : 0.6) : 2.0;
-          if (atRest) force *= 0.08;
-          const overlap = minD - sd;
-          const push = Math.min(overlap * force * dt, overlap * 0.25);
           const nx = sx / sd, ny = sy / sd;
-          u.x += nx * push;
-          u.y += ny * push;
-          if (sameOwner && bigShip && !atRest) {
+          if (sameOwner) {
             const tangentX = -ny, tangentY = nx;
             const side = (u.id > v.id) ? 1 : -1;
-            u.x += tangentX * push * 0.5 * side;
-            u.y += tangentY * push * 0.5 * side;
+            const overlap = minD - sd;
+            if (isMoving) {
+              const dot = moveDirX * (-nx) + moveDirY * (-ny);
+              if (dot > 0.3) {
+                const slideForce = overlap * 0.6 * dt;
+                u.x += tangentX * slideForce * side;
+                u.y += tangentY * slideForce * side;
+              } else {
+                const pushF = Math.min(overlap * 0.3 * dt, overlap * 0.15);
+                u.x += nx * pushF;
+                u.y += ny * pushF;
+              }
+            } else {
+              const pushF = Math.min(overlap * 0.05 * dt, overlap * 0.05);
+              u.x += nx * pushF;
+              u.y += ny * pushF;
+            }
+          } else {
+            const overlap = minD - sd;
+            const push = Math.min(overlap * 1.5 * dt, overlap * 0.25);
+            u.x += nx * push;
+            u.y += ny * push;
           }
         }
       }
@@ -6311,8 +6373,8 @@
               leader.chaseTargetCityId = enemyCity.id;
               leader.chaseTargetUnitId = undefined;
               const planetR = getPlanetRadius(enemyCity);
-              const minStopR = Math.max(planetR + 22, planetR * CFG.PLANET_ATTACK_R_MUL * 0.95);
-              const stopR = Math.max(getUnitAtkRange(leader), minStopR);
+              const minStopR = planetR + 18;
+              const stopR = Math.max(getUnitAtkRange(leader) * 0.85, minStopR);
               const dx = leader.x - enemyCity.x, dy = leader.y - enemyCity.y;
               const dl = Math.hypot(dx, dy) || 1;
               const wp = { x: enemyCity.x + (dx / dl) * stopR, y: enemyCity.y + (dy / dl) * stopR };
@@ -6621,12 +6683,12 @@
           const squads = getSelectedSquads();
           const leaderIds = [];
           const planetR = getPlanetRadius(city);
-          const minStopR = Math.max(planetR + 22, planetR * CFG.PLANET_ATTACK_R_MUL * 0.95);
+          const minStopR = planetR + 18;
           for (const squad of squads) {
             const leader = squad.find(v => (v.leaderId || v.id) === (squad[0].leaderId || squad[0].id)) || squad[0];
             leader.chaseTargetCityId = city.id;
             leader.chaseTargetUnitId = undefined;
-            const stopR = Math.max(getUnitAtkRange(leader), minStopR);
+            const stopR = Math.max(getUnitAtkRange(leader) * 0.85, minStopR);
             const dx = leader.x - city.x, dy = leader.y - city.y;
             const dl = Math.hypot(dx, dy) || 1;
             leader.waypoints = [{ x: city.x + (dx / dl) * stopR, y: city.y + (dy / dl) * stopR }];
@@ -6688,7 +6750,7 @@
       const addWaypoint = e.shiftKey;
       for (const squad of squads) {
         const leader = squad.find(u => (u.leaderId || u.id) === (squad[0].leaderId || squad[0].id)) || squad[0];
-        const fType = leader.formationType || "pig";
+        const fType = leader.formationType || "line";
         const fRows = fp.dragRows != null ? fp.dragRows : (leader.formationRows || 1);
         const pigW = fp.dragWidth != null ? fp.dragWidth : (leader.formationPigWidth ?? 1);
         const cosA = Math.cos(fp.angle), sinA = Math.sin(fp.angle);
@@ -7419,29 +7481,59 @@
     }
     const g = state._nebulaGfx;
     g.clear();
-    const slowPulse = 0.35 + Math.sin(state.t * 0.6) * 0.15;
+
+    const t = state.t;
+    const borderAlpha = 0.35;
 
     for (const neb of state.nebulae) {
       if (!inView(neb.x, neb.y)) continue;
+      if (!neb._radiusPhase) neb._radiusPhase = Math.random() * Math.PI * 2;
+      const rWobble = neb.radius + Math.sin(t * 0.12 + neb._radiusPhase) * 4;
+      g.circle(neb.x, neb.y, rWobble);
+      g.fill({ color: 0x223355, alpha: 0.05 });
+    }
 
-      g.circle(neb.x, neb.y, neb.radius);
-      g.stroke({ color: 0x4488cc, width: 2.5, alpha: slowPulse });
-      g.circle(neb.x, neb.y, neb.radius + 3);
-      g.stroke({ color: 0x66aaff, width: 1, alpha: slowPulse * 0.4 });
+    for (const neb of state.nebulae) {
+      if (!inView(neb.x, neb.y)) continue;
+      const rWobble = neb.radius + Math.sin(t * 0.12 + (neb._radiusPhase || 0)) * 4;
+      const steps = 64;
+      for (let s = 0; s < steps; s++) {
+        const a1 = (s / steps) * Math.PI * 2;
+        const a2 = ((s + 1) / steps) * Math.PI * 2;
+        const px1 = neb.x + Math.cos(a1) * rWobble;
+        const py1 = neb.y + Math.sin(a1) * rWobble;
+        const px2 = neb.x + Math.cos(a2) * rWobble;
+        const py2 = neb.y + Math.sin(a2) * rWobble;
+        const mx = (px1 + px2) / 2, my = (py1 + py2) / 2;
+        let insideOther = false;
+        for (const other of state.nebulae) {
+          if (other === neb) continue;
+          const oR = other.radius + Math.sin(t * 0.12 + (other._radiusPhase || 0)) * 4;
+          if (Math.hypot(mx - other.x, my - other.y) < oR - 2) { insideOther = true; break; }
+        }
+        if (!insideOther) {
+          g.moveTo(px1, py1);
+          g.lineTo(px2, py2);
+          g.stroke({ color: 0x4488cc, width: 2, alpha: borderAlpha });
+        }
+      }
+    }
 
+    for (const neb of state.nebulae) {
+      if (!inView(neb.x, neb.y)) continue;
       for (const d of neb.discharges) {
         const age = d.maxLife - d.life;
-        const growPhase = 0.35;
-        let growthFrac = 1;
-        if (age < d.maxLife * growPhase) {
-          growthFrac = age / (d.maxLife * growPhase);
-          growthFrac = growthFrac * growthFrac;
-        } else if (d.life < d.maxLife * 0.35) {
-          growthFrac = d.life / (d.maxLife * 0.35);
-          growthFrac = Math.sqrt(growthFrac);
+        const lifeFrac = d.life / d.maxLife;
+        let alpha;
+        if (age < d.maxLife * 0.2) {
+          alpha = (age / (d.maxLife * 0.2));
+        } else if (lifeFrac < 0.2) {
+          alpha = lifeFrac / 0.2;
+        } else {
+          alpha = 1;
         }
-        const visibleLen = (d.totalLen || 9999) * growthFrac;
-        const fade = Math.min(1, growthFrac) * 0.85;
+        alpha *= 0.7;
+        const visibleLen = (d.totalLen || 9999) * Math.min(1, age / (d.maxLife * 0.3));
         const hue = d.hue || 0x6699cc;
         let drawn = 0;
         for (const seg of (d.segs || [])) {
@@ -7450,19 +7542,19 @@
           const segEnd = drawn + segLen;
           let ex = seg.x2, ey = seg.y2;
           if (segEnd > visibleLen) {
-            const t = (visibleLen - drawn) / segLen;
-            ex = seg.x1 + (seg.x2 - seg.x1) * t;
-            ey = seg.y1 + (seg.y2 - seg.y1) * t;
+            const tf = (visibleLen - drawn) / segLen;
+            ex = seg.x1 + (seg.x2 - seg.x1) * tf;
+            ey = seg.y1 + (seg.y2 - seg.y1) * tf;
           }
           g.moveTo(seg.x1, seg.y1);
           g.lineTo(ex, ey);
-          g.stroke({ color: hue, width: 4, alpha: fade * 0.05 });
+          g.stroke({ color: hue, width: 3.5, alpha: alpha * 0.04 });
           g.moveTo(seg.x1, seg.y1);
           g.lineTo(ex, ey);
-          g.stroke({ color: 0x88bbee, width: 2, alpha: fade * 0.12 });
+          g.stroke({ color: 0x99ccee, width: 1.8, alpha: alpha * 0.1 });
           g.moveTo(seg.x1, seg.y1);
           g.lineTo(ex, ey);
-          g.stroke({ color: 0xbbddff, width: 1.2, alpha: fade * 0.4 });
+          g.stroke({ color: 0xccddff, width: 0.8, alpha: alpha * 0.3 });
           drawn = segEnd;
         }
       }
@@ -9845,8 +9937,8 @@
         }
       } else if (action.type === "chaseCity") {
         const city = state.players.get(action.targetCityId);
-        const planetR = city ? getPlanetRadius(city) : 40;
-        const minStopR = Math.max(planetR + 22, planetR * CFG.PLANET_ATTACK_R_MUL * 0.95);
+        const planetR = city ? getPlanetRadius(city) : 20;
+        const minStopR = planetR + 18;
         for (const lid of (action.leaderIds || [])) {
           const u = state.units.get(lid);
           if (!u) continue;
