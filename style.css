@@ -273,11 +273,13 @@ input[type="range"] { flex: 1; }
 }
 .card-option:hover { transform: scale(1.03); box-shadow: 0 4px 20px rgba(0,0,0,0.4); }
 .card-option.common { border-color: #888; background: rgba(80,80,90,0.4); }
-.card-option.uncommon { border-color: #4a8; background: rgba(50,90,60,0.4); }
-.card-option.rare { border-color: #48c; background: rgba(40,60,120,0.4); }
-.card-option.epic { border-color: #c4a; background: rgba(100,40,80,0.4); }
-.card-option.legendary { border-color: #ffd700; background: linear-gradient(135deg, rgba(120,90,0,0.6), rgba(180,140,20,0.4)); box-shadow: 0 0 12px rgba(255,215,0,0.4); animation: legendaryGlow 2s ease-in-out infinite; }
+.card-option.uncommon { border-color: #22aa44; background: rgba(40,90,50,0.4); }
+.card-option.rare { border-color: #4488dd; background: rgba(40,60,120,0.4); }
+.card-option.epic { border-color: #9944cc; background: rgba(80,40,100,0.4); }
+.card-option.legendary { border-color: #ddcc00; background: linear-gradient(135deg, rgba(120,110,0,0.6), rgba(180,160,20,0.4)); box-shadow: 0 0 12px rgba(221,204,0,0.4); animation: legendaryGlow 2s ease-in-out infinite; }
 .card-option.legendary.flash { animation: legendaryFlash 0.3s ease-out, legendaryGlow 2s ease-in-out 0.3s infinite; }
+.card-option.mythic { border-color: #dd4400; background: linear-gradient(135deg, rgba(180,40,0,0.5), rgba(220,180,20,0.4)); box-shadow: 0 0 14px rgba(255,80,0,0.5), inset 0 0 20px rgba(255,200,0,0.08); animation: mythicPulse 1.5s ease-in-out infinite; }
+.card-option.mythic.flash { animation: mythicFlash 0.3s ease-out, mythicPulse 1.5s ease-in-out 0.3s infinite; }
 @keyframes legendaryFlash { 0% { box-shadow: 0 0 60px 20px rgba(255,215,0,1), 0 0 120px 40px rgba(255,180,0,0.6); border-color: #fff; } 100% { box-shadow: 0 0 18px rgba(255,215,0,0.7); border-color: #ffd700; } }
 @keyframes legendaryGlow { 0%,100% { box-shadow: 0 0 8px rgba(255,215,0,0.3); } 50% { box-shadow: 0 0 18px rgba(255,215,0,0.7); } }
 .card-option .card-emoji { font-size: 28px; line-height: 1.2; margin-bottom: 6px; }
@@ -347,11 +349,39 @@ input[type="range"] { flex: 1; }
 .abilities-btn-stub {
   padding: 6px 12px;
   font-size: 12px;
-  background: rgba(70, 70, 80, 0.6);
-  border: 1px solid rgba(100, 100, 110, 0.5);
-  color: #808890;
-  cursor: not-allowed;
+  background: linear-gradient(135deg, rgba(80, 50, 120, 0.75) 0%, rgba(120, 70, 160, 0.6) 100%);
+  border: 1px solid rgba(160, 120, 220, 0.7);
+  color: #e8e0ff;
+  cursor: pointer;
   border-radius: 8px;
+  box-shadow: 0 0 14px rgba(140, 80, 200, 0.5);
+  transition: box-shadow 0.2s, transform 0.15s;
+}
+.abilities-btn-stub:hover {
+  box-shadow: 0 0 22px rgba(160, 100, 230, 0.65);
+  transform: scale(1.02);
+}
+
+.ability-announcement-line {
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  color: #e8eeff;
+  text-align: center;
+  text-shadow:
+    0 0 10px rgba(100, 180, 255, 0.9),
+    0 0 20px rgba(80, 140, 255, 0.7),
+    0 0 30px rgba(60, 120, 255, 0.5),
+    0 1px 2px rgba(0, 0, 0, 0.5);
+  min-height: 22px;
+  max-width: 420px;
+  line-height: 1.35;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+.ability-announcement-line.visible {
+  opacity: 1;
 }
 
 #victoryOverlay {
@@ -800,4 +830,141 @@ input[type="range"] { flex: 1; }
     padding: 20px 16px;
     border-radius: 14px;
   }
+}
+
+/* ─── eCredits display ─── */
+.ecredits-display {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  margin-bottom: 8px;
+  background: linear-gradient(135deg, rgba(255, 200, 0, 0.15) 0%, rgba(80, 120, 255, 0.1) 100%);
+  border: 1px solid rgba(255, 200, 0, 0.35);
+  border-radius: 10px;
+  box-shadow: 0 0 12px rgba(255, 200, 0, 0.15);
+}
+.ecredits-icon {
+  font-size: 20px;
+  font-weight: 900;
+  color: #ffcc00;
+  text-shadow: 0 0 8px rgba(255, 200, 0, 0.6);
+}
+.ecredits-value {
+  font-size: 22px;
+  font-weight: 900;
+  font-family: ui-monospace, monospace;
+  color: #ffe066;
+  text-shadow: 0 0 6px rgba(255, 200, 0, 0.4);
+}
+
+/* ─── Unit shop ─── */
+.unit-shop {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 8px 0;
+}
+.unit-buy-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 10px 14px;
+  min-width: 100px;
+  min-height: 70px;
+  background: rgba(20, 24, 50, 0.85);
+  border: 2px solid rgba(80, 130, 255, 0.35);
+  border-radius: 10px;
+  color: #ccdeff;
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.15s;
+}
+.unit-buy-btn:hover {
+  background: rgba(40, 60, 120, 0.7);
+  border-color: rgba(100, 160, 255, 0.7);
+  box-shadow: 0 0 14px rgba(80, 130, 255, 0.4);
+  transform: scale(1.04);
+}
+.unit-buy-btn:disabled, .unit-buy-btn.disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+  transform: none;
+}
+.unit-buy-icon {
+  font-size: 24px;
+  font-weight: 900;
+  color: #88bbff;
+}
+.unit-buy-name {
+  font-weight: 700;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.unit-buy-cost {
+  font-family: ui-monospace, monospace;
+  font-size: 13px;
+  color: #ffe066;
+  font-weight: 700;
+}
+
+/* ─── Card rarity glow ─── */
+.card-option { position: relative; }
+.card-option[data-rarity="common"] { border-color: rgba(68, 136, 255, 0.5); box-shadow: 0 0 12px rgba(68, 136, 255, 0.3); }
+.card-option[data-rarity="uncommon"] { border-color: rgba(68, 204, 102, 0.5); box-shadow: 0 0 12px rgba(68, 204, 102, 0.3); }
+.card-option[data-rarity="rare"] { border-color: rgba(170, 68, 255, 0.5); box-shadow: 0 0 14px rgba(170, 68, 255, 0.35); }
+.card-option[data-rarity="epic"] { border-color: rgba(255, 204, 0, 0.5); box-shadow: 0 0 16px rgba(255, 204, 0, 0.35); }
+.card-option[data-rarity="legendary"] {
+  border-color: rgba(255, 102, 255, 0.6);
+  box-shadow: 0 0 20px rgba(255, 102, 255, 0.4);
+  animation: legendaryPulse 2s ease-in-out infinite;
+}
+.card-option[data-rarity="mythic"] {
+  background: linear-gradient(135deg, #0a0a0a 0%, #1a0a0a 100%);
+  border: 2px solid #ff2222;
+  box-shadow: 0 0 24px rgba(255, 34, 34, 0.5), inset 0 0 30px rgba(255, 34, 34, 0.1);
+  animation: mythicPulse 1.5s ease-in-out infinite;
+}
+.card-rarity-label {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+.card-rarity-common { background: rgba(128, 128, 128, 0.25); color: #bbb; }
+.card-rarity-uncommon { background: rgba(34, 170, 68, 0.2); color: #66cc88; }
+.card-rarity-rare { background: rgba(68, 136, 221, 0.2); color: #88bbff; }
+.card-rarity-epic { background: rgba(153, 68, 204, 0.25); color: #bb88ff; }
+.card-rarity-legendary { background: rgba(221, 204, 0, 0.25); color: #ffdd44; }
+.card-rarity-mythic { background: linear-gradient(90deg, rgba(220, 60, 20, 0.35), rgba(255, 200, 40, 0.3)); color: #ffaa22; }
+
+@keyframes legendaryPulse {
+  0%, 100% { box-shadow: 0 0 20px rgba(255, 102, 255, 0.4); }
+  50% { box-shadow: 0 0 30px rgba(255, 102, 255, 0.6); }
+}
+@keyframes mythicPulse {
+  0%, 100% { box-shadow: 0 0 24px rgba(255, 80, 0, 0.5), inset 0 0 30px rgba(255, 200, 0, 0.08); }
+  50% { box-shadow: 0 0 40px rgba(255, 100, 0, 0.7), inset 0 0 40px rgba(255, 220, 80, 0.12); }
+}
+@keyframes mythicFlash { 0% { box-shadow: 0 0 50px 15px rgba(255,100,0,0.9), 0 0 100px 30px rgba(255,180,0,0.5); border-color: #ffdd44; } 100% { box-shadow: 0 0 14px rgba(255,80,0,0.5), inset 0 0 20px rgba(255,200,0,0.08); border-color: #dd4400; } }
+
+/* ─── Mine visuals ─── */
+.mine-progress {
+  position: absolute;
+  width: 30px; height: 4px;
+  background: rgba(0,0,0,0.5);
+  border-radius: 2px;
+  bottom: -8px; left: 50%; transform: translateX(-50%);
+}
+.mine-progress-fill {
+  height: 100%;
+  background: #44ff88;
+  border-radius: 2px;
+  transition: width 0.1s;
 }

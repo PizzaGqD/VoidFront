@@ -25,6 +25,14 @@
       <p class="menu-subtitle">Введите ник</p>
       <input type="text" id="nicknameInput" class="menu-input" maxlength="24" placeholder="Ваш ник (до 24 символов)" />
       <p class="muted" style="margin-top:8px">Ник будет виден другим в мультиплеере.</p>
+      <div id="soloColorRow" style="display:none; margin-top:12px">
+        <p class="menu-subtitle" style="margin-bottom:6px">Цвет (только одиночка)</p>
+        <div id="soloColorPicker" class="color-picker" style="flex-wrap:wrap; gap:6px"></div>
+      </div>
+      <div id="soloBotCountRow" style="display:none; margin-top:12px">
+        <p class="menu-subtitle" style="margin-bottom:6px">Количество ботов (1–4)</p>
+        <div id="soloBotCountPicker" class="row" style="gap:8px; flex-wrap:wrap"></div>
+      </div>
       <div class="row" style="margin-top:14px">
         <button type="button" id="nicknameBack" class="menu-btn secondary">Назад</button>
         <button type="button" id="nicknameOk" class="menu-btn">Продолжить</button>
@@ -99,10 +107,28 @@
       <div id="lvlUpLevelText" class="lvlup-level-text">Ур. 1</div>
       <div id="lvlUpXpText" class="lvlup-xp-text">(0)</div>
     </div>
-    <button type="button" id="abilitiesBtn" class="abilities-btn-stub" disabled title="В разработке">Способности</button>
+    <button type="button" id="abilitiesBtn" class="abilities-btn-stub" title="Способности">Способности</button>
+    <div id="abilityAnnouncementLine" class="ability-announcement-line" aria-live="polite"></div>
   </div>
+
+  <!-- Ability picker overlay -->
+  <div id="abilityOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9999;display:none;align-items:center;justify-content:center;">
+    <div id="abilityPanel" style="background:linear-gradient(135deg,#0d0f2a 0%,#161844 100%);border:2px solid #44aaff;border-radius:16px;padding:28px 32px;min-width:220px;box-shadow:0 0 40px #2266ff55;position:relative;">
+      <button id="abilityClose" style="position:absolute;top:8px;right:12px;background:none;border:none;color:#aaa;font-size:22px;cursor:pointer;">&times;</button>
+      <div style="color:#ddeeff;font-size:18px;font-weight:700;text-align:center;margin-bottom:18px;">Способности</div>
+      <div id="abilityCards" style="display:flex;gap:16px;justify-content:center;flex-wrap:wrap;"></div>
+    </div>
+  </div>
+  <!-- Test panel (solo only) -->
+  <div id="testPanel" style="display:none;position:fixed;top:10px;right:10px;z-index:9998;background:rgba(10,12,30,0.85);border:1px solid #44aaff;border-radius:10px;padding:10px 14px;display:none;flex-direction:column;gap:6px;box-shadow:0 0 20px #2266ff44;">
+    <div style="color:#88bbff;font-size:12px;font-weight:700;text-align:center;margin-bottom:4px;">Тест-панель</div>
+    <button id="testAddPop" style="background:#1a1d55;color:#ddeeff;border:1px solid #44aaff;border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12px;">+1000 население</button>
+    <button id="testAddLevel" style="background:#1a1d55;color:#ddeeff;border:1px solid #44aaff;border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12px;">+100 уровень</button>
+    <button id="testNoCooldowns" style="background:#1a1d55;color:#ddeeff;border:1px solid #44aaff;border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12px;">Без перезарядок</button>
+  </div>
+
   <div id="hud">
-    <div class="title">Territorial Dominion</div>
+    <div class="title">Territorial Dominion <span id="gameVersionBadge" style="font-size:11px;font-weight:600;opacity:0.55;letter-spacing:0.3px;">v0.6 COSMIC</span></div>
 
     <div id="squadStrip" class="squad-strip"></div>
 
@@ -114,40 +140,66 @@
       <button type="button" class="speed-btn pill" data-speed="1">x1</button>
       <button type="button" class="speed-btn pill" data-speed="2">x2</button>
       <button type="button" class="speed-btn pill" data-speed="4">x4</button>
-      <button type="button" class="speed-btn pill" data-speed="6">x6</button>
       <button type="button" class="speed-btn pill" data-speed="8">x8</button>
-      <button type="button" class="speed-btn pill" data-speed="10">x10</button>
+      <button type="button" class="speed-btn pill" data-speed="16">x16</button>
+      <button type="button" class="speed-btn pill" data-speed="32">x32</button>
     </div>
     <div id="perfLogWrap" class="perf-log-wrap" style="display:none">
       <pre id="perfLog" class="perf-log"></pre>
     </div>
 
+    <div id="eCreditsDisplay" class="ecredits-display">
+      <span class="ecredits-icon">⚡€</span>
+      <span id="eCreditsValue" class="ecredits-value">0</span>
+    </div>
+
     <div class="box stats-columns">
       <div class="stats-col">
-        <div class="subtitle">Город</div>
+        <div class="subtitle">Планета</div>
         <div id="cityStats" class="me-stats"></div>
       </div>
       <div class="stats-col">
-        <div class="subtitle">Армия</div>
+        <div class="subtitle">Флот</div>
         <div id="armyStats" class="me-stats"></div>
       </div>
     </div>
 
     <div class="box">
-      <div class="subtitle">Отправка юнитов</div>
-      <div class="row">
-        <label>Пачка</label>
-        <input id="sendCount" type="range" min="1" max="15" value="3" />
-        <div class="mono" id="sendCountVal">3</div>
+      <div class="subtitle">Верфь — покупка кораблей</div>
+      <div id="unitShop" class="unit-shop">
+        <button type="button" class="unit-buy-btn" data-type="fighter" title="Корвет — быстрый разведчик">
+          <span class="unit-buy-icon">▲<sup>·</sup></span>
+          <span class="unit-buy-name">Корвет</span>
+          <span class="unit-buy-cost">40 ⚡€</span>
+        </button>
+        <button type="button" class="unit-buy-btn" data-type="destroyer" title="Эсминец">
+          <span class="unit-buy-icon">▲<sup>··</sup></span>
+          <span class="unit-buy-name">Эсминец</span>
+          <span class="unit-buy-cost">500 ⚡€</span>
+        </button>
+        <button type="button" class="unit-buy-btn" data-type="cruiser" title="Крейсер">
+          <span class="unit-buy-icon">▲<sup>···</sup></span>
+          <span class="unit-buy-name">Крейсер</span>
+          <span class="unit-buy-cost">2000 ⚡€</span>
+        </button>
+        <button type="button" class="unit-buy-btn" data-type="battleship" title="Линкор">
+          <span class="unit-buy-icon">▲<sup>····</sup></span>
+          <span class="unit-buy-name">Линкор</span>
+          <span class="unit-buy-cost">6000 ⚡€</span>
+        </button>
+        <button type="button" class="unit-buy-btn" data-type="hyperDestroyer" title="ГиперЛинкор">
+          <span class="unit-buy-icon">▲<sup>······</sup></span>
+          <span class="unit-buy-name">ГиперЛинкор</span>
+          <span class="unit-buy-cost">15000 ⚡€</span>
+        </button>
       </div>
-      <div class="muted">Выберите кол-во, ЛКМ по карте — точки маршрута. Отправить — пачка выходит одним отрядом.</div>
+      <div class="muted">Клик по типу — спавн у планеты. ЛКМ по карте — точки маршрута. Горячие клавиши: 1–5.</div>
       <div class="row">
-        <button id="sendBtn">Отправить</button>
         <button id="rallyPointBtn">Точка сбора</button>
         <button id="resetCamBtn">Камера</button>
         <button id="regenBtn">Перегенерить карту</button>
       </div>
-      <div class="muted" id="rallyPointHint">По умолчанию заспавненные идут сюда. Нажмите кнопку, затем ЛКМ по карте.</div>
+      <div class="muted" id="rallyPointHint">Нажмите кнопку, затем ЛКМ по карте — новая точка сбора.</div>
     </div>
 
     <div id="squadControlBox" class="box" style="display:none">
@@ -159,8 +211,9 @@
         <div class="row">
           <label>Строй</label>
           <select id="formationSelect">
+            <option value="lineByType" selected>Шеренга по типу</option>
+            <option value="line">Шеренга</option>
             <option value="pig">Свинья</option>
-            <option value="line" selected>Шеренга</option>
           </select>
           <span id="formationLineRow" class="formation-row-controls">
             <label>Рядов</label>
@@ -189,8 +242,9 @@
         <div class="row">
           <label>Строй</label>
           <select id="formationSelectMulti">
+            <option value="lineByType" selected>Шеренга по типу</option>
+            <option value="line">Шеренга</option>
             <option value="pig">Свинья</option>
-            <option value="line" selected>Шеренга</option>
           </select>
           <span id="formationLineRowMulti" class="formation-row-controls">
             <label>Рядов</label>
@@ -336,8 +390,9 @@
   <script src="https://cdn.jsdelivr.net/npm/pixi.js@8.6.6/dist/pixi.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/pixi-filters@6.1.1/dist/pixi-filters.min.js"></script>
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-  <script src="net.js?v=2"></script>
-  <script src="client.js?v=10"></script>
+  <script src="net.js?v=4"></script>
+  <script src="client.js?v=28"></script>
+  <script src="test-mechanics.js?v=1"></script>
   <script>
   (function(){
     var b = document.getElementById("btnCreateRoom");

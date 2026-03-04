@@ -2,6 +2,7 @@
   "world": {
     "width": 5000,
     "height": 3000,
+    "maxPlayers": 6,
     "comment": "World size in units. Map generation uses FBM noise."
   },
   "camera": {
@@ -9,9 +10,9 @@
     "comment": "Initial camera zoom (Pixi scale)."
   },
   "bots": {
-    "count": 6,
+    "count": 5,
     "thinkIntervalSeconds": 0.8,
-    "comment": "Number of bot players. Bots decide actions every thinkIntervalSeconds."
+    "comment": "Max bot players in solo. Bots decide actions every thinkIntervalSeconds."
   },
   "city": {
     "startPopulation": 150,
@@ -19,25 +20,111 @@
     "growthPer100Population": 1.5,
     "activeUnitPenaltyPercent": 0.005,
     "activeUnitPenaltyCap": 0.5,
-    "sendCooldownSeconds": 10,
     "influenceBaseRadius": 80,
     "influencePopFactor": 1.1,
     "damageRadius": 25,
     "damagePerUnitPerSecond": 1.5,
-    "comment": "population = city HP. Units in damageRadius deal damagePerUnitPerSecond to population. If population <= 0 city is destroyed."
+    "planetAttackRadiusMul": 2.5,
+    "cityAttackTargets": 1,
+    "cityAttackRate": 0.38,
+    "cityAttackDamage": 4,
+    "comment": "population = city HP. planetAttackRadiusMul = ships must be within planetRadius*mul to fire at planet. cityAttackTargets = base number of targets (upgradeable via cards). No send cooldown."
   },
-  "unit": {
-    "hp": 25,
-    "damage": 1,
-    "attackRatePerSecond": 1.3,
-    "speed": 9,
-    "visionRadius": 40,
-    "pickupRadius": 7,
-    "attackRange": 5,
-    "activityRadius": 28,
-    "populationPerUnit": 8,
-    "deathPopulationPenalty": 1,
-    "comment": "No TTL — units live until killed. floor(population / populationPerUnit) = max units per send."
+  "unitTypes": {
+    "fighter": {
+      "name": "Корвет",
+      "squadSize": 1,
+      "cost": 40,
+      "hp": 50,
+      "damage": 3,
+      "attackRate": 0.8,
+      "speed": 32,
+      "attackRange": 60,
+      "maxTargets": 1,
+      "popPenaltyPerUnit": 1,
+      "sizeMultiplier": 1.0,
+      "orbitTarget": false,
+      "comment": "Single cheap corvette, fast scout/harasser"
+    },
+    "destroyer": {
+      "name": "Эсминец",
+      "squadSize": 1,
+      "cost": 500,
+      "hp": 750,
+      "damage": 12,
+      "attackRate": 0.4,
+      "speed": 36,
+      "attackRange": 120,
+      "maxTargets": 2,
+      "popPenaltyPerUnit": 10,
+      "sizeMultiplier": 2.5,
+      "orbitTarget": false,
+      "comment": "Single powerful unit, attacks 2 targets, cannot hit same target twice"
+    },
+    "cruiser": {
+      "name": "Крейсер",
+      "squadSize": 1,
+      "cost": 2000,
+      "hp": 2500,
+      "damage": 30,
+      "attackRate": 0.286,
+      "speed": 24,
+      "attackRange": 192,
+      "maxTargets": 3,
+      "popPenaltyPerUnit": 30,
+      "sizeMultiplier": 4.0,
+      "orbitTarget": false,
+      "comment": "Heavy cruiser, attacks 3 targets simultaneously"
+    },
+    "battleship": {
+      "name": "Линкор",
+      "squadSize": 1,
+      "cost": 6000,
+      "hp": 7000,
+      "damage": 60,
+      "attackRate": 0.2,
+      "speed": 18,
+      "attackRange": 240,
+      "maxTargets": 4,
+      "popPenaltyPerUnit": 60,
+      "sizeMultiplier": 6.0,
+      "orbitTarget": false,
+      "comment": "Massive battleship, attacks 4 targets, slow but devastating"
+    },
+    "hyperDestroyer": {
+      "name": "ГиперЛинкор",
+      "squadSize": 1,
+      "cost": 15000,
+      "hp": 16000,
+      "damage": 100,
+      "attackRate": 0.167,
+      "speed": 14.4,
+      "attackRange": 288,
+      "maxTargets": 6,
+      "popPenaltyPerUnit": 100,
+      "sizeMultiplier": 8.0,
+      "orbitTarget": false,
+      "comment": "Ultimate capital ship, attacks 6 targets, glowing core"
+    }
+  },
+  "mines": {
+    "captureRadius": 140,
+    "captureProtectionSeconds": 5,
+    "captureTimeSeconds": 3,
+    "yieldPerSecond": 1,
+    "baseYieldValue": 1,
+    "richMultiplier": 2.5,
+    "gemSpeed": 15,
+    "gemInterceptRadius": 30,
+    "maxGemsPerMine": 10,
+    "startingMinesPerPlayer": 2,
+    "neutralMinesPerPlayer": 2,
+    "totalMines": 25,
+    "comment": "Mines replace scattered resources. Each captured mine produces gems (eCredits + XP). Center mine is rich (x2.5)."
+  },
+  "eCredits": {
+    "startingAmount": 200,
+    "comment": "Players start with some eCredits. No cap, can accumulate infinitely."
   },
   "turret": {
     "spacing": 55,
@@ -45,17 +132,17 @@
     "attackRate": 1.2,
     "attackDamage": 3,
     "hpRatio": 0.1,
-    "comment": "Border turrets placed every 'spacing' px along influence border. HP = hpRatio * city population. Attack one enemy unit in radius (not other turrets)."
+    "comment": "Border turrets placed every 'spacing' px along influence border."
   },
   "formation": {
     "horizontalSpacing": 14,
     "verticalSpacing": 18,
-    "comment": "Pig formation: triangle 1, 2, 3, 4, 5, 6... Units keep offset relative to formation leader."
+    "comment": "Formation spacing. Mixed formations sort by type: fighters front, then destroyers, cruisers, battleships, hyperDestroyers rear."
   },
   "terrain": {
     "influenceNumRays": 96,
     "influenceStepSize": 2,
-    "comment": "Zone polygon: 96 directions, step until budget (from population) runs out. Each step costs terrainInfluenceCost.",
+    "comment": "Zone polygon: 96 directions, step until budget runs out.",
     "types": {
       "deepWater": {
         "speedMultiplier": 0.3,
@@ -79,34 +166,32 @@
       }
     }
   },
+  "nebula": {
+    "centerRadius": 210,
+    "extraCount": 3,
+    "extraRadiusMin": 140,
+    "extraRadiusMax": 200,
+    "speedPenalty": 0.5,
+    "damageTakenBonus": 0.25,
+    "attackRateBonus": 0.1,
+    "attackRangeBonus": 0.1,
+    "damageBonus": 0.1,
+    "dischargeLifetime": 0.3,
+    "dischargeSegments": 5,
+    "parallaxLayers": 4,
+    "comment": "Center nebula mandatory. Slows units 50%, +25% damage taken, +10% attack rate/range/damage."
+  },
   "waterBonus": {
     "waterRatioThreshold": 0.4,
     "growthBonus": 0.5,
     "penaltyReduction": 0.15,
-    "comment": "If terrain around city has >= waterRatioThreshold water: +growthBonus to growth, -penaltyReduction from active unit penalty."
-  },
-  "resources": {
-    "magnetSpeed": 6,
-    "spawnPerSecond": 1.5,
-    "spawnBurstEverySeconds": 20,
-    "spawnBurstCount": 50,
-    "maxTotal": 700,
-    "centerBias": 0.55,
-    "rainbowFleeSpeed": 3,
-    "rainbowFleeDistance": 30,
-    "types": [
-      { "id": "blue", "xp": 2, "spawnWeight": 0.68, "color": 6726755 },
-      { "id": "green", "xp": 8, "spawnWeight": 0.2, "color": 5635925 },
-      { "id": "red", "xp": 15, "spawnWeight": 0.09, "color": 16734298 },
-      { "id": "rainbow", "xp": 60, "spawnWeight": 0.03, "color": 16777215 }
-    ],
-    "comment": "color as decimal (0x66a3ff = 6684671). spawnWeight = probability."
+    "comment": "If terrain around city has >= waterRatioThreshold water: +growthBonus to growth."
   },
   "xp": {
-    "baseNextLevel": 80,
-    "perLevelFactor": 8,
+    "baseNextLevel": 160,
+    "perLevelFactor": 16,
     "levelMultiplier": 1.05,
-    "comment": "xpNext = baseNextLevel + perLevelFactor * level * levelMultiplier. On level up: choose 1 of 3 cards."
+    "comment": "xpNext = baseNextLevel + perLevelFactor * level * levelMultiplier."
   },
   "map": {
     "textureWidth": 1600,
@@ -114,21 +199,49 @@
     "landThreshold": 0.08,
     "falloffStrength": 1.15,
     "falloffAmount": 0.65,
-    "comment": "FBM noise: below landThreshold = water (deep/shallow/shelf), above = land (low/mid/high/peak)."
+    "comment": "FBM noise map generation."
   },
   "fog": {
     "enabled": true,
     "unseenAlpha": 0.92,
     "seenAlpha": 0.55,
-    "comment": "Three states: unseen (black), seen (dark), visible (clear). Zone + units give visibility."
+    "comment": "Three states: unseen (black), seen (dark), visible (clear)."
   },
   "zones": {
     "enabled": true,
-    "comment": "Show influence polygons. Overlap = neutral, no resource magnet."
+    "comment": "Show influence polygons."
   },
   "grid": {
     "enabled": false,
     "step": 100,
     "comment": "Debug grid overlay."
+  },
+  "blackHole": {
+    "cooldown": 180,
+    "duration": 17,
+    "radius": 400,
+    "growthTime": 3,
+    "holdTime": 10,
+    "fadeTime": 4,
+    "minDamagePerSec": 1,
+    "maxDamagePerSec": 10,
+    "gravityStrength": 70,
+    "comment": "Black hole ability. Grows over growthTime, holds for holdTime, fades over fadeTime. Damage scales inversely with distance."
+  },
+  "chainLightning": {
+    "bounceRadius": 60,
+    "damageDecay": 0.25,
+    "maxBounces": 3,
+    "comment": "Mythic card effect: laser bounces to nearby enemies, losing 25% damage each bounce."
+  },
+  "cryoEffect": {
+    "slowPercent": 0.4,
+    "duration": 2,
+    "comment": "Mythic card: hit units are slowed by 40% for 2 seconds."
+  },
+  "fireEffect": {
+    "dotDamagePerSec": 3,
+    "duration": 3,
+    "comment": "Mythic card: hit units take 3 dmg/sec for 3 seconds."
   }
 }

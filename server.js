@@ -5,7 +5,7 @@ const path = require("path");
 const os = require("os");
 
 const PORT = process.env.PORT || 3040;
-const SLOTS = 5;
+const SLOTS = 6;
 const COLOR_COUNT = 36;
 
 // ─── LAN / VPN detection ──────────────────────────────────────────
@@ -80,8 +80,8 @@ function getRoom(roomId) {
     rooms.set(roomId, {
       hostId: null,
       createdAt: Date.now(),
-      slots: Array.from({ length: SLOTS }, () => ({
-        id: null, name: null, colorIndex: 0, isBot: false
+      slots: Array.from({ length: SLOTS }, (_, i) => ({
+        id: null, name: null, colorIndex: 0, isBot: false, spawnIndex: i
       })),
       chat: []
     });
@@ -95,7 +95,8 @@ function slotSummary(room) {
     id: s.id,
     name: s.name || (s.isBot ? "Бот" : "Пусто"),
     colorIndex: s.colorIndex,
-    isBot: s.isBot
+    isBot: s.isBot,
+    spawnIndex: s.spawnIndex != null ? s.spawnIndex : i
   }));
 }
 
@@ -108,7 +109,8 @@ function removePlayerFromRoom(socket) {
     if (room.slots[i].id === socket.id) {
       room.slots[i] = {
         id: null, name: null,
-        colorIndex: room.slots[i].colorIndex, isBot: false
+        colorIndex: room.slots[i].colorIndex, isBot: false,
+        spawnIndex: room.slots[i].spawnIndex
       };
       break;
     }
@@ -241,6 +243,19 @@ io.on("connection", (socket) => {
     const idx = room.slots.findIndex((s) => s.id === socket.id);
     if (idx < 0) return;
     room.slots[idx].colorIndex = Math.max(0, Math.min(COLOR_COUNT - 1, colorIndex | 0));
+    io.to(roomId).emit("slots", slotSummary(room));
+  });
+
+  socket.on("setSpawn", (spawnIndex) => {
+    const roomId = socket.roomId;
+    if (!roomId) return;
+    const room = getRoom(roomId);
+    const idx = room.slots.findIndex((s) => s.id === socket.id);
+    if (idx < 0) return;
+    const si = Math.max(0, Math.min(SLOTS - 1, spawnIndex | 0));
+    const taken = room.slots.some((s, j) => j !== idx && s.spawnIndex === si && (s.id || s.isBot));
+    if (taken) return;
+    room.slots[idx].spawnIndex = si;
     io.to(roomId).emit("slots", slotSummary(room));
   });
 

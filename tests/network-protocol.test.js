@@ -140,7 +140,7 @@ function testZoneSyncPayload() {
   assert(Array.isArray(snap.resDelta), "zone: resDelta present");
   assert(snap.resDelta.length > 0, "zone: resDelta has entries");
   const entry = snap.resDelta[0];
-  assert(Array.isArray(entry) && entry.length === 3, "zone: resDelta entry = [id, x, y]");
+  assert(Array.isArray(entry) && entry.length >= 3, "zone: resDelta entry = [id, x, y, ?targetCity]");
   assert(snap.resources === undefined, "zone: no full resources (only resDelta)");
 
   console.log("  [OK] testZoneSyncPayload");

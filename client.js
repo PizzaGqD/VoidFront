@@ -35,7 +35,7 @@
     if (hostBadge) hostBadge.style.display = state._isHost ? "inline-block" : "none";
     if (startBtn) startBtn.style.display = state._isHost ? "inline-block" : "none";
     slotsEl.innerHTML = "";
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 6; i++) {
       const s = slots[i] || {};
       const div = document.createElement("div");
       div.className = "lobby-slot" + (!s.id && !s.isBot ? " empty" : "");
@@ -120,36 +120,64 @@
   const camB = balance.camera || {};
   const botsB = balance.bots || {};
   const cityB = balance.city || {};
-  const unitB = balance.unit || {};
   const formB = balance.formation || {};
   const terrainB = balance.terrain || {};
   const waterB = balance.waterBonus || {};
-  const resB = balance.resources || {};
   const xpB = balance.xp || {};
   const mapB = balance.map || {};
   const fogB = balance.fog || {};
   const zonesB = balance.zones || {};
   const gridB = balance.grid || {};
+  const minesB = balance.mines || {};
+  const eCreditsB = balance.eCredits || {};
+  const nebulaB = balance.nebula || {};
+  const bhB = balance.blackHole || {};
+  const chainB = balance.chainLightning || {};
+  const cryoB = balance.cryoEffect || {};
+  const fireB = balance.fireEffect || {};
+  const unitTypesB = balance.unitTypes || {};
+
+  const UNIT_BOUNDING_MUL = { fighter: 1.8, destroyer: 2, cruiser: 2, battleship: 2.2, hyperDestroyer: 2.5 };
+  const UNIT_TYPE_ORDER = ["fighter","destroyer","cruiser","battleship","hyperDestroyer"];
+  const UNIT_TYPES = {};
+  for (const key of UNIT_TYPE_ORDER) {
+    const t = unitTypesB[key] || {};
+    UNIT_TYPES[key] = {
+      key,
+      name: t.name || key,
+      squadSize: t.squadSize ?? 1,
+      cost: t.cost ?? 100,
+      hp: t.hp ?? 25,
+      damage: t.damage ?? 1,
+      attackRate: t.attackRate ?? 1,
+      speed: t.speed ?? 9,
+      attackRange: t.attackRange ?? 40,
+      maxTargets: t.maxTargets ?? 1,
+      popPenaltyPerUnit: t.popPenaltyPerUnit ?? 1,
+      sizeMultiplier: t.sizeMultiplier ?? 1,
+      orbitTarget: !!t.orbitTarget,
+      formationType: t.formationType || null,
+      formationRows: t.formationRows ?? 3
+    };
+  }
 
   const CFG = {
-    GAME_SPEED: 4,
+    GAME_SPEED: 1,
     WORLD_W: w.width ?? 5000,
     WORLD_H: w.height ?? 3000,
-    CAMERA_START_ZOOM: camB.startZoom ?? 0.35,
-    BOTS: 6,
+    MAX_PLAYERS: w.maxPlayers ?? 6,
+    CAMERA_START_ZOOM: camB.startZoom ?? 0.22,
+    BOTS: botsB.count ?? 5,
     BOT_THINK_INTERVAL: botsB.thinkIntervalSeconds ?? 0.8,
     BOT_SEND_DELAY: 0.6,
 
-    POP_START: 150,
+    POP_START: cityB.startPopulation ?? 150,
+    ECREDITS_START: eCreditsB.startingAmount ?? 200,
 
     GROWTH_BASE_PER_MIN: cityB.baseGrowthPerMinute ?? 2,
     GROWTH_PER_100: cityB.growthPer100Population ?? 1.5,
     ACTIVE_SOLDIER_PENALTY_PER: cityB.activeUnitPenaltyPercent ?? 0.005,
     ACTIVE_SOLDIER_PENALTY_CAP: cityB.activeUnitPenaltyCap ?? 0.5,
-    SEND_COOLDOWN_BASE: 0.5,
-    SEND_COOLDOWN_PER_UNIT: 2.5,
-    SEND_COOLDOWN_MIN: 2,
-    SEND_COOLDOWN_MAX: 60,
     INFLUENCE_BASE_R: (cityB.influenceBaseRadius ?? 80) * 3,
     INFLUENCE_POP_FACTOR: cityB.influencePopFactor ?? 1.1,
     INFLUENCE_GROWTH_SPEED: 6.0,
@@ -162,22 +190,25 @@
     TURRET_HP_RATIO: 0.35,
     CITY_DAMAGE_RADIUS: cityB.damageRadius ?? 25,
     CITY_DAMAGE_PER_UNIT_PER_S: cityB.damagePerUnitPerSecond ?? 1.5,
-    CITY_ATTACK_RADIUS: 100,
-    CITY_ATTACK_RATE: 0.38,
-    CITY_ATTACK_DMG: 4,
+    PLANET_ATTACK_R_MUL: cityB.planetAttackRadiusMul ?? 2.5,
+    CITY_ATTACK_RADIUS: 200,
+    CITY_ATTACK_RATE: cityB.cityAttackRate ?? 0.38,
+    CITY_ATTACK_DMG: cityB.cityAttackDamage ?? 4,
     CITY_BULLET_SPEED: 60,
-    CITY_TARGETS_POP_DIVISOR: 75,
+    CITY_BASE_TARGETS: cityB.cityAttackTargets ?? 1,
 
-    UNIT_SPEED: unitB.speed ?? 9,
-    UNIT_HP: unitB.hp ?? 25,
-    UNIT_DMG: unitB.damage ?? 1,
-    UNIT_ATK_RATE: unitB.attackRatePerSecond ?? 1.3,
-    UNIT_ATK_RANGE: unitB.attackRange ?? 5,
-    ACTIVITY_RADIUS: unitB.activityRadius ?? 28,
-    UNIT_VISION: unitB.visionRadius ?? 40,
-    UNIT_PICKUP: unitB.pickupRadius ?? 7,
-    UNIT_POP_PER: unitB.populationPerUnit ?? 8,
-    UNIT_DEATH_POP_PENALTY: unitB.deathPopulationPenalty ?? 1,
+    MINE_CAPTURE_RADIUS: minesB.captureRadius ?? 50,
+    MINE_CAPTURE_PROTECTION: minesB.captureProtectionSeconds ?? 5,
+    MINE_CAPTURE_TIME: minesB.captureTimeSeconds ?? 3,
+    MINE_YIELD_PER_SEC: minesB.yieldPerSecond ?? 5,
+    MINE_BASE_YIELD_VALUE: minesB.baseYieldValue ?? 1,
+    MINE_RICH_MULTIPLIER: minesB.richMultiplier ?? 2.5,
+    MINE_GEM_SPEED: minesB.gemSpeed ?? 200,
+    MINE_GEM_INTERCEPT_R: minesB.gemInterceptRadius ?? 30,
+    MINE_MAX_GEMS: minesB.maxGemsPerMine ?? 10,
+    MINE_START_PER_PLAYER: minesB.startingMinesPerPlayer ?? 2,
+    MINE_NEUTRAL_PER_PLAYER: minesB.neutralMinesPerPlayer ?? 2,
+    MINE_TOTAL: minesB.totalMines ?? 25,
 
     FORM_SPACING_X: formB.horizontalSpacing ?? 14,
     FORM_SPACING_Y: formB.verticalSpacing ?? 18,
@@ -196,29 +227,39 @@
     WATER_GROWTH_BONUS: waterB.growthBonus ?? 0.5,
     WATER_PENALTY_REDUCTION: waterB.penaltyReduction ?? 0.15,
 
-    RES_MAGNET_SPEED: resB.magnetSpeed ?? 6,
-    RES_SPAWN_PER_S: resB.spawnPerSecond ?? 1.5,
-    RES_SPAWN_BURST_EVERY_S: resB.spawnBurstEverySeconds ?? 20,
-    RES_SPAWN_BURST_COUNT: resB.spawnBurstCount ?? 50,
-    RES_MAX: resB.maxTotal ?? 700,
-    RES_CENTER_BIAS: resB.centerBias ?? 0.55,
-    RAINBOW_FLEE_SPEED: resB.rainbowFleeSpeed ?? 3,
-    RAINBOW_FLEE_DIST: resB.rainbowFleeDistance ?? 30,
-    RES_TYPES: (resB.types || []).map(t => ({
-      id: t.id,
-      xp: t.xp,
-      p: t.spawnWeight ?? 0.25,
-      color: typeof t.color === "number" ? t.color : parseInt(String(t.color).replace(/^0x/, ""), 16)
-    })),
-    RES_TYPES_DEFAULT: [
-      { id: "blue", xp: 2, p: 0.68, color: 0x66a3ff },
-      { id: "green", xp: 8, p: 0.2, color: 0x55ff99 },
-      { id: "red", xp: 15, p: 0.09, color: 0xff5a5a },
-      { id: "rainbow", xp: 60, p: 0.03, color: 0xffffff }
-    ],
+    NEBULA_CENTER_RADIUS: nebulaB.centerRadius ?? 210,
+    NEBULA_EXTRA_COUNT: nebulaB.extraCount ?? 3,
+    NEBULA_EXTRA_R_MIN: nebulaB.extraRadiusMin ?? 140,
+    NEBULA_EXTRA_R_MAX: nebulaB.extraRadiusMax ?? 200,
+    NEBULA_SPEED_PENALTY: nebulaB.speedPenalty ?? 0.5,
+    NEBULA_DMG_TAKEN_BONUS: nebulaB.damageTakenBonus ?? 0.25,
+    NEBULA_ATK_RATE_BONUS: nebulaB.attackRateBonus ?? 0.1,
+    NEBULA_ATK_RANGE_BONUS: nebulaB.attackRangeBonus ?? 0.1,
+    NEBULA_DMG_BONUS: nebulaB.damageBonus ?? 0.1,
+    NEBULA_DISCHARGE_LIFE: nebulaB.dischargeLifetime ?? 0.3,
+    NEBULA_DISCHARGE_SEGS: nebulaB.dischargeSegments ?? 5,
 
-    XP_BASE: xpB.baseNextLevel ?? 80,
-    XP_PER_LEVEL: xpB.perLevelFactor ?? 8,
+    BLACKHOLE_COOLDOWN: bhB.cooldown ?? 180,
+    BLACKHOLE_DURATION: bhB.duration ?? 17,
+    BLACKHOLE_RADIUS: bhB.radius ?? 400,
+    BLACKHOLE_GROWTH_TIME: bhB.growthTime ?? 3,
+    BLACKHOLE_HOLD_TIME: bhB.holdTime ?? 10,
+    BLACKHOLE_FADE_TIME: bhB.fadeTime ?? 4,
+    BLACKHOLE_MIN_DPS: bhB.minDamagePerSec ?? 1,
+    BLACKHOLE_MAX_DPS: bhB.maxDamagePerSec ?? 10,
+    BLACKHOLE_GRAVITY: bhB.gravityStrength ?? 70,
+
+    ACTIVITY_RADIUS: 35,
+    CHAIN_BOUNCE_R: chainB.bounceRadius ?? 60,
+    CHAIN_DECAY: chainB.damageDecay ?? 0.25,
+    CHAIN_MAX_BOUNCES: chainB.maxBounces ?? 3,
+    CRYO_SLOW: cryoB.slowPercent ?? 0.4,
+    CRYO_DURATION: cryoB.duration ?? 2,
+    FIRE_DOT_DPS: fireB.dotDamagePerSec ?? 3,
+    FIRE_DURATION: fireB.duration ?? 3,
+
+    XP_BASE: xpB.baseNextLevel ?? 160,
+    XP_PER_LEVEL: xpB.perLevelFactor ?? 16,
     XP_LEVEL_MUL: xpB.levelMultiplier ?? 1.05,
 
     MAP_TEX_W: mapB.textureWidth ?? 1600,
@@ -235,7 +276,6 @@
     GRID_STEP: gridB.step ?? 100,
   };
 
-  if (!CFG.RES_TYPES.length) CFG.RES_TYPES = CFG.RES_TYPES_DEFAULT;
   CFG.INFLUENCE_R = (pop) => CFG.INFLUENCE_BASE_R + CFG.INFLUENCE_POP_FACTOR * pop;
 
   const PLAYER_NAMES = { 1: "You", 2: "Kindred", 3: "Yoshi", 4: "Bobby", 5: "Garfield", 6: "Raven", 7: "Blitz" };
@@ -255,9 +295,7 @@
   // ------------------------------------------------------------
   const fpsEl = document.getElementById("fps");
   // city/army stats are split into two elements, see updateHUD
-  const sendCountEl = document.getElementById("sendCount");
-  const sendCountValEl = document.getElementById("sendCountVal");
-  const sendBtn = document.getElementById("sendBtn");
+  // Removed old sendCount/sendBtn -- now using unit purchase buttons
   const resetCamBtn = document.getElementById("resetCamBtn");
   const regenBtn = document.getElementById("regenBtn");
   const toggleZonesBtn = document.getElementById("toggleZones");
@@ -281,7 +319,7 @@
     if (rallyPointHintEl) rallyPointHintEl.textContent = "Кликните по карте — куда по умолчанию идут отряды.";
   });
 
-  sendCountEl.addEventListener("input", () => (sendCountValEl.textContent = sendCountEl.value));
+  // sendCountEl removed -- using unit shop buttons now
 
   function applyFormationToSquad(squad, formationType, formationRows, dirX, dirY, formationPigWidth) {
     const leader = squad.find(u => (u.leaderId || u.id) === (squad[0].leaderId || squad[0].id)) || squad[0];
@@ -292,7 +330,7 @@
       [vx, vy] = leader.waypoints && leader.waypoints.length ? norm(leader.waypoints[0].x - leader.x, leader.waypoints[0].y - leader.y) : norm(1, 0);
     }
     const pigW = formationPigWidth ?? leader.formationPigWidth ?? 1;
-    const offsets = getFormationOffsets(squad.length, formationType, formationRows, vx, vy, pigW);
+    const offsets = getFormationOffsets(squad.length, formationType, formationRows, vx, vy, pigW, squad);
     leader.formationType = formationType;
     leader.formationRows = formationRows;
     if (formationType === "pig") leader.formationPigWidth = pigW;
@@ -344,7 +382,7 @@
   }
   function setFormationUIFromLeader(leader) {
     if (!leader) return;
-    const type = leader.formationType || "pig";
+    const type = leader.formationType || "lineByType";
     const rows = leader.formationRows ?? (type === "line" ? 2 : 3);
     const pigW = leader.formationPigWidth ?? 1;
     if (formationSelect) formationSelect.value = type;
@@ -434,13 +472,18 @@
     const ids = [...state.selectedUnitIds].filter(id => state.units.get(id)?.owner === state.myPlayerId);
     if (ids.length < 2) return;
     const units = ids.map(id => state.units.get(id)).filter(Boolean);
+    units.sort((a, b) => {
+      const ai = UNIT_TYPE_ORDER.indexOf(a.unitType || "fighter");
+      const bi = UNIT_TYPE_ORDER.indexOf(b.unitType || "fighter");
+      return ai - bi;
+    });
     const leader = units[0];
     const [vx, vy] = norm(1, 0);
     const waypoints = [{ x: leader.x + vx * 280, y: leader.y + vy * 280 }];
-    const formationType = (formationSelectMulti && formationSelectMulti.value) || (formationSelect && formationSelect.value) || "pig";
+    const formationType = (formationSelectMulti && formationSelectMulti.value) || (formationSelect && formationSelect.value) || "lineByType";
     const formationRows = parseInt(formationRowsMultiEl?.value ?? formationRowsEl?.value ?? 1, 10) || 1;
     const pigW = leader.formationPigWidth ?? 1;
-    const offsets = getFormationOffsets(units.length, formationType, formationRows, vx, vy, pigW);
+    const offsets = getFormationOffsets(units.length, formationType, formationRows, vx, vy, pigW, units);
     const leaderId = leader.id;
     leader.leaderId = null;
     leader.formationType = formationType;
@@ -531,7 +574,8 @@
     let hp = 0, dps = 0;
     for (const u of squad) {
       hp += u.hp;
-      dps += (u.dmg != null ? u.dmg : CFG.UNIT_DMG) * CFG.UNIT_ATK_RATE;
+      const ut = UNIT_TYPES[u.unitType] || UNIT_TYPES.fighter;
+      dps += (u.dmg != null ? u.dmg : ut.damage) * ut.attackRate;
     }
     return Math.round(hp + dps * 4);
   }
@@ -545,16 +589,20 @@
       const bindNum = Object.keys(state.squadBinds).find(k => state.squadBinds[k] === leaderId);
       const isSelected = state.selectedUnitIds.has(squad[0].id) || squad.some(u => state.selectedUnitIds.has(u.id));
       const btn = document.createElement("button");
+      btn.type = "button";
       btn.className = "squad-pill" + (isSelected ? " selected" : "");
       let hp = 0;
       for (const u of squad) hp += u.hp;
       const strength = squadStrength(squad);
       btn.innerHTML = (bindNum ? `[${bindNum}] ` : "") + "Отряд " + squad.length + " · <span class=\"squad-strength\">" + strength + "</span>";
       btn.dataset.leaderId = leaderId;
-      btn.addEventListener("click", () => {
+      btn.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
         state.selectedUnitIds.clear();
         for (const u of squad) state.selectedUnitIds.add(u.id);
         updateSquadControlBox();
+        updateSelectionBox();
       });
       squadStripEl.appendChild(btn);
     });
@@ -627,6 +675,9 @@
     }
   }
 
+  // ── Version ──────────────────────────────────────────────────
+  const GAME_VERSION = "0.5A";
+
   // ------------------------------------------------------------
   // Helpers
   // ------------------------------------------------------------
@@ -690,6 +741,72 @@
 
 	document.body.appendChild(app.canvas);
 	app.canvas.style.cssText = "position:fixed;inset:0;z-index:0;";
+  // ── Starfield: 5 layers, 20% stars each, parallax 0.25 → 0.05 ───────────
+  const starLayer = new PIXI.Container();
+  app.stage.addChildAt(starLayer, 0); // behind world
+
+  const STAR_PARALLAX = [0.45, 0.38, 0.32, 0.26, 0.20, 0.15, 0.11, 0.07, 0.04, 0.02];
+  const STARS_COUNT = [32, 32, 48, 48, 56, 56, 64, 64, 64, 64];
+  const STAR_COLORS = ["#ffffff","#ffffff","#ffffff","#ddeeff","#a8ccff","#ffe8c8","#ffd0a8","#c8b8ff","#ffcccc"];
+  let _starSprites = [];
+  let _starPulseData = []; // per-layer pulse metadata
+
+  function buildStarTexture(seed, layerIndex) {
+    const TW = 1600, TH = 1000;
+    const cnv = document.createElement("canvas");
+    cnv.width = TW; cnv.height = TH;
+    const ctx = cnv.getContext("2d");
+    if (layerIndex === 0) { ctx.fillStyle = "#07091a"; ctx.fillRect(0, 0, TW, TH); }
+
+    const rng = mulberry32(seed + 0x57AE5 + layerIndex * 7919);
+    const count = STARS_COUNT[layerIndex] || 120;
+    const sizeBase  = 0.25 + layerIndex * 0.3;
+    const sizeRange = 0.6 + layerIndex * 0.5;
+    const stars = [];
+    for (let i = 0; i < count; i++) {
+      const x = rng() * TW, y = rng() * TH;
+      const r = sizeBase + rng() * sizeRange;
+      const a = 0.3 + rng() * 0.6;
+      const col = STAR_COLORS[rng() * STAR_COLORS.length | 0];
+      ctx.globalAlpha = a;
+      ctx.fillStyle = col;
+      ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+      if (r > 1.4) {
+        ctx.globalAlpha = a * 0.25;
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(x - r * 2.5, y - 0.5, r * 5, 1);
+        ctx.fillRect(x - 0.5, y - r * 2.5, 1, r * 5);
+      }
+      stars.push({ phase: rng() * Math.PI * 2, speed: 0.3 + rng() * 0.7 });
+    }
+    ctx.globalAlpha = 1;
+    return { tex: PIXI.Texture.from(cnv), stars };
+  }
+
+  function initStarfield(seed) {
+    _starSprites.forEach(s => { starLayer.removeChild(s); s.destroy(); });
+    _starSprites = [];
+    _starPulseData = [];
+    for (let L = 0; L < 10; L++) {
+      const { tex, stars } = buildStarTexture(seed, L);
+      const sp = new PIXI.TilingSprite({ texture: tex, width: app.renderer.width, height: app.renderer.height });
+      starLayer.addChild(sp);
+      _starSprites.push(sp);
+      _starPulseData.push(stars);
+    }
+    app.renderer.on("resize", (w, h) => { _starSprites.forEach(s => { s.width = w; s.height = h; }); });
+  }
+
+  // Subtle pulse: modulate alpha of each star layer slightly over time
+  function pulseStars() {
+    const now = performance.now() / 1000;
+    for (let L = 0; L < _starSprites.length; L++) {
+      const base = L === 0 ? 1.0 : 1.0;
+      const pulse = 0.03 * Math.sin(now * (0.4 + L * 0.15) + L * 1.5);
+      _starSprites[L].alpha = base + pulse;
+    }
+  }
+
   // Layers
   const world = new PIXI.Container();
   const mapLayer = new PIXI.Container();
@@ -713,11 +830,17 @@
   const zoneEffectsLayer = new PIXI.Container();
   const contactGfx = new PIXI.Graphics();
   zoneEffectsLayer.addChild(contactGfx);
-  world.addChild(mapLayer, gridLayer, zonesLayer, zoneEffectsLayer, turretLayer, resLayer, activityZoneLayer, unitsLayer, cityLayer, squadLabelsLayer, combatLayer, floatingDamageLayer, bulletsLayer, ghostLayer);
+  const shieldHitEffectsGfx = new PIXI.Graphics();
+  const shieldHitEffectsLayer = new PIXI.Container();
+  shieldHitEffectsLayer.addChild(shieldHitEffectsGfx);
+  world.addChild(mapLayer, gridLayer, zonesLayer, zoneEffectsLayer, turretLayer, activityZoneLayer, unitsLayer, resLayer, cityLayer, shieldHitEffectsLayer, squadLabelsLayer, combatLayer, floatingDamageLayer, bulletsLayer, ghostLayer);
   world.addChild(fogLayer);
   world.addChild(pathPreviewLayer, selectionBoxLayer);
   fogLayer.visible = false;
   app.stage.addChild(world);
+
+  const announcementLayer = new PIXI.Container();
+  app.stage.addChild(announcementLayer);
 
   // Glow filter for primitives
   const GlowFilter = PIXI.filters.GlowFilter || (pixiFilters && pixiFilters.GlowFilter);
@@ -742,6 +865,12 @@
   function applyCamera() {
     world.scale.set(cam.zoom);
     world.position.set(cam.x, cam.y);
+    for (let L = 0; L < _starSprites.length; L++) {
+      const f = STAR_PARALLAX[L] ?? 0.15;
+      _starSprites[L].tilePosition.x = -cam.x * f;
+      _starSprites[L].tilePosition.y = -cam.y * f;
+    }
+    applyNebulaParallax();
   }
 
   // Center world initially
@@ -982,6 +1111,7 @@
     return Math.abs(area) * 0.5;
   }
 
+  /** Glass base only: dark, semi-transparent so starfield shows through. */
   function makeMapTexture() {
     const W = CFG.MAP_TEX_W;
     const H = CFG.MAP_TEX_H;
@@ -989,103 +1119,238 @@
     cnv.width = W;
     cnv.height = H;
     const c = cnv.getContext("2d");
-    const img = c.createImageData(W, H);
+    // Slight gradient: darker corners, very subtle center
+    const g = c.createRadialGradient(W * 0.5, H * 0.5, 0, W * 0.5, H * 0.5, Math.hypot(W, H) * 0.55);
+    g.addColorStop(0, "rgba(6, 8, 22, 0.28)");
+    g.addColorStop(1, "rgba(4, 6, 18, 0.38)");
+    c.fillStyle = g;
+    c.fillRect(0, 0, W, H);
+    const tex = PIXI.Texture.from(cnv);
+    return tex;
+  }
+
+  /** Build an irregular nebula texture using noise on canvas. */
+  function buildNebulaTexture(seed, hue) {
+    const S = 256;
+    const cnv = document.createElement("canvas");
+    cnv.width = S; cnv.height = S;
+    const ctx = cnv.getContext("2d");
+    const img = ctx.createImageData(S, S);
     const d = img.data;
-
-    // colors
-    const deepSea = [12, 24, 46];
-    const sea = [18, 38, 72];
-    const shelf = [26, 58, 92];
-
-    const low = [70, 105, 68];
-    const mid = [92, 126, 76];
-    const high = [122, 134, 92];
-    const peak = [155, 150, 120];
-
-    function mix(a, b, t) {
-      return [
-        (a[0] + (b[0] - a[0]) * t),
-        (a[1] + (b[1] - a[1]) * t),
-        (a[2] + (b[2] - a[2]) * t)
-      ];
-    }
-
-    const landThreshold = CFG.LAND_THRESHOLD ?? 0.08;
-    const falloffStr = CFG.FALLOFF_STRENGTH ?? 1.15;
-    const falloffAmt = CFG.FALLOFF_AMOUNT ?? 0.65;
-
-    for (let y = 0; y < H; y++) {
-      for (let x = 0; x < W; x++) {
-        const i = (y * W + x) * 4;
-
-        const nx = x / W;
-        const ny = y / H;
-        const dx = (nx - 0.52);
-        const dy = (ny - 0.52);
-        const falloff = Math.sqrt(dx * dx + dy * dy) * falloffStr;
-
-        const wx = nx * CFG.WORLD_W;
-        const wy = ny * CFG.WORLD_H;
-        let n = fbm(wx, wy, mapSeed);
-        n = n - falloff * falloffAmt;
-
-        let col;
-        if (n <= landThreshold) {
-          const t = clamp((n - (-0.8)) / (landThreshold - (-0.8)), 0, 1);
-          col = mix(deepSea, sea, t);
-          if (n > landThreshold - 0.08) col = mix(col, shelf, 0.55);
-        } else {
-          const t = clamp((n - landThreshold) / 0.55, 0, 1);
-          if (t < 0.35) col = mix(low, mid, t / 0.35);
-          else if (t < 0.75) col = mix(mid, high, (t - 0.35) / 0.40);
-          else col = mix(high, peak, (t - 0.75) / 0.25);
-
-          // subtle paper/terrain variation
-          const vv = valueNoise(wx, wy, 0.01, mapSeed + 999);
-          const k = (vv - 0.5) * 0.10;
-          col = [col[0] * (1 - k), col[1] * (1 - k), col[2] * (1 - k)];
-        }
-
-        d[i + 0] = col[0] | 0;
-        d[i + 1] = col[1] | 0;
-        d[i + 2] = col[2] | 0;
-        d[i + 3] = 255;
+    const rng = mulberry32(seed);
+    for (let y = 0; y < S; y++) {
+      for (let x = 0; x < S; x++) {
+        const i = (y * S + x) * 4;
+        const nx = x / S, ny = y / S;
+        const cx = nx - 0.5, cy = ny - 0.5;
+        const dist = Math.sqrt(cx * cx + cy * cy) * 2;
+        const n1 = valueNoise(x * 3, y * 3, 0.03, seed);
+        const n2 = valueNoise(x * 3, y * 3, 0.06, seed + 999) * 0.5;
+        const shape = Math.max(0, 1 - dist * (0.8 + n1 * 0.6) - n2 * 0.3);
+        const alpha = shape * shape * 255;
+        const hr = ((hue >> 16) & 0xff), hg = ((hue >> 8) & 0xff), hb = (hue & 0xff);
+        d[i] = hr; d[i+1] = hg; d[i+2] = hb; d[i+3] = alpha | 0;
       }
     }
+    ctx.putImageData(img, 0, 0);
+    return PIXI.Texture.from(cnv);
+  }
 
-    c.putImageData(img, 0, 0);
+  const NEBULA_HUES = [0x1a2a6e, 0x2a1a5e, 0x3a2aae, 0x1a4a6e, 0x4a2a8e];
+  const NEBULA_LAYER_PARALLAX = [0.003, 0.006, 0.009, 0.012, 0.015];
+  let nebulaContainers = []; // one PIXI.Container per parallax layer
+  let stateNebulaClouds = [];
 
-    // paper overlay (deterministic when state._gameSeed set for multi sync)
-    const paperRnd = state._gameSeed != null ? mulberry32(mapSeed + 12345) : null;
-    const rnd = paperRnd || Math.random.bind(Math);
-    c.globalAlpha = 0.12;
-    c.globalCompositeOperation = "multiply";
-    c.fillStyle = "#ffffff";
-    for (let i = 0; i < 8000; i++) {
-      const x = rnd() * W;
-      const y = rnd() * H;
-      const a = 0.02 + rnd() * 0.04;
-      c.globalAlpha = a;
-      c.fillRect(x, y, 1, 1);
+  function rebuildNebulae() {
+    nebulaContainers.forEach(c => { if (c.parent) c.parent.removeChild(c); c.destroy({ children: true }); });
+    nebulaContainers = [];
+    stateNebulaClouds = [];
+
+    const rng = mulberry32(mapSeed ^ 0xe3b014);
+    const numClouds = 3 + (rng() > 0.5 ? 1 : 0);
+    const clouds = [];
+    for (let n = 0; n < numClouds; n++) {
+      clouds.push({
+        cx: CFG.WORLD_W * (0.15 + rng() * 0.70),
+        cy: CFG.WORLD_H * (0.15 + rng() * 0.70),
+        r: 320 + rng() * 120
+      });
     }
-    c.globalAlpha = 1;
-    c.globalCompositeOperation = "source-over";
+    const numChains = 2 + (rng() > 0.5 ? 1 : 0);
+    for (let ch = 0; ch < numChains; ch++) {
+      const startX = CFG.WORLD_W * (0.2 + rng() * 0.6);
+      const startY = CFG.WORLD_H * (0.2 + rng() * 0.6);
+      const angle = rng() * Math.PI * 2;
+      const step = 160 + rng() * 140;
+      const chainLen = 3 + Math.floor(rng() * 3);
+      for (let i = 0; i < chainLen; i++) {
+        clouds.push({
+          cx: clamp(startX + Math.cos(angle) * step * i + (rng() - 0.5) * 60, 100, CFG.WORLD_W - 100),
+          cy: clamp(startY + Math.sin(angle) * step * i + (rng() - 0.5) * 60, 100, CFG.WORLD_H - 100),
+          r: 150 + rng() * 90
+        });
+      }
+    }
+    stateNebulaClouds = clouds;
 
+    for (let L = 0; L < 5; L++) {
+      const layerC = new PIXI.Container();
+      layerC._parallax = NEBULA_LAYER_PARALLAX[L];
+      layerC._basePivotX = 0; layerC._basePivotY = 0;
+      const hue = NEBULA_HUES[L];
+      for (let n = 0; n < clouds.length; n++) {
+        const c = clouds[n];
+        const tex = buildNebulaTexture(mapSeed + n * 1000 + L * 333, hue);
+        const sp = new PIXI.Sprite(tex);
+        sp.anchor.set(0.5, 0.5);
+        const offX = (rng() - 0.5) * c.r * 0.35;
+        const offY = (rng() - 0.5) * c.r * 0.35;
+        sp.position.set(c.cx + offX, c.cy + offY);
+        const stretchW = 0.7 + rng() * 0.8 + L * 0.06;
+        const stretchH = 0.6 + rng() * 0.7 + L * 0.08;
+        sp.width = c.r * 2.4 * stretchW;
+        sp.height = c.r * 2.4 * stretchH;
+        sp.rotation = rng() * Math.PI * 2;
+        sp.alpha = 0.35 + L * 0.08;
+        layerC.addChild(sp);
+      }
+      const idx = mapLayer.children.indexOf(mapSprite);
+      mapLayer.addChildAt(layerC, idx >= 0 ? idx + 1 + L : L);
+      nebulaContainers.push(layerC);
+    }
+  }
+
+  function applyNebulaParallax() {
+    const cx = cam.x / cam.zoom, cy = cam.y / cam.zoom;
+    for (const c of nebulaContainers) {
+      const f = c._parallax || 0;
+      c.pivot.set(cx * f, cy * f);
+    }
+  }
+
+  let neonEdgeSprite = null;
+
+  function rebuildNeonEdges() {
+    if (neonEdgeSprite) { if (neonEdgeSprite.parent) neonEdgeSprite.parent.removeChild(neonEdgeSprite); neonEdgeSprite.destroy(); }
+    const W = CFG.WORLD_W, H = CFG.WORLD_H;
+    const PAD = 60;
+    const cnv = document.createElement("canvas");
+    cnv.width = W + PAD * 2;
+    cnv.height = H + PAD * 2;
+    const ctx = cnv.getContext("2d");
+
+    // Single core line with glow via shadow
+    ctx.shadowColor = "#55bbff";
+    ctx.shadowBlur = 30;
+    ctx.globalAlpha = 0.9;
+    ctx.strokeStyle = "#55bbff";
+    ctx.lineWidth = 4;
+    ctx.strokeRect(PAD, PAD, W, H);
+
+    ctx.globalAlpha = 1;
     const tex = PIXI.Texture.from(cnv);
-    tex.baseTexture.scaleMode = PIXI.SCALE_MODES.LINEAR;
-    return tex;
+    neonEdgeSprite = new PIXI.Sprite(tex);
+    neonEdgeSprite.position.set(-PAD, -PAD);
+    world.addChild(neonEdgeSprite);
+  }
+
+  function pulseNeonEdge() {
+    if (!neonEdgeSprite) return;
+    const t = performance.now() / 1000;
+    const pulse = 0.55 + 0.45 * Math.sin(t * 1.2);
+    neonEdgeSprite.alpha = pulse;
+  }
+
+  /** Electrical discharges: zigzag lightning, along map edge and inside nebulae. */
+  let dischargeGfx = null;
+  let _dischargeSpawnAcc = 0;
+  const DISCHARGE_SPAWN_INTERVAL = 1.8;
+
+  function makeZigzag(x1, y1, x2, y2, rng, segs) {
+    const pts = [{ x: x1, y: y1 }];
+    for (let i = 1; i < segs; i++) {
+      const t = i / segs;
+      const mx = x1 + (x2 - x1) * t + (rng() - 0.5) * 60;
+      const my = y1 + (y2 - y1) * t + (rng() - 0.5) * 60;
+      pts.push({ x: mx, y: my });
+    }
+    pts.push({ x: x2, y: y2 });
+    return pts;
+  }
+
+  function spawnDischarge(rng) {
+    const W = CFG.WORLD_W, H = CFG.WORLD_H;
+    const edge = rng() * 4 | 0;
+    let x1, y1, x2, y2;
+    const len = 80 + rng() * 160;
+    if (edge === 0)      { x1 = rng() * W; y1 = 0;  x2 = x1 + (rng()-0.5)*200; y2 = len; }
+    else if (edge === 1) { x1 = W; y1 = rng() * H;   x2 = W - len; y2 = y1 + (rng()-0.5)*200; }
+    else if (edge === 2) { x1 = rng() * W; y1 = H;   x2 = x1 + (rng()-0.5)*200; y2 = H - len; }
+    else                 { x1 = 0; y1 = rng() * H;   x2 = len; y2 = y1 + (rng()-0.5)*200; }
+    return { pts: makeZigzag(x1, y1, x2, y2, rng, 6 + (rng()*4|0)), progress: 0, speed: 0.008 + rng() * 0.006 };
+  }
+
+  function spawnNebulaDischarge(rng) {
+    if (stateNebulaClouds.length === 0) return null;
+    const c = stateNebulaClouds[rng() * stateNebulaClouds.length | 0];
+    const a = rng() * Math.PI * 2;
+    const r = c.r * (0.1 + rng() * 0.4);
+    return { pts: makeZigzag(c.cx, c.cy, c.cx + Math.cos(a)*r, c.cy + Math.sin(a)*r, rng, 4 + (rng()*4|0)), progress: 0, speed: 0.003 + rng() * 0.003 };
+  }
+
+  function updateDischarges(dt) {
+    if (!state.discharges) state.discharges = [];
+    if (!dischargeGfx) {
+      dischargeGfx = new PIXI.Graphics();
+      world.addChild(dischargeGfx);
+    }
+    const list = state.discharges;
+    _dischargeSpawnAcc += dt;
+    if (_dischargeSpawnAcc >= DISCHARGE_SPAWN_INTERVAL) {
+      _dischargeSpawnAcc = 0;
+      const rng = mulberry32((mapSeed >>> 0) + (state._frameCtr || 0) * 7);
+      if (stateNebulaClouds.length > 0 && rng() < 0.65) {
+        const d = spawnNebulaDischarge(rng);
+        if (d) list.push(d);
+      } else {
+        list.push(spawnDischarge(rng));
+      }
+    }
+    for (let i = list.length - 1; i >= 0; i--) {
+      list[i].progress += list[i].speed;
+      if (list[i].progress >= 1) list.splice(i, 1);
+    }
+    dischargeGfx.clear();
+    for (let i = 0; i < list.length; i++) {
+      const d = list[i];
+      const pts = d.pts;
+      const visSegs = Math.ceil(d.progress * (pts.length - 1));
+      const alpha = d.progress < 0.1 ? d.progress / 0.1 : d.progress > 0.85 ? (1 - d.progress) / 0.15 : 1;
+      dischargeGfx.lineStyle(6, 0x4488ff, 0.15 * alpha);
+      dischargeGfx.moveTo(pts[0].x, pts[0].y);
+      for (let s = 1; s <= visSegs && s < pts.length; s++) dischargeGfx.lineTo(pts[s].x, pts[s].y);
+      dischargeGfx.lineStyle(2.5, 0x88ccff, 0.7 * alpha);
+      dischargeGfx.moveTo(pts[0].x, pts[0].y);
+      for (let s = 1; s <= visSegs && s < pts.length; s++) dischargeGfx.lineTo(pts[s].x, pts[s].y);
+      dischargeGfx.lineStyle(1, 0xeeffff, 0.95 * alpha);
+      dischargeGfx.moveTo(pts[0].x, pts[0].y);
+      for (let s = 1; s <= visSegs && s < pts.length; s++) dischargeGfx.lineTo(pts[s].x, pts[s].y);
+    }
   }
 
   function rebuildMap(optionalSeed) {
     mapSeed = optionalSeed != null ? (optionalSeed >>> 0) : (Date.now() >>> 0);
+    initStarfield(mapSeed);
     const tex = makeMapTexture();
     if (mapSprite) mapLayer.removeChild(mapSprite);
     mapSprite = new PIXI.Sprite(tex);
-    // scale to world size
     mapSprite.width = CFG.WORLD_W;
     mapSprite.height = CFG.WORLD_H;
     mapLayer.addChild(mapSprite);
 
+    rebuildNebulae();
+    rebuildNeonEdges();
+    state.discharges = state.discharges || [];
     mapLayer.sortableChildren = true;
   }
 
@@ -1118,6 +1383,9 @@
     units: new Map(),
     res: new Map(),
     turrets: new Map(),
+    mines: new Map(),
+    mineGems: [],
+    nebulae: [],
     nextTurretId: 1,
     ghosts: [],
     bullets: [],
@@ -1217,13 +1485,11 @@
       color,
       pop: startPop,
       popFloat: startPop,
+      eCredits: CFG.ECREDITS_START,
       level: 1,
       xp: 0,
       xpNext: Math.floor(CFG.XP_BASE + CFG.XP_PER_LEVEL * 1 * CFG.XP_LEVEL_MUL),
       _levelBonusMul: 1.01,
-      cooldown: 0,
-      sendDelay: 0,
-      pendingSend: null,
       activeUnits: 0,
       deadUnits: 0,
 
@@ -1233,6 +1499,26 @@
 
       waterBonus: onWater,
       turretIds: [],
+
+      mineYieldBonus: 0,
+      unitCostMul: 1,
+      cityTargetBonus: 0,
+      attackEffect: null,
+      attackEffects: {},
+
+      unitHpMul: 1, unitDmgMul: 1, unitAtkRateMul: 1,
+      unitSpeedMul: 1, unitAtkRangeMul: 1,
+      growthMul: 1, influenceSpeedMul: 1,
+      turretHpMul: 1, turretDmgMul: 1, turretRangeMul: 1,
+
+      shieldHp: Math.max(5, startPop * 5),
+      shieldMaxHp: Math.max(5, startPop * 5),
+      shieldRegenCd: 0,
+
+      pendingCardPicks: 0,
+      rerollCount: 0,
+      xpZonePct: 0,
+      xpGainMul: 1,
 
       cityGfx: null,
       zoneGfx: null,
@@ -1253,107 +1539,120 @@
     return Math.max(1, base);
   }
 
-  const CARD_RARITY_WEIGHTS = { common: 46, uncommon: 26, rare: 15, epic: 10, legendary: 3 };
+  const CARD_RARITY_WEIGHTS = { common: 40, uncommon: 25, rare: 17, epic: 10, legendary: 5, mythic: 3 };
+  const CARD_RARITY_COLORS = {
+    common: 0x888888, uncommon: 0x22aa44, rare: 0x4488dd,
+    epic: 0x9944cc, legendary: 0xddcc00, mythic: 0xdd4400
+  };
+  const CARD_RARITY_LABELS = {
+    common: "Обычная", uncommon: "Необычная", rare: "Редкая",
+    epic: "Эпическая", legendary: "Легендарная", mythic: "Абсолютно Легендарная"
+  };
   const UNIT_ATK_RANGE_MAX_MUL = 3.0;
+
   const CARD_DEFS = [
-    { id: "c1", name: "Крепкая броня", desc: "+10% HP юнитов", rarity: "common", unitHpMul: 1.10 },
-    { id: "c2", name: "Острые клинки", desc: "+10% урон юнитов", rarity: "common", unitDmgMul: 1.10 },
-    { id: "c3", name: "Быстрые руки", desc: "+7% скорость атаки", rarity: "common", unitAtkRateMul: 1.07 },
-    { id: "c4", name: "Скороходы", desc: "+7% скорость юнитов", rarity: "common", unitSpeedMul: 1.07 },
-    { id: "c5", name: "Рост населения", desc: "+7% рост населения", rarity: "common", growthMul: 1.07 },
-    { id: "c6", name: "Расширение", desc: "+5% скорость роста зоны", rarity: "common", influenceSpeedMul: 1.05 },
-    { id: "c7", name: "Длинный лук", desc: "+10% зона атаки", rarity: "common", unitAtkRangeMul: 1.10 },
-    { id: "c8", name: "Укрепления", desc: "+10% HP турелей", rarity: "common", turretHpMul: 1.10 },
-    { id: "c9", name: "Быстрая отправка", desc: "-5% КД отправки", rarity: "common", sendCooldownMul: 0.95 },
-    { id: "c10", name: "Меткость", desc: "+7% зона атаки", rarity: "common", unitAtkRangeMul: 1.07 },
-    { id: "u1", name: "Тяжёлая броня", desc: "+15% HP юнитов", rarity: "uncommon", unitHpMul: 1.15 },
-    { id: "u2", name: "Закалённые клинки", desc: "+15% урон", rarity: "uncommon", unitDmgMul: 1.15 },
-    { id: "u3", name: "Ярость", desc: "+10% скорость атаки", rarity: "uncommon", unitAtkRateMul: 1.10 },
-    { id: "u4", name: "Марш", desc: "+12% скорость юнитов", rarity: "uncommon", unitSpeedMul: 1.12 },
-    { id: "u5", name: "Демография", desc: "+12% рост населения", rarity: "uncommon", growthMul: 1.12 },
-    { id: "u6", name: "Фронтир", desc: "+10% рост зоны", rarity: "uncommon", influenceSpeedMul: 1.10 },
-    { id: "u7", name: "Баллисты", desc: "+15% зона атаки", rarity: "uncommon", unitAtkRangeMul: 1.15 },
-    { id: "u8", name: "Артиллерия", desc: "+15% урон турелей и города", rarity: "uncommon", turretDmgMul: 1.15 },
-    { id: "u9", name: "Мобилизация", desc: "-8% КД отправки", rarity: "uncommon", sendCooldownMul: 0.92 },
-    { id: "u10", name: "Арбалеты", desc: "+12% зона атаки", rarity: "uncommon", unitAtkRangeMul: 1.12 },
-    { id: "r1", name: "Доспехи легиона", desc: "+22% HP юнитов", rarity: "rare", unitHpMul: 1.22 },
-    { id: "r2", name: "Клинки чемпионов", desc: "+22% урон", rarity: "rare", unitDmgMul: 1.22 },
-    { id: "r3", name: "Берсерк", desc: "+15% скорость атаки", rarity: "rare", unitAtkRateMul: 1.15 },
-    { id: "r4", name: "Галоп", desc: "+18% скорость юнитов", rarity: "rare", unitSpeedMul: 1.18 },
-    { id: "r5", name: "Бум рождаемости", desc: "+18% рост населения", rarity: "rare", growthMul: 1.18 },
-    { id: "r6", name: "Империя", desc: "+18% рост зоны", rarity: "rare", influenceSpeedMul: 1.18 },
-    { id: "r7", name: "Катапульты", desc: "+20% зона атаки", rarity: "rare", unitAtkRangeMul: 1.20 },
-    { id: "r8", name: "Бастионы", desc: "+20% HP и радиус турелей", rarity: "rare", turretHpMul: 1.20, turretRangeMul: 1.10 },
-    { id: "r9", name: "Военная машина", desc: "-12% КД отправки", rarity: "rare", sendCooldownMul: 0.88 },
-    { id: "r10", name: "Осадные орудия", desc: "+18% зона атаки", rarity: "rare", unitAtkRangeMul: 1.18 },
-    { id: "e1", name: "Небесная броня", desc: "+30% HP юнитов", rarity: "epic", unitHpMul: 1.30 },
-    { id: "e2", name: "Клинки богов", desc: "+30% урон", rarity: "epic", unitDmgMul: 1.30 },
-    { id: "e3", name: "Ураган ударов", desc: "+25% скорость атаки", rarity: "epic", unitAtkRateMul: 1.25 },
-    { id: "e4", name: "Ветер", desc: "+25% скорость юнитов", rarity: "epic", unitSpeedMul: 1.25 },
-    { id: "e5", name: "Золотой век", desc: "+25% рост населения", rarity: "epic", growthMul: 1.25 },
-    { id: "e6", name: "Владычество", desc: "+30% рост зоны", rarity: "epic", influenceSpeedMul: 1.30 },
-    { id: "e7", name: "Громовой залп", desc: "+30% зона атаки", rarity: "epic", unitAtkRangeMul: 1.30 },
-    { id: "e8", name: "Суперфорт", desc: "+30% урон и HP турелей/города", rarity: "epic", turretDmgMul: 1.30, turretHpMul: 1.20 },
-    { id: "e9", name: "Мгновенный призыв", desc: "-15% КД отправки", rarity: "epic", sendCooldownMul: 0.85 },
-    { id: "e10", name: "Артиллерия богов", desc: "+30% зона атаки", rarity: "epic", unitAtkRangeMul: 1.30 },
-    { id: "L1", name: "Титановая броня", desc: "+50% HP юнитов", rarity: "legendary", unitHpMul: 1.50 },
-    { id: "L2", name: "Клинки Апокалипсиса", desc: "+50% урон юнитов", rarity: "legendary", unitDmgMul: 1.50 },
-    { id: "L3", name: "Молниеносная ярость", desc: "+40% скорость атаки", rarity: "legendary", unitAtkRateMul: 1.40 },
-    { id: "L4", name: "Скорость света", desc: "+40% скорость юнитов", rarity: "legendary", unitSpeedMul: 1.40 },
-    { id: "L5", name: "Эпоха процветания", desc: "+40% рост населения", rarity: "legendary", growthMul: 1.40 },
-    { id: "L6", name: "Абсолютная экспансия", desc: "+45% рост зоны", rarity: "legendary", influenceSpeedMul: 1.45 },
-    { id: "L7", name: "Око Аполлона", desc: "+45% зона атаки", rarity: "legendary", unitAtkRangeMul: 1.45 },
-    { id: "L8", name: "Крепость бога", desc: "+50% HP, +25% радиус турелей", rarity: "legendary", turretHpMul: 1.50, turretRangeMul: 1.25 },
-    { id: "L9", name: "Военная машина богов", desc: "-25% КД отправки", rarity: "legendary", sendCooldownMul: 0.75 },
-    { id: "L10", name: "Гнев Зевса", desc: "+50% урон турелей и города", rarity: "legendary", turretDmgMul: 1.50 },
-    { id: "c11", name: "Заточенные стволы", desc: "+10% урон турелей и города", rarity: "common", turretDmgMul: 1.10 },
-    { id: "c12", name: "Дальнобойные орудия", desc: "+8% радиус турелей", rarity: "common", turretRangeMul: 1.08 },
-    { id: "u11", name: "Крепкие башни", desc: "+18% HP турелей", rarity: "uncommon", turretHpMul: 1.18 },
-    { id: "u12", name: "Точная наводка", desc: "+12% урон турелей и города", rarity: "uncommon", turretDmgMul: 1.12 },
-    { id: "r11", name: "Орудия возмездия", desc: "+25% урон турелей и города", rarity: "rare", turretDmgMul: 1.25 },
-    { id: "r12", name: "Дальнобойные пушки", desc: "+15% радиус турелей", rarity: "rare", turretRangeMul: 1.15 },
-    { id: "e11", name: "Адские турели", desc: "+35% урон, +20% HP турелей/города", rarity: "epic", turretDmgMul: 1.35, turretHpMul: 1.20 },
-    { id: "e12", name: "Артиллерия крепости", desc: "+25% радиус, +15% урон турелей/города", rarity: "epic", turretRangeMul: 1.25, turretDmgMul: 1.15 },
-    { id: "cp1", name: "Призыв ополченцев", desc: "+15 населения мгновенно", rarity: "common", popBonus: 15 },
-    { id: "up1", name: "Вербовка наёмников", desc: "+30 населения мгновенно", rarity: "uncommon", popBonus: 30 },
-    { id: "rp1", name: "Массовая мобилизация", desc: "+60 населения мгновенно", rarity: "rare", popBonus: 60 },
-    { id: "ep1", name: "Великий призыв", desc: "+100 населения мгновенно", rarity: "epic", popBonus: 100 },
-    { id: "Lp1", name: "Армия из ниоткуда", desc: "+200 населения мгновенно", rarity: "legendary", popBonus: 200 }
+    { id: "c1", name: "Плазменная броня", desc: "+8% HP кораблей", rarity: "common", emoji: "🛡️", unitHpMul: 1.08 },
+    { id: "c2", name: "Усиленные лазеры", desc: "+8% урон кораблей", rarity: "common", emoji: "🔫", unitDmgMul: 1.08 },
+    { id: "c3", name: "Частотный модулятор", desc: "+7% скорострельность", rarity: "common", emoji: "⚡", unitAtkRateMul: 1.07 },
+    { id: "c4", name: "Форсаж двигателей", desc: "+7% скорость кораблей", rarity: "common", emoji: "🚀", unitSpeedMul: 1.07 },
+    { id: "c5", name: "Колонизация", desc: "+7% рост населения", rarity: "common", emoji: "👥", growthMul: 1.07 },
+    { id: "c6", name: "Сканер дальности", desc: "+8% дальность атаки", rarity: "common", emoji: "📡", unitAtkRangeMul: 1.08 },
+    { id: "c7", name: "Усиление турелей", desc: "+10% HP турелей", rarity: "common", emoji: "🏗️", turretHpMul: 1.10 },
+    { id: "c8", name: "Точные орудия", desc: "+10% урон турелей", rarity: "common", emoji: "🎯", turretDmgMul: 1.10 },
+    { id: "c9", name: "Экспансия", desc: "+5% скорость зоны влияния", rarity: "common", emoji: "🌐", influenceSpeedMul: 1.05 },
+    { id: "c10", name: "Оптимизация добычи", desc: "+1 к добыче шахт", rarity: "common", emoji: "⛏️", mineYieldBonus: 1 },
+    { id: "c11", name: "Экономия ресурсов", desc: "-5% стоимость кораблей", rarity: "common", emoji: "💰", unitCostMul: 0.95 },
+
+    { id: "u1", name: "Титановый корпус", desc: "+12% HP кораблей", rarity: "uncommon", emoji: "🛡️", unitHpMul: 1.12 },
+    { id: "u2", name: "Фокусированные лазеры", desc: "+12% урон кораблей", rarity: "uncommon", emoji: "🔫", unitDmgMul: 1.12 },
+    { id: "u3", name: "Разгон орудий", desc: "+10% скорострельность", rarity: "uncommon", emoji: "⚡", unitAtkRateMul: 1.10 },
+    { id: "u4", name: "Ионные двигатели", desc: "+10% скорость кораблей", rarity: "uncommon", emoji: "🚀", unitSpeedMul: 1.10 },
+    { id: "u5", name: "Демографический бум", desc: "+12% рост населения", rarity: "uncommon", emoji: "👥", growthMul: 1.12 },
+    { id: "u6", name: "Дальний радар", desc: "+12% дальность атаки", rarity: "uncommon", emoji: "📡", unitAtkRangeMul: 1.12 },
+    { id: "u7", name: "Укреплённые турели", desc: "+18% HP турелей", rarity: "uncommon", emoji: "🏗️", turretHpMul: 1.18 },
+    { id: "u8", name: "Тяжёлые орудия", desc: "+15% урон турелей", rarity: "uncommon", emoji: "🎯", turretDmgMul: 1.15 },
+    { id: "u9", name: "Терраформирование", desc: "+10% скорость зоны", rarity: "uncommon", emoji: "🌐", influenceSpeedMul: 1.10 },
+    { id: "u10", name: "Улучшенная добыча", desc: "+2 к добыче шахт", rarity: "uncommon", emoji: "⛏️", mineYieldBonus: 2 },
+    { id: "u11", name: "Оптовые закупки", desc: "-8% стоимость кораблей", rarity: "uncommon", emoji: "💰", unitCostMul: 0.92 },
+
+    { id: "r1", name: "Нанокомпозит", desc: "+18% HP кораблей", rarity: "rare", emoji: "🛡️", unitHpMul: 1.18 },
+    { id: "r2", name: "Плазменные пушки", desc: "+18% урон кораблей", rarity: "rare", emoji: "🔫", unitDmgMul: 1.18 },
+    { id: "r3", name: "Ускоритель частиц", desc: "+15% скорострельность", rarity: "rare", emoji: "⚡", unitAtkRateMul: 1.15 },
+    { id: "r4", name: "Варп-двигатель", desc: "+15% скорость кораблей", rarity: "rare", emoji: "🚀", unitSpeedMul: 1.15 },
+    { id: "r5", name: "Массовая колонизация", desc: "+18% рост населения", rarity: "rare", emoji: "👥", growthMul: 1.18 },
+    { id: "r6", name: "Телескоп", desc: "+18% дальность атаки", rarity: "rare", emoji: "📡", unitAtkRangeMul: 1.18 },
+    { id: "r7", name: "Бастион", desc: "+20% HP, +10% радиус турелей", rarity: "rare", emoji: "🏗️", turretHpMul: 1.20, turretRangeMul: 1.10 },
+    { id: "r8", name: "Артиллерийские турели", desc: "+20% урон турелей", rarity: "rare", emoji: "🎯", turretDmgMul: 1.20 },
+    { id: "r9", name: "Империя", desc: "+18% скорость зоны", rarity: "rare", emoji: "🌐", influenceSpeedMul: 1.18 },
+    { id: "r10", name: "Глубокое бурение", desc: "+3 к добыче шахт", rarity: "rare", emoji: "⛏️", mineYieldBonus: 3 },
+    { id: "r11", name: "Военный контракт", desc: "-12% стоимость кораблей", rarity: "rare", emoji: "💰", unitCostMul: 0.88 },
+    { id: "r12", name: "Дальнобойные турели", desc: "+15% радиус турелей", rarity: "rare", emoji: "📡", turretRangeMul: 1.15 },
+
+    { id: "e1", name: "Квантовая броня", desc: "+25% HP кораблей", rarity: "epic", emoji: "🛡️", unitHpMul: 1.25 },
+    { id: "e2", name: "Дезинтеграторы", desc: "+25% урон кораблей", rarity: "epic", emoji: "🔫", unitDmgMul: 1.25 },
+    { id: "e3", name: "Гиперзалп", desc: "+22% скорострельность", rarity: "epic", emoji: "⚡", unitAtkRateMul: 1.22 },
+    { id: "e4", name: "Гипердрайв", desc: "+22% скорость кораблей", rarity: "epic", emoji: "🚀", unitSpeedMul: 1.22 },
+    { id: "e5", name: "Золотой век", desc: "+25% рост населения", rarity: "epic", emoji: "👥", growthMul: 1.25 },
+    { id: "e6", name: "Система наведения", desc: "+25% дальность атаки", rarity: "epic", emoji: "📡", unitAtkRangeMul: 1.25 },
+    { id: "e7", name: "Суперфорт", desc: "+30% урон и HP турелей", rarity: "epic", emoji: "🏗️", turretDmgMul: 1.30, turretHpMul: 1.20 },
+    { id: "e8", name: "Доминирование", desc: "+30% скорость зоны", rarity: "epic", emoji: "🌐", influenceSpeedMul: 1.30 },
+    { id: "e9", name: "Мульти-прицел", desc: "Планета стреляет по +1 цели", rarity: "epic", emoji: "🎯", cityTargetBonus: 1 },
+    { id: "e10", name: "Промышленная революция", desc: "-18% стоимость кораблей", rarity: "epic", emoji: "💰", unitCostMul: 0.82 },
+
+    { id: "L1", name: "Нейтронный корпус", desc: "+40% HP кораблей", rarity: "legendary", emoji: "🛡️", unitHpMul: 1.40 },
+    { id: "L2", name: "Аннигиляторы", desc: "+40% урон кораблей", rarity: "legendary", emoji: "🔫", unitDmgMul: 1.40 },
+    { id: "L3", name: "Тахионный залп", desc: "+35% скорострельность", rarity: "legendary", emoji: "⚡", unitAtkRateMul: 1.35 },
+    { id: "L4", name: "Скорость света", desc: "+35% скорость кораблей", rarity: "legendary", emoji: "🚀", unitSpeedMul: 1.35 },
+    { id: "L5", name: "Эпоха процветания", desc: "+40% рост населения", rarity: "legendary", emoji: "👥", growthMul: 1.40 },
+    { id: "L6", name: "Всевидящее око", desc: "+40% дальность атаки", rarity: "legendary", emoji: "📡", unitAtkRangeMul: 1.40 },
+    { id: "L7", name: "Крепость богов", desc: "+50% HP, +25% радиус турелей", rarity: "legendary", emoji: "🏗️", turretHpMul: 1.50, turretRangeMul: 1.25 },
+    { id: "L8", name: "Абсолютная экспансия", desc: "+45% скорость зоны", rarity: "legendary", emoji: "🌐", influenceSpeedMul: 1.45 },
+    { id: "L9", name: "Мульти-залп", desc: "Планета стреляет по +2 целям", rarity: "legendary", emoji: "🎯", cityTargetBonus: 2 },
+    { id: "L10", name: "Нулевая стоимость", desc: "-30% стоимость кораблей", rarity: "legendary", emoji: "💰", unitCostMul: 0.70 },
+
+    { id: "M1", name: "Цепная молния", desc: "Лазеры перескакивают на врагов (−25%/скачок). Ур. 2: 6 скачков. Ур. 3: 9 скачков", rarity: "mythic", emoji: "⚡", attackEffect: "chain" },
+    { id: "M2", name: "Криозаряды", desc: "Замедление 40% (2с). Ур. 2: 55% (3с). Ур. 3: 70% (4с)", rarity: "mythic", emoji: "❄️", attackEffect: "cryo" },
+    { id: "M3", name: "Плазменное пламя", desc: "Поджог 3 ур/с (3с). Ур. 2: 5 ур/с (4с). Ур. 3: 8 ур/с (5с)", rarity: "mythic", emoji: "🔥", attackEffect: "fire" }
   ];
 
   function rollCardRarity() {
     const r = Math.random() * 100;
-    if (r < CARD_RARITY_WEIGHTS.legendary) return "legendary";
-    if (r < CARD_RARITY_WEIGHTS.legendary + CARD_RARITY_WEIGHTS.epic) return "epic";
-    if (r < CARD_RARITY_WEIGHTS.legendary + CARD_RARITY_WEIGHTS.epic + CARD_RARITY_WEIGHTS.rare) return "rare";
-    if (r < CARD_RARITY_WEIGHTS.legendary + CARD_RARITY_WEIGHTS.epic + CARD_RARITY_WEIGHTS.rare + CARD_RARITY_WEIGHTS.uncommon) return "uncommon";
+    let acc = 0;
+    for (const rarity of ["mythic","legendary","epic","rare","uncommon","common"]) {
+      acc += CARD_RARITY_WEIGHTS[rarity] || 0;
+      if (r < acc) return rarity;
+    }
     return "common";
   }
 
   function getCardType(card) {
-    const keys = Object.keys(card);
+    if (card.attackEffect) return "attackEffect_" + card.attackEffect;
     if (card.popBonus) return "pop";
+    if (card.mineYieldBonus) return "mineYield";
+    if (card.unitCostMul) return "unitCost";
+    if (card.cityTargetBonus) return "cityTarget";
+    const keys = Object.keys(card);
     if (keys.some(k => k.startsWith("unitHp"))) return "unitHp";
-    if (keys.some(k => k.startsWith("unitDmg"))) return "unitDmg";
+    if (keys.some(k => k.startsWith("unitDmg") && !k.startsWith("unitDmgMul"))) return "unitDmg";
+    if (keys.includes("unitDmgMul")) return "unitDmg";
     if (keys.some(k => k.startsWith("unitAtkRate"))) return "unitAtkRate";
     if (keys.some(k => k.startsWith("unitSpeed"))) return "unitSpeed";
     if (keys.some(k => k.startsWith("unitAtkRange"))) return "unitAtkRange";
     if (keys.some(k => k.startsWith("growth"))) return "growth";
     if (keys.some(k => k.startsWith("influence"))) return "influence";
-    if (keys.some(k => k.startsWith("sendCooldown"))) return "sendCooldown";
     if (keys.some(k => k.startsWith("turret"))) return "turret";
     return "other";
   }
 
   function getRandomCards(count) {
-    const byRarity = { common: [], uncommon: [], rare: [], epic: [], legendary: [] };
-    for (const c of CARD_DEFS) byRarity[c.rarity].push(c);
+    const byRarity = { common: [], uncommon: [], rare: [], epic: [], legendary: [], mythic: [] };
+    for (const c of CARD_DEFS) (byRarity[c.rarity] || []).push(c);
     const out = [];
     const usedIds = new Set();
     const usedTypes = new Set();
     for (let i = 0; i < count; i++) {
       const rarity = rollCardRarity();
-      let arr = byRarity[rarity].filter(c => !usedIds.has(c.id) && !usedTypes.has(getCardType(c)));
+      let arr = (byRarity[rarity] || []).filter(c => !usedIds.has(c.id) && !usedTypes.has(getCardType(c)));
       if (!arr.length) arr = CARD_DEFS.filter(c => !usedIds.has(c.id) && !usedTypes.has(getCardType(c)));
       if (!arr.length) arr = CARD_DEFS.filter(c => !usedIds.has(c.id));
       if (!arr.length) arr = CARD_DEFS;
@@ -1371,12 +1670,27 @@
       p.pop = Math.floor(p.popFloat);
       return;
     }
+    if (card.mineYieldBonus) {
+      p.mineYieldBonus = (p.mineYieldBonus || 0) + card.mineYieldBonus;
+      return;
+    }
+    if (card.cityTargetBonus) {
+      p.cityTargetBonus = (p.cityTargetBonus || 0) + card.cityTargetBonus;
+      return;
+    }
+    if (card.attackEffect) {
+      if (!p.attackEffects) p.attackEffects = {};
+      const cur = p.attackEffects[card.attackEffect] || 0;
+      if (cur < 3) p.attackEffects[card.attackEffect] = cur + 1;
+      p.attackEffect = card.attackEffect;
+      return;
+    }
     for (const key of Object.keys(card)) {
-      if (key === "id" || key === "name" || key === "desc" || key === "rarity") continue;
+      if (["id","name","desc","rarity","emoji"].includes(key)) continue;
       const val = card[key];
       if (typeof val === "number") {
         const prev = p[key] != null ? p[key] : 1;
-        let next = key.indexOf("Cooldown") >= 0 ? Math.max(0.5, prev * val) : prev * val;
+        let next = prev * val;
         if (key === "unitAtkRangeMul") next = Math.min(next, UNIT_ATK_RANGE_MAX_MUL);
         p[key] = next;
       }
@@ -1387,17 +1701,50 @@
   // Visual builders
   // ------------------------------------------------------------
   function makeCityVisual(p) {
-    const size = 54;
+    const R = getPlanetRadius(p);
     const city = new PIXI.Graphics();
-    city.lineStyle(4, p.color, 1);
-    city.beginFill(0x0b0f18, 0.85);
-    city.drawRoundedRect(-size/2, -size/2, size, size, 10);
-    city.endFill();
-    city.beginFill(p.color, 0.75);
-    city.drawRoundedRect(-15, -15, 30, 30, 8);
+    const seed = (state._gameSeed ?? 0) + p.id * 7919;
+    const rng = mulberry32(seed);
+
+    // Dark core
+    city.beginFill(0x020408, 1);
+    city.drawCircle(0, 0, R);
     city.endFill();
 
-    const glow = makeGlow(p.color, 28, 2.2);
+    // Smooth gradient — many layers dark → bright (player color)
+    const layers = 16;
+    for (let k = 0; k <= layers; k++) {
+      const frac = k / layers;
+      const r = R * (0.2 + frac * 0.8);
+      const t = frac * frac;
+      const a = 0.03 + t * 0.4;
+      const col = frac < 0.35 ? darkenColor(p.color, 0.12) : (frac < 0.65 ? darkenColor(p.color, 0.4) : p.color);
+      city.beginFill(col, a);
+      city.drawCircle(0, 0, r);
+      city.endFill();
+    }
+
+    // Random "continents" — irregular blobs per planet
+    const numBlobs = 4 + Math.floor(rng() * 5);
+    for (let b = 0; b < numBlobs; b++) {
+      const angle = rng() * Math.PI * 2;
+      const dist = R * (0.15 + rng() * 0.5);
+      const bx = Math.cos(angle) * dist;
+      const by = Math.sin(angle) * dist;
+      const br = R * (0.12 + rng() * 0.22);
+      const blobCol = darkenColor(p.color, 0.25 + rng() * 0.2);
+      city.beginFill(blobCol, 0.08 + rng() * 0.12);
+      city.drawCircle(bx, by, br);
+      city.endFill();
+    }
+
+    // Crisp edge
+    city.lineStyle(2.5, p.color, 0.95);
+    city.drawCircle(0, 0, R);
+    city.lineStyle(8, p.color, 0.12);
+    city.drawCircle(0, 0, R + 3);
+
+    const glow = makeGlow(p.color, 45, 3);
     if (glow) city.filters = [glow];
     city.position.set(p.x, p.y);
 
@@ -1409,7 +1756,7 @@
       strokeThickness: 4
     });
     label.anchor.set(0.5, 1.0);
-    label.position.set(p.x, p.y - size/2 - 4);
+    label.position.set(p.x, p.y - R - 6);
     label.alpha = 0.9;
 
     const popLabel = new PIXI.Text("0", {
@@ -1420,13 +1767,102 @@
       strokeThickness: 4
     });
     popLabel.anchor.set(0.5, 0);
-    popLabel.position.set(p.x, p.y + size/2 + 4);
+    popLabel.position.set(p.x, p.y + R + 6);
 
-    cityLayer.addChild(city, label, popLabel);
+    // Shield graphic (separate from planet body — updated each frame)
+    const shieldGfx = new PIXI.Graphics();
+    shieldGfx.position.set(p.x, p.y);
+
+    cityLayer.addChild(city, label, popLabel, shieldGfx);
     p.cityGfx = city;
     p.label = label;
     p.popLabel = popLabel;
+    p.shieldGfx = shieldGfx;
     p.cityAtkCd = 0;
+
+    // Initialise shield HP
+    const maxSh = Math.max(5, (p.pop || 1) * 5);
+    if (p.shieldHp === undefined) { p.shieldHp = maxSh; p.shieldMaxHp = maxSh; }
+    p.shieldRegenCd = p.shieldRegenCd ?? 0;
+  }
+
+  function getPlanetRadius(p) {
+    const baseInflR = CFG.INFLUENCE_BASE_R || 240;
+    const curR = p.influenceR || baseInflR;
+    const s = Math.max(1, Math.min(2.5, curR / baseInflR));
+    return 32 * s;
+  }
+
+  function shieldRadius(p) {
+    return getPlanetRadius(p) + 12;
+  }
+
+  function darkenColor(c, factor) {
+    const r = Math.max(0, ((c >> 16) & 0xff) * factor | 0);
+    const g = Math.max(0, ((c >> 8) & 0xff) * factor | 0);
+    const b = Math.max(0, (c & 0xff) * factor | 0);
+    return (r << 16) | (g << 8) | b;
+  }
+
+  function pushShieldHitEffect(px, py, sR, fromX, fromY, color) {
+    if (!state._shieldHitEffects) state._shieldHitEffects = [];
+    const dx = fromX - px, dy = fromY - py;
+    const d = Math.hypot(dx, dy) || 1;
+    const hitX = px + (dx / d) * sR;
+    const hitY = py + (dy / d) * sR;
+    state._shieldHitEffects.push({ px, py, hitX, hitY, color, t0: state.t, duration: 0.6 });
+  }
+
+  function updateShieldVisuals() {
+    const now = performance.now() / 1000;
+    for (const p of state.players.values()) {
+      const g = p.shieldGfx;
+      if (!g || g.destroyed) continue;
+      const maxSh = p.shieldMaxHp || 1;
+      const sh    = p.shieldHp || 0;
+      g.visible = sh > 0;
+      g.clear();
+      if (sh <= 0) continue;
+
+      const pct   = sh / maxSh;
+      const sR    = shieldRadius(p);
+      const pulse = 0.6 + 0.4 * Math.sin(now * 2.5);
+
+      // Glow around shield
+      g.lineStyle(14, p.color, 0.18 * pct * pulse);
+      g.drawCircle(0, 0, sR + 4);
+
+      // Main shield ring
+      g.lineStyle(4, p.color, 0.9 * pct * pulse);
+      g.drawCircle(0, 0, sR);
+
+      // Inner subtle fill
+      g.beginFill(p.color, 0.04 * pct);
+      g.drawCircle(0, 0, sR);
+      g.endFill();
+    }
+    shieldHitEffectsGfx.clear();
+    if (state._shieldHitEffects) {
+      for (let i = state._shieldHitEffects.length - 1; i >= 0; i--) {
+        const e = state._shieldHitEffects[i];
+        if (state.t - e.t0 >= e.duration) { state._shieldHitEffects.splice(i, 1); continue; }
+        const fade = 1 - (state.t - e.t0) / e.duration;
+        const flashAlpha = Math.min(1, (state.t - e.t0) < 0.08 ? 1 : fade * 0.9);
+        shieldHitEffectsGfx.beginFill(e.color, flashAlpha * 0.5);
+        shieldHitEffectsGfx.drawCircle(e.hitX, e.hitY, 8);
+        shieldHitEffectsGfx.endFill();
+        const steps = 8;
+        for (let k = 0; k < steps; k++) {
+          const t0 = k / steps, t1 = (k + 1) / steps;
+          const x0 = e.hitX + (e.px - e.hitX) * t0, y0 = e.hitY + (e.py - e.hitY) * t0;
+          const x1 = e.hitX + (e.px - e.hitX) * t1, y1 = e.hitY + (e.py - e.hitY) * t1;
+          const alpha = (0.5 + 0.5 * (1 - t0)) * fade * (e.color === 0xaa44ff ? 0.95 : 0.85);
+          shieldHitEffectsGfx.lineStyle(4 + k * 0.8, e.color, alpha);
+          shieldHitEffectsGfx.moveTo(x0, y0);
+          shieldHitEffectsGfx.lineTo(x1, y1);
+        }
+      }
+    }
   }
 
   function makeZoneVisual(p) {
@@ -1628,13 +2064,27 @@
 
     const smoothPoly = smoothedPoly(poly);
 
-    const r = ((p.color >> 16) & 0xff) * 0.55;
-    const gr = ((p.color >> 8) & 0xff) * 0.55;
-    const b = (p.color & 0xff) * 0.55;
-    const darkColor = (Math.min(255, r) << 16) | (Math.min(255, gr) << 8) | Math.min(255, b);
-
-    p.zoneGfx.beginFill(darkColor, 0.52);
+    // Glass base — player color, semi-transparent
+    const dark = darkenColor(p.color, 0.4);
+    p.zoneGfx.beginFill(dark, 0.18);
     drawSmoothClosed(p.zoneGfx, smoothPoly);
+    p.zoneGfx.endFill();
+    p.zoneGfx.beginFill(p.color, 0.12);
+    drawSmoothClosed(p.zoneGfx, smoothPoly);
+    p.zoneGfx.endFill();
+
+    // Gloss highlight — lighter tint of player color toward center
+    const innerScale1 = 0.92;
+    const innerPoly1 = smoothPoly.map(pt => ({
+      x: p.x + (pt.x - p.x) * innerScale1,
+      y: p.y + (pt.y - p.y) * innerScale1
+    }));
+    const r = Math.min(255, ((p.color >> 16) & 0xff) + 90);
+    const g = Math.min(255, ((p.color >> 8) & 0xff) + 70);
+    const b = Math.min(255, (p.color & 0xff) + 70);
+    const glossColor = (r << 16) | (g << 8) | b;
+    p.zoneGfx.beginFill(glossColor, 0.08);
+    drawSmoothClosed(p.zoneGfx, innerPoly1);
     p.zoneGfx.endFill();
 
     p.zoneGfx.lineStyle(4, p.color, 0.7);
@@ -1643,11 +2093,6 @@
     p.zoneGlow.lineStyle(12, p.color, 0.12);
     drawSmoothClosed(p.zoneGlow, smoothPoly);
 
-    const innerScale1 = 0.92;
-    const innerPoly1 = smoothPoly.map(pt => ({
-      x: p.x + (pt.x - p.x) * innerScale1,
-      y: p.y + (pt.y - p.y) * innerScale1
-    }));
     p.zoneGfx.lineStyle(2, p.color, 0.35);
     drawSmoothClosed(p.zoneGfx, innerPoly1);
 
@@ -1661,10 +2106,10 @@
     }
     const smoothInner = smoothedPoly(innerPoly);
     if (smoothInner.length >= 3 && margin > 0) {
-      p.zoneGfx.beginFill(0xffffff, 0.12);
+      p.zoneGfx.beginFill(glossColor, 0.06);
       drawSmoothClosed(p.zoneGfx, smoothInner);
       p.zoneGfx.endFill();
-      p.zoneGfx.lineStyle(2.5, 0xffff88, 0.5);
+      p.zoneGfx.lineStyle(2.5, p.color, 0.45);
       drawSmoothClosed(p.zoneGfx, smoothInner);
     }
   }
@@ -1804,18 +2249,15 @@
       if (alive) {
         t.gfx.clear();
         const col = color;
-        const sz = 8;
+        const sz = 7;
         t.gfx.beginFill(col, 0.9);
-        t.gfx.moveTo(t.x + t.nx * sz * 2, t.y + t.ny * sz * 2);
-        t.gfx.lineTo(t.x + t.ny * sz, t.y - t.nx * sz);
-        t.gfx.lineTo(t.x - t.ny * sz, t.y + t.nx * sz);
-        t.gfx.closePath();
+        t.gfx.drawRect(t.x - sz, t.y - sz, sz * 2, sz * 2);
         t.gfx.endFill();
-        t.gfx.lineStyle(2, 0xffffff, 0.5);
-        t.gfx.moveTo(t.x + t.nx * sz * 2, t.y + t.ny * sz * 2);
-        t.gfx.lineTo(t.x + t.ny * sz, t.y - t.nx * sz);
-        t.gfx.lineTo(t.x - t.ny * sz, t.y + t.nx * sz);
-        t.gfx.closePath();
+        t.gfx.lineStyle(1.5, 0xffffff, 0.5);
+        t.gfx.drawRect(t.x - sz, t.y - sz, sz * 2, sz * 2);
+        t.gfx.lineStyle(1, 0xffffff, 0.3);
+        t.gfx.moveTo(t.x, t.y);
+        t.gfx.lineTo(t.x + t.nx * sz * 2.5, t.y + t.ny * sz * 2.5);
       } else {
         t.gfx.clear();
         t.gfx.visible = true;
@@ -1896,19 +2338,23 @@
         t.atkCd = 1 / (CFG.TURRET_ATTACK_RATE ?? 1.2);
         const bx = bestTarget.x;
         const by = bestTarget.y;
+        const isUnit = !targetIsTurret && bestTarget.x != null && bestTarget.y != null && state.units.has(bestTarget.id);
         state.bullets.push({
           fromX: t.x, fromY: t.y, toX: bx, toY: by,
           x: t.x, y: t.y,
-          speed: RANGED_BULLET_SPEED,
-          hitR: 8,
+          speed: CFG.CITY_BULLET_SPEED * 0.4,
+          hitR: 4,
           ownerId: t.owner,
           dmg,
           color: p.color,
           type: "ranged",
+          aoe: true,
           maxDist: range * 1.5,
           traveled: 0,
-          big: true,
-          canHitTurrets: targetIsTurret
+          big: false,
+          canHitTurrets: targetIsTurret,
+          targetId: isUnit ? bestTarget.id : undefined,
+          targetType: isUnit ? "unit" : undefined
         });
       }
     }
@@ -1945,20 +2391,68 @@
     }
   }
 
+  function drawShipShape(g, unitType, col, highlight) {
+    const type = UNIT_TYPES[unitType] || UNIT_TYPES.fighter;
+    const s = type.sizeMultiplier * 6 + 6;
+    const fillCol = highlight || col;
+
+    if (unitType === "fighter") {
+      g.poly([s * 1.8, 0, -s * 0.8, -s * 0.7, -s * 0.4, 0, -s * 0.8, s * 0.7]);
+      g.fill({ color: fillCol, alpha: 0.9 });
+      g.moveTo(s * 1.8, 0); g.lineTo(-s * 0.1, 0);
+      g.stroke({ color: 0xffffff, width: 0.8, alpha: 0.5 });
+    } else if (unitType === "destroyer") {
+      g.poly([s * 2, 0, -s * 0.6, -s * 0.9, -s * 0.9, -s * 0.3, -s * 0.9, s * 0.3, -s * 0.6, s * 0.9]);
+      g.fill({ color: fillCol, alpha: 0.9 });
+      g.moveTo(s * 2, 0); g.lineTo(-s * 0.2, 0);
+      g.stroke({ color: 0xffffff, width: 1, alpha: 0.5 });
+      g.moveTo(s * 0.6, -s * 0.5); g.lineTo(-s * 0.5, -s * 0.5);
+      g.stroke({ color: 0xffffff, width: 0.7, alpha: 0.4 });
+      g.moveTo(s * 0.6, s * 0.5); g.lineTo(-s * 0.5, s * 0.5);
+      g.stroke({ color: 0xffffff, width: 0.7, alpha: 0.4 });
+    } else if (unitType === "cruiser") {
+      g.poly([s * 2, 0, s * 0.5, -s * 0.5, -s * 0.5, -s, -s, -s * 0.6, -s, s * 0.6, -s * 0.5, s, s * 0.5, s * 0.5]);
+      g.fill({ color: fillCol, alpha: 0.9 });
+      g.moveTo(s * 2, 0); g.lineTo(-s * 0.3, 0);
+      g.stroke({ color: 0xffffff, width: 1.2, alpha: 0.5 });
+      g.moveTo(0, -s * 0.7); g.lineTo(-s * 0.7, -s * 0.7);
+      g.stroke({ color: 0xffffff, width: 0.8, alpha: 0.4 });
+      g.moveTo(0, s * 0.7); g.lineTo(-s * 0.7, s * 0.7);
+      g.stroke({ color: 0xffffff, width: 0.8, alpha: 0.4 });
+    } else if (unitType === "battleship") {
+      g.poly([s * 2.2, 0, s * 0.8, -s * 0.6, -s * 0.2, -s * 1.1, -s * 1.1, -s * 0.8, -s * 1.1, s * 0.8, -s * 0.2, s * 1.1, s * 0.8, s * 0.6]);
+      g.fill({ color: fillCol, alpha: 0.9 });
+      g.moveTo(s * 2.2, 0); g.lineTo(-s * 0.3, 0);
+      g.stroke({ color: 0xffffff, width: 1.5, alpha: 0.5 });
+      g.circle(0, 0, s * 0.25);
+      g.fill({ color: 0xffffff, alpha: 0.3 });
+    } else if (unitType === "hyperDestroyer") {
+      g.poly([s * 2.5, 0, s * 1, -s * 0.5, s * 0.2, -s * 1.2, -s * 0.8, -s * 1, -s * 1.2, -s * 0.4,
+              -s * 1.2, s * 0.4, -s * 0.8, s, s * 0.2, s * 1.2, s * 1, s * 0.5]);
+      g.fill({ color: fillCol, alpha: 0.9 });
+      g.moveTo(s * 2.5, 0); g.lineTo(-s * 0.4, 0);
+      g.stroke({ color: 0xffffff, width: 1.8, alpha: 0.5 });
+      g.circle(0, 0, s * 0.35);
+      g.fill({ color: 0x66ccff, alpha: 0.5 });
+      g.circle(s * 0.8, 0, s * 0.15);
+      g.fill({ color: 0x66ccff, alpha: 0.4 });
+    } else {
+      g.poly([s * 2, 0, -s, -s, -s, s]);
+      g.fill({ color: fillCol, alpha: 0.9 });
+      g.moveTo(s * 2, 0); g.lineTo(-s * 0.3, 0);
+      g.stroke({ color: 0xffffff, width: 1, alpha: 0.6 });
+    }
+  }
+
   function makeUnitVisual(u) {
     const col = u.color ?? colorForId(u.owner);
     u.color = col;
     const g = new PIXI.Graphics();
-    g.beginFill(col, 0.9);
-    g.drawRoundedRect(-5, -5, 10, 10, 2);
-    g.endFill();
+    drawShipShape(g, u.unitType || "fighter", col);
 
-    // direction arrow
-    g.lineStyle(2, 0xffffff, 0.8);
-    g.moveTo(0, 0);
-    g.lineTo(10, 0);
-
-    const glow = makeGlow(col, 12, 1.8);
+    const type = UNIT_TYPES[u.unitType] || UNIT_TYPES.fighter;
+    const glowDist = Math.max(3, type.sizeMultiplier * 2 + 2);
+    const glow = makeGlow(col, glowDist, 0.8);
     if (glow) g.filters = [glow];
 
     g.position.set(u.x, u.y);
@@ -1977,18 +2471,18 @@
       u.gfx.visible = vis;
       if (vis) {
         u.gfx.position.set(u.x, u.y);
-        u.gfx.rotation = Math.atan2(u.vy || 0, u.vx || 0);
+        const _tRot = Math.atan2(u.vy || 0, u.vx || 0);
+        let _dRot = _tRot - u.gfx.rotation;
+        while (_dRot > Math.PI) _dRot -= Math.PI * 2;
+        while (_dRot < -Math.PI) _dRot += Math.PI * 2;
+        const _ts = (u.unitType === "fighter" ? 8 : 3) * (state._lastDt || 0.016);
+        u.gfx.rotation += Math.abs(_dRot) < _ts ? _dRot : Math.sign(_dRot) * _ts;
         if ((vfc + u.id) % 8 === 0) {
           const sel = state.selectedUnitIds.has(u.id);
           const flashing = u._hitFlashT != null && (state.t - u._hitFlashT) < 0.3;
           const col = flashing ? 0xff2222 : (sel ? 0xffffff : (u.color || 0x888888));
           u.gfx.clear();
-          u.gfx.beginFill(col, 0.9);
-          u.gfx.drawRoundedRect(-5, -5, 10, 10, 2);
-          u.gfx.endFill();
-          u.gfx.lineStyle(2, 0xffffff, 0.8);
-          u.gfx.moveTo(0, 0);
-          u.gfx.lineTo(10, 0);
+          drawShipShape(u.gfx, u.unitType || "fighter", u.color || 0x888888, col);
         }
       }
     }
@@ -2014,9 +2508,6 @@
 
   function updateCityPopLabels() {
     for (const p of state.players.values()) {
-      if (p.popLabel) {
-        p.popLabel.text = String(p.pop);
-      }
       const baseR = CFG.INFLUENCE_BASE_R || 240;
       const curR = p.influenceR || baseR;
       const s = Math.max(1, Math.min(2.5, curR / baseR));
@@ -2024,7 +2515,18 @@
         p.cityGfx.position.set(p.x, p.y);
         p.cityGfx.scale.set(s);
       }
-      if (p.popLabel) p.popLabel.position.set(p.x, p.y + 27 * s + 4);
+      if (p.popLabel) {
+        const maxSh = p.shieldMaxHp || 1;
+        const sh = Math.round(p.shieldHp || 0);
+        const regen = (5 + 0.001 * maxSh).toFixed(1);
+        if (sh <= 0 && (p.shieldRegenCd || 0) > 0) {
+          const cd = Math.ceil(p.shieldRegenCd);
+          p.popLabel.text = `${p.pop}\n💀 щит: ${cd}с`;
+        } else {
+          p.popLabel.text = `${p.pop}\n🛡 ${sh}/${Math.round(maxSh)}  +${regen}/с`;
+        }
+        p.popLabel.position.set(p.x, p.y + 27 * s + 4);
+      }
       if (p.label) p.label.position.set(p.x, p.y - 27 * s - 4);
     }
   }
@@ -2061,11 +2563,12 @@
         cx += u.x;
         cy += u.y;
         hp += u.hp;
-        maxHp += CFG.UNIT_HP;
-        const unitDps = (u.dmg || 1) * CFG.UNIT_ATK_RATE;
+        const utL = UNIT_TYPES[u.unitType] || UNIT_TYPES.fighter;
+        maxHp += u.maxHp || utL.hp;
+        const unitDps = (u.dmg || utL.damage) * utL.attackRate;
         dps += unitDps;
         const mul = u._territoryMul ?? (() => { const zo = getZoneOwnerFast(u.x, u.y); return zo === u.owner ? 1.1 : (zo !== 0 && zo !== u.owner ? 0.9 : 1); })();
-        effectiveHp += u.hp / mul;
+        effectiveHp += u.hp * mul;
         effectiveDps += unitDps * mul;
       }
       cx /= squad.length;
@@ -2074,14 +2577,13 @@
       const owner = state.players.get(squad[0].owner);
       const col = owner ? owner.color : 0x888888;
 
-      const meleeR = getPlayerMeleeRange();
-      const atkR = getPlayerAtkRange(squad[0].owner);
+      const atkR = Math.max(...squad.map(u => getUnitAtkRange(u)));
       const spreadR = Math.max(0, ...squad.map(u => Math.hypot(u.x - cx, u.y - cy)));
 
       const rg = new PIXI.Graphics();
       if (squad.length >= 3) {
         const hullPts = convexHull(squad.map(u => ({ x: u.x, y: u.y })));
-        if (atkR > meleeR + 2 && hullPts.length >= 3) {
+        if (atkR > 5 && hullPts.length >= 3) {
           rg.lineStyle(2, col, 0.4);
           rg.beginFill(col, 0.08);
           rg.moveTo(hullPts[0].x + (hullPts[0].x - cx) / (spreadR || 1) * atkR,
@@ -2095,27 +2597,13 @@
           rg.closePath();
           rg.endFill();
         }
-        if (hullPts.length >= 3) {
-          rg.lineStyle(1.5, 0xffffff, 0.25);
-          rg.moveTo(hullPts[0].x + (hullPts[0].x - cx) / (Math.hypot(hullPts[0].x - cx, hullPts[0].y - cy) || 1) * meleeR,
-                     hullPts[0].y + (hullPts[0].y - cy) / (Math.hypot(hullPts[0].x - cx, hullPts[0].y - cy) || 1) * meleeR);
-          for (let hi = 1; hi <= hullPts.length; hi++) {
-            const hp = hullPts[hi % hullPts.length];
-            const dx = hp.x - cx, dy = hp.y - cy;
-            const dl = Math.hypot(dx, dy) || 1;
-            rg.lineTo(hp.x + (dx / dl) * meleeR, hp.y + (dy / dl) * meleeR);
-          }
-          rg.closePath();
+        if (false) {;
         }
       } else {
-        if (atkR > meleeR + 2) {
-          rg.lineStyle(2, col, 0.4);
-          rg.beginFill(col, 0.08);
-          rg.drawCircle(cx, cy, spreadR + atkR);
-          rg.endFill();
-        }
-        rg.lineStyle(1.5, 0xffffff, 0.25);
-        rg.drawCircle(cx, cy, spreadR + meleeR);
+        rg.lineStyle(2, col, 0.4);
+        rg.beginFill(col, 0.08);
+        rg.drawCircle(cx, cy, spreadR + atkR);
+        rg.endFill();
       }
       squadLabelsLayer.addChild(rg);
 
@@ -2166,12 +2654,15 @@
     }
   }
 
-  const BATTLE_TOUCH_R2 = CFG.UNIT_VISION * CFG.UNIT_VISION;
-
   function squadsTouch(a, b) {
     for (const u of a) {
+      const uType = UNIT_TYPES[u.unitType] || UNIT_TYPES.fighter;
+      const engageR = uType.attackRange * 0.5;
       for (const v of b) {
-        if (dist2(u.x, u.y, v.x, v.y) <= BATTLE_TOUCH_R2) return true;
+        const vType = UNIT_TYPES[v.unitType] || UNIT_TYPES.fighter;
+        const vEngageR = vType.attackRange * 0.5;
+        const maxR = Math.max(engageR, vEngageR);
+        if (dist2(u.x, u.y, v.x, v.y) <= maxR * maxR) return true;
       }
     }
     return false;
@@ -2259,6 +2750,17 @@
     }
   }
 
+  function findNearestEnemy(u, enemyIds) {
+    let best = null, bestD2 = 1e18;
+    for (const eid of enemyIds) {
+      const eu = state.units.get(typeof eid === "number" ? eid : Number(eid));
+      if (!eu) continue;
+      const d2 = (eu.x - u.x) ** 2 + (eu.y - u.y) ** 2;
+      if (d2 < bestD2) { bestD2 = d2; best = eu; }
+    }
+    return best;
+  }
+
   function getUnitFrontSlot(u) {
     const c = state._battleCache && state._battleCache.get(u.id);
     if (!c) return null;
@@ -2266,66 +2768,73 @@
     const idx = myIds.indexOf(u.id);
     if (idx < 0) return null;
 
-    const dx = ecx - u.x, dy = ecy - u.y;
+    const myAtkR = getUnitAtkRange(u);
+    const uType = u.unitType || "fighter";
+    const nearest = findNearestEnemy(u, enemyIds);
+    if (!nearest) return { tx: ecx, ty: ecy };
+
+    const dx = nearest.x - u.x, dy = nearest.y - u.y;
     const dl = Math.hypot(dx, dy) || 1;
     const dirX = dx / dl, dirY = dy / dl;
 
-    const myAtkR = getPlayerAtkRange(u.owner);
-    const myMeleeR = getPlayerMeleeRange();
-    const isRanged = myAtkR > myMeleeR + 2;
+    if (uType === "fighter") {
+      if (!u._combatTarget || !state.units.has(u._combatTarget) || Math.random() < 0.015) {
+        const allEnemies = [];
+        for (const eid of enemyIds) {
+          const eu = state.units.get(typeof eid === "number" ? eid : Number(eid));
+          if (eu) allEnemies.push(eu);
+        }
+        if (allEnemies.length > 0) {
+          u._combatTarget = allEnemies[Math.floor(Math.random() * allEnemies.length)].id;
+        }
+      }
+      const flyTarget = state.units.get(u._combatTarget) || nearest;
+      const fdx = flyTarget.x - u.x, fdy = flyTarget.y - u.y;
+      const fdl = Math.hypot(fdx, fdy) || 1;
+      const passRange = myAtkR * 0.4;
+      if (fdl < passRange) {
+        const perpX = -fdy / fdl, perpY = fdx / fdl;
+        const side = ((u.id % 2) * 2 - 1);
+        return { tx: flyTarget.x + perpX * passRange * side, ty: flyTarget.y + perpY * passRange * side };
+      }
+      return { tx: flyTarget.x, ty: flyTarget.y };
+    } else if (uType === "destroyer") {
+      const desiredDist = myAtkR * 0.7;
+      if (dl < desiredDist * 0.6) {
+        return { tx: u.x - dirX * 15, ty: u.y - dirY * 15 };
+      }
+      const perpX = -dirY, perpY = dirX;
+      const sway = Math.sin(state.t * 0.8 + u.id * 3) * 12;
+      return {
+        tx: nearest.x - dirX * desiredDist + perpX * sway,
+        ty: nearest.y - dirY * desiredDist + perpY * sway
+      };
+    } else if (uType === "cruiser") {
+      const holdDist = myAtkR * 0.75;
+      return {
+        tx: nearest.x - dirX * holdDist,
+        ty: nearest.y - dirY * holdDist
+      };
+    } else if (uType === "battleship" || uType === "hyperDestroyer") {
+      const advanceDist = myAtkR * 0.5;
+      return {
+        tx: nearest.x - dirX * advanceDist,
+        ty: nearest.y - dirY * advanceDist
+      };
+    }
 
     if (myCount > enemyCount * 1.3 && enemyCount > 0) {
       const angle = (idx / myCount) * Math.PI * 2;
-      const overwhelm = myCount >= enemyCount * 3;
-      const ringR = overwhelm
-        ? Math.max(8, Math.sqrt(enemyCount) * CLUSTER_SPACING * 0.3)
-        : isRanged
-          ? Math.max(myAtkR * 0.7, Math.sqrt(enemyCount) * CLUSTER_SPACING * 0.5 + myMeleeR)
-          : Math.max(15, Math.sqrt(enemyCount) * CLUSTER_SPACING * 0.6 + 8);
+      const ringR = Math.max(myAtkR * 0.7, Math.sqrt(enemyCount) * CLUSTER_SPACING * 0.5 + 10);
       return { tx: ecx + Math.cos(angle) * ringR, ty: ecy + Math.sin(angle) * ringR };
-    } else if (myCount < enemyCount * 0.77 && enemyCount > 0) {
-      let bestAngle = Math.atan2(u.y - ecx, u.x - ecx);
-      let bestScore = -1e18;
-      const sectors = 12;
-      for (let si = 0; si < sectors; si++) {
-        const a = (si / sectors) * Math.PI * 2;
-        let enemiesInSector = 0;
-        for (const eid of enemyIds) {
-          const eu = state.units.get(eid);
-          if (!eu) continue;
-          const dot = (eu.x - ecx) * Math.cos(a) + (eu.y - ecy) * Math.sin(a);
-          if (dot > 0) {
-            const perpDist = Math.abs(-(eu.x - ecx) * Math.sin(a) + (eu.y - ecy) * Math.cos(a));
-            if (perpDist < 40) enemiesInSector++;
-          }
-        }
-        const score = -enemiesInSector;
-        if (score > bestScore) { bestScore = score; bestAngle = a; }
-      }
-      const breakR = myMeleeR * 0.8;
-      let nearestEnemyInDir = null, bestD = 1e18;
-      for (const eid of enemyIds) {
-        const eu = state.units.get(eid);
-        if (!eu) continue;
-        const dot = (eu.x - u.x) * Math.cos(bestAngle) + (eu.y - u.y) * Math.sin(bestAngle);
-        if (dot > 0) {
-          const d = (eu.x - u.x) ** 2 + (eu.y - u.y) ** 2;
-          if (d < bestD) { bestD = d; nearestEnemyInDir = eu; }
-        }
-      }
-      if (nearestEnemyInDir) return { tx: nearestEnemyInDir.x, ty: nearestEnemyInDir.y };
-      return { tx: ecx + Math.cos(bestAngle) * breakR, ty: ecy + Math.sin(bestAngle) * breakR };
-    } else {
-      const cols = Math.max(1, Math.ceil(Math.sqrt(myCount)));
-      const row = Math.floor(idx / cols);
-      const col = idx % cols;
-      const offX = (col - (cols - 1) * 0.5) * CLUSTER_SPACING;
-      const offY = row * CLUSTER_SPACING * 0.7;
-      const perpX = -dirY, perpY = dirX;
-      const tx = midX + dirX * (8 + offY) + perpX * offX;
-      const ty = midY + dirY * (8 + offY) + perpY * offX;
-      return { tx, ty };
     }
+    const cols = Math.max(1, Math.ceil(Math.sqrt(myCount)));
+    const row = Math.floor(idx / cols);
+    const col = idx % cols;
+    const offX = (col - (cols - 1) * 0.5) * CLUSTER_SPACING;
+    const offY = row * CLUSTER_SPACING * 0.7;
+    const perpX = -dirY, perpY = dirX;
+    return { tx: midX + dirX * (8 + offY) + perpX * offX, ty: midY + dirY * (8 + offY) + perpY * offX };
   }
 
   function convexHull(points) {
@@ -2458,7 +2967,29 @@
       const pb = state.persistentBattles[k];
       const aAlive = pb.aIds && (pb.aIds instanceof Set ? [...pb.aIds] : Object.keys(pb.aIds)).some(id => state.units.has(Number(id) || id));
       const bAlive = pb.bIds && (pb.bIds instanceof Set ? [...pb.bIds] : Object.keys(pb.bIds)).some(id => state.units.has(Number(id) || id));
-      if (!aAlive || !bAlive) delete state.persistentBattles[k];
+      if (!aAlive || !bAlive) {
+        if (pb._unlockAt == null) pb._unlockAt = state.t + 5;
+        if (state.t < pb._unlockAt) continue;
+        delete state.persistentBattles[k];
+        continue;
+      }
+      pb._unlockAt = null;
+
+      let anyClose = false;
+      const aList = pb.aIds instanceof Set ? [...pb.aIds] : Object.keys(pb.aIds).map(Number);
+      const bList = pb.bIds instanceof Set ? [...pb.bIds] : Object.keys(pb.bIds).map(Number);
+      outer: for (const aid of aList) {
+        const au = state.units.get(aid);
+        if (!au) continue;
+        const disR = getUnitAtkRange(au) * 1.5;
+        const disR2 = disR * disR;
+        for (const bid of bList) {
+          const bu = state.units.get(bid);
+          if (!bu) continue;
+          if ((au.x - bu.x) ** 2 + (au.y - bu.y) ** 2 <= disR2) { anyClose = true; break outer; }
+        }
+      }
+      if (!anyClose) delete state.persistentBattles[k];
     }
     const pbKeys = Object.keys(state.persistentBattles);
     if (pbKeys.length > 25) {
@@ -2684,17 +3215,20 @@
       for (const squad of squads) {
         const leader = squad.find(u => (u.leaderId || u.id) === (squad[0].leaderId || squad[0].id)) || squad[0];
         const formationType = leader.formationType || "pig";
-        const formationRows = leader.formationRows || 1;
-        const pigW = leader.formationPigWidth ?? 1;
-        const offsets = getFormationOffsets(squad.length, formationType, formationRows, cosA, sinA, pigW);
-        const ghostG = new PIXI.Graphics();
-        ghostG.beginFill(0xffffff, 0.25);
+        const formationRows = fp.dragRows != null ? fp.dragRows : (leader.formationRows || 1);
+        const pigW = fp.dragWidth != null ? fp.dragWidth : (leader.formationPigWidth ?? 1);
+        const offsets = getFormationOffsets(squad.length, formationType, formationRows, cosA, sinA, pigW, squad);
         for (let i = 0; i < offsets.length; i++) {
           const o = offsets[i] || { x: 0, y: 0 };
-          ghostG.drawCircle(fp.x + o.x, fp.y + o.y, 10);
+          const u = squad[i] || squad[0];
+          const unitType = u.unitType || "fighter";
+          const ghostG = new PIXI.Graphics();
+          drawShipShape(ghostG, unitType, 0xffffff, 0xffffff);
+          ghostG.alpha = 0.3;
+          ghostG.position.set(fp.x + o.x, fp.y + o.y);
+          ghostG.rotation = fp.angle;
+          pathPreviewLayer.addChild(ghostG);
         }
-        ghostG.endFill();
-        pathPreviewLayer.addChild(ghostG);
       }
     }
     if (!me || !state.targetPoints || state.targetPoints.length === 0) return;
@@ -2837,6 +3371,40 @@
     if (state.floatingDamage.length > 36) state.floatingDamage.splice(0, state.floatingDamage.length - 36);
   }
 
+  const abilityAnnouncementLineEl = document.getElementById("abilityAnnouncementLine");
+  function updateAbilityAnnouncements(dt) {
+    if (!state._abilityAnnouncements || state._abilityAnnouncements.length === 0) {
+      announcementLayer.removeChildren();
+      if (abilityAnnouncementLineEl) {
+        abilityAnnouncementLineEl.textContent = "";
+        abilityAnnouncementLineEl.classList.remove("visible");
+      }
+      return;
+    }
+    const w = app.renderer.width;
+    announcementLayer.removeChildren();
+    let latest = null;
+    for (let i = state._abilityAnnouncements.length - 1; i >= 0; i--) {
+      const a = state._abilityAnnouncements[i];
+      a.ttl = (a.ttl != null ? a.ttl : 4.5) - dt;
+      if (a.ttl <= 0) {
+        state._abilityAnnouncements.splice(i, 1);
+        continue;
+      }
+      if (!latest) latest = a;
+      const txt = new PIXI.Text(a.text, { fontSize: 15, fill: 0xeeeeff, fontWeight: "bold", fontFamily: "Arial" });
+      txt.anchor.set(0.5, 0);
+      txt.position.set(w / 2, 42 + (state._abilityAnnouncements.length - 1 - i) * 24);
+      txt.alpha = Math.min(1, a.ttl);
+      announcementLayer.addChild(txt);
+    }
+    if (abilityAnnouncementLineEl && latest) {
+      abilityAnnouncementLineEl.textContent = latest.text;
+      abilityAnnouncementLineEl.classList.add("visible");
+    }
+    while (state._abilityAnnouncements.length > 8) state._abilityAnnouncements.shift();
+  }
+
   const MINIMAP_W = 180, MINIMAP_H = 110;
   function updateMinimap() {
     const canvas = document.getElementById("minimapCanvas");
@@ -2889,45 +3457,56 @@
   }
 
   function makeResVisual(r) {
-    const g = new PIXI.Graphics();
-    const isRainbow = r.type === "rainbow";
-    const sz = isRainbow ? 10 + Math.random() * 3 : 6 + Math.random() * 3;
-
-    if (isRainbow) {
-      g.beginFill(0xffffff, 0.95);
-      g.moveTo(0, -sz);
-      g.lineTo(sz * 0.6, -sz * 0.2);
-      g.lineTo(sz * 0.9, 0);
-      g.lineTo(sz * 0.5, sz * 0.7);
-      g.lineTo(0, sz);
-      g.lineTo(-sz * 0.5, sz * 0.7);
-      g.lineTo(-sz * 0.9, 0);
-      g.lineTo(-sz * 0.6, -sz * 0.2);
-      g.closePath();
-      g.endFill();
-      g.lineStyle(1.5, 0xffffff, 0.5);
-      g.moveTo(0, -sz);
-      g.lineTo(0, sz);
-      g.moveTo(-sz * 0.9, 0);
-      g.lineTo(sz * 0.9, 0);
-    } else {
-      const sides = 5 + Math.floor(Math.random() * 3);
-      g.beginFill(r.color, 0.95);
-      for (let i = 0; i <= sides; i++) {
-        const a = (i / sides) * Math.PI * 2 - Math.PI / 2;
-        const rr = sz * (0.7 + 0.3 * ((i % 2 === 0) ? 1 : 0.6));
-        const px = Math.cos(a) * rr, py = Math.sin(a) * rr;
-        if (i === 0) g.moveTo(px, py); else g.lineTo(px, py);
+    if (r.type === "credit") {
+      const val = r.value || 1;
+      const fontSize = Math.min(36, Math.max(14, 8 + val * 0.8));
+      const g = new PIXI.Container();
+      const txt = new PIXI.Text({ text: "€", style: { fontSize, fill: 0xffdd44, fontWeight: "bold", fontFamily: "Arial" } });
+      txt.anchor.set(0.5);
+      g.addChild(txt);
+      if (val >= 15 && makeGlow) {
+        const glow = makeGlow(0xffdd44, 12, 2);
+        if (glow) g.filters = [glow];
       }
-      g.closePath();
-      g.endFill();
-      g.lineStyle(1, 0xffffff, 0.3);
-      g.moveTo(-sz * 0.3, -sz * 0.5);
-      g.lineTo(sz * 0.2, -sz * 0.2);
+      g.position.set(r.x, r.y);
+      resLayer.addChild(g);
+      r.gfx = g;
+      return;
     }
+    const g = new PIXI.Graphics();
+    const xpVal = r.xp || 1;
+    const col = gemColorForValue(Math.min(10, xpVal));
+    r.color = col;
+    const sz = gemSizeForValue(Math.min(10, xpVal));
+    const shape = Math.floor(Math.random() * 5);
 
-    const glowColor = isRainbow ? 0xffffff : r.color;
-    const glow = makeGlow(glowColor, isRainbow ? 16 : 12, isRainbow ? 3.5 : 2.5);
+    if (xpVal >= 10) {
+      g.poly([0, -sz, sz * 0.6, -sz * 0.2, sz * 0.9, 0, sz * 0.5, sz * 0.7, 0, sz, -sz * 0.5, sz * 0.7, -sz * 0.9, 0, -sz * 0.6, -sz * 0.2]);
+      g.fill({ color: col, alpha: 0.95 });
+      g.circle(0, 0, sz * 0.25);
+      g.fill({ color: 0xffffff, alpha: 0.35 });
+    } else if (shape === 0) {
+      g.poly([0, -sz, sz * 0.6, -sz * 0.2, sz * 0.4, sz * 0.8, -sz * 0.4, sz * 0.8, -sz * 0.6, -sz * 0.2]);
+      g.fill({ color: col, alpha: 0.95 });
+    } else if (shape === 1) {
+      g.poly([0, -sz, sz * 0.7, 0, 0, sz, -sz * 0.7, 0]);
+      g.fill({ color: col, alpha: 0.95 });
+    } else if (shape === 2) {
+      g.poly([sz * 0.3, -sz, sz * 0.8, -sz * 0.3, sz * 0.5, sz * 0.6, -sz * 0.5, sz * 0.6, -sz * 0.8, -sz * 0.3, -sz * 0.3, -sz]);
+      g.fill({ color: col, alpha: 0.95 });
+    } else if (shape === 3) {
+      g.poly([0, -sz, sz * 0.5, -sz * 0.5, sz * 0.3, sz * 0.3, 0, sz * 0.9, -sz * 0.3, sz * 0.3, -sz * 0.5, -sz * 0.5]);
+      g.fill({ color: col, alpha: 0.95 });
+    } else {
+      g.poly([0, -sz * 0.9, sz * 0.8, -sz * 0.3, sz * 0.6, sz * 0.7, -sz * 0.6, sz * 0.7, -sz * 0.8, -sz * 0.3]);
+      g.fill({ color: col, alpha: 0.95 });
+    }
+    g.moveTo(-sz * 0.15, -sz * 0.6);
+    g.lineTo(sz * 0.1, -sz * 0.25);
+    g.stroke({ color: 0xffffff, width: 0.8, alpha: 0.5 });
+
+    const glowDist = xpVal >= 10 ? 14 : (xpVal >= 5 ? 9 : 5);
+    const glow = makeGlow(col, glowDist, xpVal >= 10 ? 2.5 : 1.5);
     if (glow) g.filters = [glow];
     g.position.set(r.x, r.y);
     resLayer.addChild(g);
@@ -3057,6 +3636,529 @@
   // ------------------------------------------------------------
   // Spawn initial players
   // ------------------------------------------------------------
+  // ── Fixed spawn positions (equidistant around center) ──
+  function getFixedSpawnPositions(count) {
+    const cx = CFG.WORLD_W * 0.5, cy = CFG.WORLD_H * 0.5;
+    const radius = Math.min(CFG.WORLD_W, CFG.WORLD_H) * 0.38;
+    const out = [];
+    for (let i = 0; i < count; i++) {
+      const angle = (i / count) * Math.PI * 2 - Math.PI / 2;
+      out.push({
+        x: clamp(cx + Math.cos(angle) * radius, CFG.WORLD_W * 0.08, CFG.WORLD_W * 0.92),
+        y: clamp(cy + Math.sin(angle) * radius, CFG.WORLD_H * 0.08, CFG.WORLD_H * 0.92)
+      });
+    }
+    return out;
+  }
+
+  // ── Mine placement ──
+  let nextMineId = 1;
+  function createMine(x, y, ownerId, isRich) {
+    const id = nextMineId++;
+    const mine = {
+      id, x, y,
+      ownerId: ownerId || null,
+      captureProgress: ownerId ? 1 : 0,
+      capturingUnitId: null,
+      isRich: !!isRich,
+      yieldAcc: 0,
+      gfx: null
+    };
+    state.mines.set(id, mine);
+    makeMineVisual(mine);
+    return mine;
+  }
+
+  function placeMines(spawnPositions, playerCount, rndFn) {
+    state.mines.clear();
+    nextMineId = 1;
+    const cx = CFG.WORLD_W * 0.5, cy = CFG.WORLD_H * 0.5;
+
+    const centerMine = createMine(cx, cy, null, true);
+    const pirateBaseOffset = 160;
+    state.pirateBase = {
+      x: cx + pirateBaseOffset, y: cy, hp: 4000, maxHp: 4000, lastDamagedBy: null,
+      gfx: null, _emojiGfx: null, spawnCd: 0, unitLimit: 12,
+      orbitCenter: { x: cx, y: cy }, orbitRadius: pirateBaseOffset + 40
+    };
+    centerMine.ownerId = PIRATE_OWNER_ID;
+    centerMine.captureProgress = 1;
+    centerMine._captureProtectedUntil = Infinity;
+    updateMineVisual(centerMine);
+
+    const inflR = CFG.INFLUENCE_R(CFG.POP_START);
+    const pids = [...state.players.values()].map(p => p.id);
+    for (let pi = 0; pi < playerCount; pi++) {
+      const sp = spawnPositions[pi];
+      const pid = pids[pi];
+      for (let m = 0; m < CFG.MINE_START_PER_PLAYER; m++) {
+        const baseAngle = Math.atan2(sp.y - cy, sp.x - cx);
+        const spread = ((m - (CFG.MINE_START_PER_PLAYER - 1) / 2) / Math.max(1, CFG.MINE_START_PER_PLAYER - 1)) * 1.2;
+        const a = baseAngle + spread + (rndFn() * 0.15);
+        const d = inflR * 0.85 + rndFn() * (inflR * 0.1);
+        createMine(
+          clamp(sp.x + Math.cos(a) * d, 40, CFG.WORLD_W - 40),
+          clamp(sp.y + Math.sin(a) * d, 40, CFG.WORLD_H - 40),
+          pid, false
+        );
+      }
+      for (let m = 0; m < CFG.MINE_NEUTRAL_PER_PLAYER; m++) {
+        const baseAngle = Math.atan2(sp.y - cy, sp.x - cx);
+        const spread = ((m - (CFG.MINE_NEUTRAL_PER_PLAYER - 1) / 2) / Math.max(1, CFG.MINE_NEUTRAL_PER_PLAYER - 1)) * 1.5;
+        const a = baseAngle + spread + Math.PI + (rndFn() * 0.2);
+        const d = inflR * 1.2 + rndFn() * (inflR * 0.3);
+        createMine(
+          clamp(sp.x + Math.cos(a) * d, 40, CFG.WORLD_W - 40),
+          clamp(sp.y + Math.sin(a) * d, 40, CFG.WORLD_H - 40),
+          null, false
+        );
+      }
+    }
+  }
+
+  function makeMineVisual(mine) {
+    if (mine.gfx) { mine.gfx.destroy(true); mine.gfx = null; }
+    const c = new PIXI.Container();
+    const R = (mine.isRich ? 36 : 28) * 2;
+    const ownerCol = mine.ownerId ? colorForId(mine.ownerId) : 0x555555;
+
+    const outerGlow = new PIXI.Graphics();
+    outerGlow.circle(0, 0, R + 12);
+    outerGlow.fill({ color: mine.ownerId ? ownerCol : 0x333344, alpha: mine.ownerId ? 0.15 : 0.08 });
+    c.addChild(outerGlow);
+
+    const bg = new PIXI.Graphics();
+    bg.rect(-R, -R, R * 2, R * 2);
+    bg.fill({ color: 0x111118, alpha: 0.9 });
+    bg.stroke({ color: mine.ownerId ? ownerCol : 0x666688, width: 3 });
+    c.addChild(bg);
+
+    const innerCircle = new PIXI.Graphics();
+    innerCircle.circle(0, 0, R * 0.55);
+    innerCircle.fill({ color: mine.isRich ? 0xffcc00 : (mine.ownerId ? ownerCol : 0x888899), alpha: 0.5 });
+    innerCircle.stroke({ color: mine.isRich ? 0xffaa00 : 0x999999, width: 2 });
+    c.addChild(innerCircle);
+
+    if (mine.isRich) {
+      const sparkle = new PIXI.Graphics();
+      sparkle.circle(0, 0, R * 0.25);
+      sparkle.fill({ color: 0xffee88, alpha: 0.35 });
+      c.addChild(sparkle);
+    }
+
+    const icon = new PIXI.Text({
+      text: mine.isRich ? "💎" : "⛏️",
+      style: { fontSize: mine.isRich ? 40 : 32 }
+    });
+    icon.anchor.set(0.5);
+    icon.y = -1;
+    c.addChild(icon);
+
+    if (mine.ownerId && mine.captureProgress >= 1) {
+      const ownerGlow = new PIXI.Graphics();
+      ownerGlow.circle(0, 0, R * 0.8);
+      ownerGlow.fill({ color: ownerCol, alpha: 0.18 });
+      c.addChildAt(ownerGlow, 0);
+
+      const flag = new PIXI.Text({ text: "🚩", style: { fontSize: 12 } });
+      flag.anchor.set(0.5);
+      flag.position.set(R * 0.7, -R * 0.7);
+      c.addChild(flag);
+    }
+
+    c.x = mine.x;
+    c.y = mine.y;
+    mine.gfx = c;
+    resLayer.addChild(c);
+  }
+
+  function updateMineVisual(mine) {
+    makeMineVisual(mine);
+  }
+
+  // ── Mine step: capture + yield ──
+  function stepMines(dt) {
+    for (const mine of state.mines.values()) {
+      const ownersInRadius = new Map();
+      for (const u of state.units.values()) {
+        if (Math.hypot(u.x - mine.x, u.y - mine.y) <= CFG.MINE_CAPTURE_RADIUS) {
+          if (mine.ownerId && u.owner === mine.ownerId) continue;
+          ownersInRadius.set(u.owner, (ownersInRadius.get(u.owner) || 0) + 1);
+        }
+      }
+      const ownerIds = [...ownersInRadius.keys()];
+      const contested = ownerIds.length > 1;
+      const unitInRadiusOwner = ownerIds.length === 1 ? ownerIds[0] : null;
+      const unitInRadius = unitInRadiusOwner != null;
+
+      const protected_ = (mine._captureProtectedUntil != null) && state.t < mine._captureProtectedUntil;
+      mine._contested = contested;
+      if (contested) {
+        mine._capturingOwner = null;
+      }
+      if (!protected_ && !contested && unitInRadius && mine.ownerId !== unitInRadiusOwner) {
+        if (mine.ownerId && mine.captureProgress >= 1) {
+          mine.captureProgress = Math.max(0, mine.captureProgress - dt / CFG.MINE_CAPTURE_TIME);
+          if (mine.captureProgress <= 0) {
+            mine.ownerId = null;
+            mine.captureProgress = 0;
+            mine._capturingOwner = unitInRadiusOwner;
+            updateMineVisual(mine);
+          }
+        } else {
+          mine._capturingOwner = unitInRadiusOwner;
+          mine.captureProgress = Math.min(1, mine.captureProgress + dt / CFG.MINE_CAPTURE_TIME);
+          if (mine.captureProgress >= 1) {
+            mine.ownerId = unitInRadiusOwner;
+            mine.captureProgress = 1;
+            mine._capturingOwner = null;
+            mine._captureProtectedUntil = state.t + (CFG.MINE_CAPTURE_PROTECTION || 5);
+            updateMineVisual(mine);
+          }
+        }
+      } else if (!protected_ && !contested && !unitInRadius && !mine.ownerId && mine.captureProgress > 0) {
+        mine.captureProgress = Math.max(0, mine.captureProgress - dt / (CFG.MINE_CAPTURE_TIME * 2));
+        if (mine.captureProgress <= 0) mine._capturingOwner = null;
+      }
+
+      if (mine.ownerId && mine.captureProgress >= 1) {
+        const owner = state.players.get(mine.ownerId);
+        if (!owner || owner.pop <= 0) { mine.ownerId = null; mine.captureProgress = 0; updateMineVisual(mine); continue; }
+
+        const maxGems = CFG.MINE_MAX_GEMS || 10;
+        let activeGems = 0;
+        for (const gm of state.mineGems) {
+          if (gm.alive && gm._mineId === mine.id) activeGems++;
+        }
+
+        const totalVal = (CFG.MINE_BASE_YIELD_VALUE + (owner.mineYieldBonus || 0)) * (mine.isRich ? CFG.MINE_RICH_MULTIPLIER : 1);
+        const spawnInterval = Math.max(0.5, 2.5 - totalVal * 0.15);
+        mine.yieldAcc += dt;
+        while (mine.yieldAcc >= spawnInterval) {
+          mine.yieldAcc -= spawnInterval;
+          const batchVal = totalVal * spawnInterval;
+          if (activeGems >= maxGems) {
+            const oldest = state.mineGems.find(g => g.alive && g._mineId === mine.id);
+            if (oldest) oldest.value += batchVal;
+          } else {
+            const isCredit = Math.random() < 0.45;
+            const variedVal = batchVal * (0.6 + Math.random() * 0.8);
+            spawnMineGem(mine, owner, variedVal, isCredit);
+            activeGems++;
+          }
+        }
+      }
+
+      if (mine.gfx) updateMineProgressBar(mine);
+    }
+
+    if (state.pirateBase && state.pirateBase.hp > 0) {
+      state.pirateBase.spawnCd = (state.pirateBase.spawnCd || 0) - dt;
+      let pirateCount = 0;
+      for (const u of state.units.values()) if (u.owner === PIRATE_OWNER_ID && !u._hyperArrivalFlash) pirateCount++;
+      if (pirateCount < (state.pirateBase.unitLimit || 12) && state.pirateBase.spawnCd <= 0) {
+        state.pirateBase.spawnCd = 6;
+        const types = ["fighter", "destroyer", "cruiser"];
+        const t = types[Math.floor(Math.random() * types.length)];
+        const oc = state.pirateBase.orbitCenter || { x: state.pirateBase.x, y: state.pirateBase.y };
+        const oR = state.pirateBase.orbitRadius || 200;
+        const a = Math.random() * Math.PI * 2;
+        const spawnU = spawnUnitAt(
+          oc.x + Math.cos(a) * oR * 0.3,
+          oc.y + Math.sin(a) * oR * 0.3,
+          PIRATE_OWNER_ID, t, []
+        );
+        if (spawnU) spawnU._piratePatrol = true;
+      }
+      const oc = state.pirateBase.orbitCenter || { x: state.pirateBase.x, y: state.pirateBase.y };
+      const oR = state.pirateBase.orbitRadius || 200;
+      for (const u of state.units.values()) {
+        if (u.owner !== PIRATE_OWNER_ID) continue;
+        if (u._hyperArrivalFlash && state.t < u._hyperArrivalFlash) continue;
+        const inCombat = (state._cachedCombatSet || getUnitsInCombatSet()).has(u.id);
+        if (inCombat) continue;
+        if (!u._patrolAngle) u._patrolAngle = Math.atan2(u.y - oc.y, u.x - oc.x);
+        const speed = (u.unitType === "cruiser") ? 0.15 : (u.unitType === "destroyer") ? 0.22 : 0.3;
+        u._patrolAngle += speed * dt * (u.id % 2 === 0 ? 1 : -1);
+        const pr = oR * (0.6 + (u.id % 5) * 0.08);
+        const tx = oc.x + Math.cos(u._patrolAngle) * pr;
+        const ty = oc.y + Math.sin(u._patrolAngle) * pr;
+        u.waypoints = [{ x: tx, y: ty }];
+        u.waypointIndex = 0;
+      }
+    }
+  }
+
+  function updateMineProgressBar(mine) {
+    if (!mine.gfx) return;
+    let bar = mine.gfx._progressBar;
+    const contested = mine._contested;
+    if (mine.captureProgress > 0 && mine.captureProgress < 1 && !contested) {
+      const R = (mine.isRich ? 36 : 28) * 2;
+      if (!bar) {
+        bar = new PIXI.Graphics();
+        mine.gfx.addChild(bar);
+        mine.gfx._progressBar = bar;
+      }
+      bar.clear();
+      const w = R * 2, h = 5;
+      bar.rect(-w / 2, R + 4, w, h);
+      bar.fill({ color: 0x222222, alpha: 0.7 });
+      const capCol = mine._capturingOwner ? colorForId(mine._capturingOwner) : 0x00ff88;
+      bar.rect(-w / 2, R + 4, w * mine.captureProgress, h);
+      bar.fill({ color: capCol, alpha: 0.9 });
+      bar.visible = true;
+    } else if (bar) {
+      bar.visible = false;
+    }
+  }
+
+  const GEM_COLORS_BY_TIER = {
+    1: [0x88ff88, 0x66dd66, 0xaaff99, 0x55cc88],
+    2: [0x44ddff, 0x66ccee, 0x33bbdd, 0x55eeff],
+    3: [0xffcc00, 0xffaa22, 0xeebb11, 0xffdd44],
+    4: [0xff6644, 0xff4488, 0xff8844, 0xee5533],
+    5: [0xdd44ff, 0xcc33ee, 0xbb55ff, 0xaa22dd]
+  };
+  const GEM_RAINBOW = [0xff4444, 0xff8800, 0xffdd00, 0x44ff44, 0x44ddff, 0x4488ff, 0xbb44ff, 0xff44bb];
+
+  function gemColorForValue(value) {
+    if (value >= 10) return GEM_RAINBOW[Math.floor(Math.random() * GEM_RAINBOW.length)];
+    if (value >= 6) { const colors = GEM_COLORS_BY_TIER[5]; return colors[Math.floor(Math.random() * colors.length)]; }
+    if (value >= 4) { const colors = GEM_COLORS_BY_TIER[4]; return colors[Math.floor(Math.random() * colors.length)]; }
+    const tier = Math.min(3, Math.max(1, Math.round(value)));
+    const colors = GEM_COLORS_BY_TIER[tier] || GEM_COLORS_BY_TIER[1];
+    return colors[Math.floor(Math.random() * colors.length)];
+  }
+
+  function gemSizeForValue(value) {
+    return Math.min(14, 4 + value * 2 + Math.random() * 1.5);
+  }
+
+  function makeGemVisual(gem) {
+    const sz = gemSizeForValue(gem.value);
+    const g = new PIXI.Graphics();
+
+    if (gem.isCredit) {
+      const fontSize = Math.min(48, Math.max(12, 10 + gem.value * 3));
+      const euroText = new PIXI.Text({ text: "€", style: { fontSize, fill: 0xffdd44, fontWeight: "bold", fontFamily: "Arial" } });
+      euroText.anchor.set(0.5);
+      g.addChild(euroText);
+      if (gem.value >= 8) {
+        const glow = makeGlow(0xffdd44, 16, 3);
+        if (glow) g.filters = [glow];
+      } else if (gem.value >= 4) {
+        const glow = makeGlow(0xffcc22, 8, 1.5);
+        if (glow) g.filters = [glow];
+      }
+    } else {
+      const col = gemColorForValue(gem.value);
+      const shape = Math.floor(Math.random() * 5);
+      if (shape === 0) {
+        g.poly([0, -sz, sz * 0.6, -sz * 0.2, sz * 0.4, sz * 0.8, -sz * 0.4, sz * 0.8, -sz * 0.6, -sz * 0.2]);
+        g.fill({ color: col, alpha: 0.95 });
+      } else if (shape === 1) {
+        g.poly([0, -sz, sz * 0.7, 0, 0, sz, -sz * 0.7, 0]);
+        g.fill({ color: col, alpha: 0.95 });
+      } else if (shape === 2) {
+        g.poly([sz * 0.3, -sz, sz * 0.8, -sz * 0.3, sz * 0.5, sz * 0.6, -sz * 0.5, sz * 0.6, -sz * 0.8, -sz * 0.3, -sz * 0.3, -sz]);
+        g.fill({ color: col, alpha: 0.95 });
+      } else if (shape === 3) {
+        g.poly([0, -sz, sz * 0.5, -sz * 0.5, sz * 0.3, sz * 0.3, 0, sz * 0.9, -sz * 0.3, sz * 0.3, -sz * 0.5, -sz * 0.5]);
+        g.fill({ color: col, alpha: 0.95 });
+      } else {
+        g.poly([0, -sz * 0.9, sz * 0.8, -sz * 0.3, sz * 0.6, sz * 0.7, -sz * 0.6, sz * 0.7, -sz * 0.8, -sz * 0.3]);
+        g.fill({ color: col, alpha: 0.95 });
+      }
+      if (gem.value >= 10) {
+        g.circle(0, 0, sz * 0.25);
+        g.fill({ color: 0xffffff, alpha: 0.35 });
+      }
+      const glowDist = gem.value >= 10 ? 14 : (gem.value >= 5 ? 10 : 6);
+      const glow = makeGlow(col, glowDist, gem.value >= 10 ? 2.8 : 1.8);
+      if (glow) g.filters = [glow];
+    }
+
+    g.x = gem.x;
+    g.y = gem.y;
+    gem.gfx = g;
+    resLayer.addChild(g);
+  }
+
+  function spawnMineGem(mine, owner, value, isCredit) {
+    const id = state.nextResId++;
+    const baseSpeed = CFG.MINE_GEM_SPEED * (0.7 + value * 0.15);
+    const jitter = baseSpeed * (0.95 + Math.random() * 0.1);
+    const gem = {
+      id, x: mine.x, y: mine.y,
+      targetPlayerId: owner.id,
+      _mineId: mine.id,
+      value: value,
+      isCredit: !!isCredit,
+      speed: jitter,
+      drift: (Math.random() - 0.5) * 12,
+      alive: true,
+      gfx: null
+    };
+    makeGemVisual(gem);
+    state.mineGems.push(gem);
+  }
+
+  function removeGemVisual(g) {
+    if (g.gfx) { resLayer.removeChild(g.gfx); g.gfx.destroy(true); g.gfx = null; }
+  }
+
+  function stepMineGems(dt) {
+    for (let i = state.mineGems.length - 1; i >= 0; i--) {
+      const g = state.mineGems[i];
+      if (!g.alive) { removeGemVisual(g); state.mineGems.splice(i, 1); continue; }
+      const target = state.players.get(g.targetPlayerId);
+      if (!target || target.pop <= 0) { g.alive = false; removeGemVisual(g); state.mineGems.splice(i, 1); continue; }
+
+      const dx = target.x - g.x, dy = target.y - g.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist < 15) {
+        target.eCredits = (target.eCredits || 0) + g.value;
+        if (!g.isCredit) gainXP(target, g.value);
+        if (target.id === state.myPlayerId) tickSound(1480, 0.03, 0.04);
+        g.alive = false;
+        removeGemVisual(g);
+        state.mineGems.splice(i, 1);
+        continue;
+      }
+
+      const spd = g.speed * dt;
+      const nx = dx / dist, ny = dy / dist;
+      const perpX = -ny, perpY = nx;
+      g.x += nx * spd + perpX * g.drift * dt;
+      g.y += ny * spd + perpY * g.drift * dt;
+      if (g.gfx) { g.gfx.x = g.x; g.gfx.y = g.y; g.gfx.rotation += dt * 1.5; }
+
+      let intercepted = false;
+      const gemProtected = g._interceptProtectUntil && state.t < g._interceptProtectUntil;
+      for (const u of state.units.values()) {
+        if (u.owner === g.targetPlayerId) continue;
+        if (gemProtected) continue;
+        const uHR = getUnitHitRadius(u);
+        if (Math.hypot(u.x - g.x, u.y - g.y) < uHR + 4) {
+          const interceptor = state.players.get(u.owner);
+          if (interceptor) {
+            g.targetPlayerId = u.owner;
+            g._interceptProtectUntil = state.t + 1.0;
+            intercepted = true;
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  // ── Nebula placement (static, not moving); none in or touching initial influence zones ──
+  function placeNebulae() {
+    state.nebulae = [];
+    const baseInflR = CFG.INFLUENCE_BASE_R || 240;
+    function nebulaTouchesAnyInitialZone(cx, cy, r) {
+      for (const p of state.players.values()) {
+        if (p.eliminated) continue;
+        const zoneR = p.influenceR ?? baseInflR;
+        if (Math.hypot(cx - p.x, cy - p.y) <= r + zoneR) return true;
+      }
+      return false;
+    }
+    if (stateNebulaClouds && stateNebulaClouds.length) {
+      for (const c of stateNebulaClouds) {
+        if (nebulaTouchesAnyInitialZone(c.cx, c.cy, c.r)) continue;
+        state.nebulae.push({ x: c.cx, y: c.cy, radius: c.r, discharges: [] });
+      }
+    } else {
+      const cx = CFG.WORLD_W * 0.5, cy = CFG.WORLD_H * 0.5;
+      const cand = [{ x: cx, y: cy, radius: CFG.NEBULA_CENTER_RADIUS }];
+      for (let i = 0; i < CFG.NEBULA_EXTRA_COUNT; i++) {
+        const a = ((i + 0.5) / CFG.NEBULA_EXTRA_COUNT) * Math.PI * 2;
+        const d = Math.min(CFG.WORLD_W, CFG.WORLD_H) * (0.18 + Math.random() * 0.12);
+        const r = CFG.NEBULA_EXTRA_R_MIN + Math.random() * (CFG.NEBULA_EXTRA_R_MAX - CFG.NEBULA_EXTRA_R_MIN);
+        cand.push({ x: clamp(cx + Math.cos(a) * d, r + 20, CFG.WORLD_W - r - 20), y: clamp(cy + Math.sin(a) * d, r + 20, CFG.WORLD_H - r - 20), radius: r });
+      }
+      for (const c of cand) {
+        if (nebulaTouchesAnyInitialZone(c.x, c.y, c.r)) continue;
+        state.nebulae.push({ x: c.x, y: c.y, radius: c.r, discharges: [] });
+      }
+    }
+  }
+
+  function isInNebula(x, y) {
+    if (!state.nebulae) return false;
+    for (const n of state.nebulae) {
+      if (Math.hypot(x - n.x, y - n.y) <= n.radius) return true;
+    }
+    return false;
+  }
+
+  function stepNebulae(dt) {
+    if (!state.nebulae) return;
+    for (const neb of state.nebulae) {
+      neb._glowPhase = (neb._glowPhase || 0) + dt * 0.008;
+      neb._glowAlpha = 0.09;
+
+      const spawnRate = 0.08 + neb.radius * 0.0004;
+      if (Math.random() < dt * spawnRate) {
+        const a = Math.random() * Math.PI * 2;
+        const d = Math.random() * neb.radius * 0.4;
+        const sx = neb.x + Math.cos(a) * d;
+        const sy = neb.y + Math.sin(a) * d;
+        const segs = [];
+        let px = sx, py = sy;
+        let angle = Math.random() * Math.PI * 2;
+        const variety = Math.random();
+        let segCount, segLen, branchChance, angleJitter;
+        if (variety < 0.3) {
+          segCount = 2 + Math.floor(Math.random() * 3);
+          segLen = 5 + Math.random() * 12;
+          branchChance = 0.1;
+          angleJitter = 0.8;
+        } else if (variety < 0.7) {
+          segCount = 4 + Math.floor(Math.random() * 4);
+          segLen = 8 + Math.random() * 20;
+          branchChance = 0.4;
+          angleJitter = 1.2;
+        } else {
+          segCount = 6 + Math.floor(Math.random() * 5);
+          segLen = 12 + Math.random() * 25;
+          branchChance = 0.5;
+          angleJitter = 1.6;
+        }
+        for (let s = 0; s < segCount; s++) {
+          angle += (Math.random() - 0.5) * angleJitter;
+          const len = segLen * (0.7 + Math.random() * 0.6);
+          const nx = px + Math.cos(angle) * len;
+          const ny = py + Math.sin(angle) * len;
+          segs.push({ x1: px, y1: py, x2: nx, y2: ny });
+          px = nx; py = ny;
+          if (Math.random() < branchChance && s < segCount - 1) {
+            const ba = angle + (Math.random() < 0.5 ? 0.7 : -0.7) + (Math.random() - 0.5) * 0.5;
+            const bl = 4 + Math.random() * 12;
+            segs.push({ x1: px, y1: py, x2: px + Math.cos(ba) * bl, y2: py + Math.sin(ba) * bl });
+          }
+        }
+        let totalLen = 0;
+        const segsWithLen = segs.map(seg => {
+          const l = Math.hypot(seg.x2 - seg.x1, seg.y2 - seg.y1);
+          totalLen += l;
+          return { ...seg, cumLen: totalLen };
+        });
+        const life = 4.0 + Math.random() * 4.0;
+        const hue = Math.random() < 0.3 ? 0xaa88ff : (Math.random() < 0.5 ? 0x6699cc : 0x88bbee);
+        const startX = segs[0].x1, startY = segs[0].y1;
+        const lastSeg = segs[segs.length - 1];
+        neb.discharges.push({ segs: segsWithLen, totalLen, life, maxLife: life, hue, startX, startY, endX: lastSeg.x2, endY: lastSeg.y2 });
+      }
+      for (let i = neb.discharges.length - 1; i >= 0; i--) {
+        neb.discharges[i].life -= dt;
+        if (neb.discharges[i].life <= 0) neb.discharges.splice(i, 1);
+      }
+    }
+  }
+
   function resetWorld() {
     destroyChildren(zonesLayer);
     destroyChildren(turretLayer);
@@ -3078,6 +4180,10 @@
     state.units.clear();
     state.res.clear();
     state.turrets.clear();
+    state.mines.clear();
+    state.mineGems = [];
+    state.nebulae = [];
+    nextMineId = 1;
     state.nextTurretId = 1;
     state.nextUnitId = 1;
     state.nextResId = 1;
@@ -3103,71 +4209,39 @@
     state.persistentBattles = {};
     state.resourceClusters = [];
 
-    const me = makePlayer(1, nameForId(1), CFG.WORLD_W * 0.32, CFG.WORLD_H * 0.55, CFG.POP_START);
+    const soloIdx = state._soloColorIndex ?? 0;
+    const remainingColors = SOLO_PALETTE.filter((_, i) => i !== soloIdx);
+
+    const botCount = Math.max(1, Math.min(5, state._soloBotCount ?? 2));
+    const totalPlayers = 1 + botCount;
+    const spawnPositions = getFixedSpawnPositions(totalPlayers);
+
+    const me = makePlayer(1, nameForId(1), spawnPositions[0].x, spawnPositions[0].y, CFG.POP_START);
+    me.color = SOLO_PALETTE[soloIdx];
+    PLAYER_COLORS[1] = me.color;
     state.players.set(me.id, me);
     makeCityVisual(me);
     makeZoneVisual(me);
 
-    const MIN_CITY_DIST = 1100;
-    for (let i = 0; i < CFG.BOTS; i++) {
+    for (let i = 0; i < botCount; i++) {
       const id = 2 + i;
-      let bx, by, ok;
-      for (let attempt = 0; attempt < 80; attempt++) {
-        bx = rand(CFG.WORLD_W * 0.12, CFG.WORLD_W * 0.88);
-        by = rand(CFG.WORLD_H * 0.12, CFG.WORLD_H * 0.88);
-        ok = true;
-        for (const p of state.players.values()) {
-          if (Math.hypot(bx - p.x, by - p.y) < MIN_CITY_DIST) { ok = false; break; }
-        }
-        if (ok) break;
-      }
-      const bot = makePlayer(id, nameForId(id), bx, by, CFG.POP_START);
+      const pos = spawnPositions[1 + i];
+      const bot = makePlayer(id, nameForId(id), pos.x, pos.y, CFG.POP_START);
+      bot.color = remainingColors[i % remainingColors.length];
+      PLAYER_COLORS[bot.id] = bot.color;
       state.players.set(bot.id, bot);
       makeCityVisual(bot);
       makeZoneVisual(bot);
     }
 
-    // Camera on me
     centerOn(me.x, me.y);
 
-    state.resourceClusters = [];
-    state.resourceClusters.push({
-      x: CFG.WORLD_W * 0.5,
-      y: CFG.WORLD_H * 0.5,
-      radius: 130,
-      centerCluster: true
-    });
-    for (const p of state.players.values()) {
-      for (let c = 0; c < 4; c++) {
-        const angle = (c / 4) * Math.PI * 2 + Math.random() * 0.8;
-        const dist = rand(120, 220);
-        state.resourceClusters.push({
-          x: p.x + Math.cos(angle) * dist,
-          y: p.y + Math.sin(angle) * dist,
-          radius: rand(40, 70)
-        });
-      }
-    }
-    const numClusters = Math.max(15, Math.floor((CFG.WORLD_W * CFG.WORLD_H) / 220000));
-    for (let i = state.resourceClusters.length; i < numClusters; i++) {
-      state.resourceClusters.push({
-        x: rand(CFG.WORLD_W * 0.05, CFG.WORLD_W * 0.95),
-        y: rand(CFG.WORLD_H * 0.05, CFG.WORLD_H * 0.95),
-        radius: rand(45, 80)
-      });
-    }
+    state._timeSnapshots = [];
+    state._lastTimeSnapshotAt = 0;
+    state._timeJumpAvailableAt = state.players.size * 61;
 
-    // Seed resources in clusters
-    for (const cl of state.resourceClusters) {
-      const count = cl.centerCluster ? Math.floor(rand(18, 28)) : Math.floor(rand(4, 12));
-      for (let i = 0; i < count; i++) {
-        const angle = Math.random() * Math.PI * 2;
-        const r = Math.random() * cl.radius;
-        const x = clamp(cl.x + Math.cos(angle) * r, 0, CFG.WORLD_W);
-        const y = clamp(cl.y + Math.sin(angle) * r, 0, CFG.WORLD_H);
-        spawnResourceAt(x, y);
-      }
-    }
+    placeMines(spawnPositions, totalPlayers, Math.random);
+    placeNebulae();
   }
 
   function resetWorldMulti(slots, slotToPid) {
@@ -3197,6 +4271,10 @@
     state.units.clear();
     state.res.clear();
     state.turrets.clear();
+    state.mines.clear();
+    state.mineGems = [];
+    state.nebulae = [];
+    nextMineId = 1;
     state.nextTurretId = 1;
     state.nextUnitId = 1;
     state.nextResId = 1;
@@ -3218,70 +4296,33 @@
     state.prevInCombatIds.clear();
     state.smoothedFronts = {};
     state.persistentBattles = {};
-    state.resourceClusters = [];
 
     const filledSlotIndices = Object.keys(slotToPid).map(Number).sort((a, b) => a - b);
-    const MIN_CITY_DIST = 1100;
-    const cx = CFG.WORLD_W * 0.5;
-    const cy = CFG.WORLD_H * 0.5;
     const n = filledSlotIndices.length;
-    const radius = Math.min(CFG.WORLD_W, CFG.WORLD_H) * 0.38;
+    const allSpawns = getFixedSpawnPositions(CFG.MAX_PLAYERS);
+
     const positions = [];
-    for (let i = 0; i < n; i++) {
-      const angle = (i / n) * Math.PI * 2 + (n > 1 ? locRnd() * 0.15 : 0);
-      positions.push({
-        x: clamp(cx + Math.cos(angle) * radius, CFG.WORLD_W * 0.08, CFG.WORLD_W * 0.92),
-        y: clamp(cy + Math.sin(angle) * radius, CFG.WORLD_H * 0.08, CFG.WORLD_H * 0.92)
-      });
-    }
     for (let i = 0; i < filledSlotIndices.length; i++) {
       const slotIndex = filledSlotIndices[i];
       const pid = slotToPid[slotIndex];
-      const pos = positions[i];
+      const slotData = slots[slotIndex];
+      const spIdx = (slotData && slotData.spawnIndex != null) ? slotData.spawnIndex : i;
+      const pos = allSpawns[spIdx] || allSpawns[i] || allSpawns[0];
+      positions.push(pos);
       const pl = makePlayer(pid, nameForId(pid), pos.x, pos.y, CFG.POP_START);
       state.players.set(pl.id, pl);
       makeCityVisual(pl);
       makeZoneVisual(pl);
     }
+    state._timeSnapshots = [];
+    state._lastTimeSnapshotAt = 0;
+    state._timeJumpAvailableAt = state.players.size * 61;
 
     const me = state.players.get(state.myPlayerId);
     centerOn(me.x, me.y);
-    state.resourceClusters = [];
-    state.resourceClusters.push({
-      x: CFG.WORLD_W * 0.5,
-      y: CFG.WORLD_H * 0.5,
-      radius: 130,
-      centerCluster: true
-    });
-    for (const p of state.players.values()) {
-      for (let c = 0; c < 4; c++) {
-        const angle = (c / 4) * Math.PI * 2 + locRnd() * 0.8;
-        const dist = locRand(120, 220);
-        state.resourceClusters.push({
-          x: p.x + Math.cos(angle) * dist,
-          y: p.y + Math.sin(angle) * dist,
-          radius: locRand(40, 70)
-        });
-      }
-    }
-    const numClusters = Math.max(15, Math.floor((CFG.WORLD_W * CFG.WORLD_H) / 220000));
-    for (let i = state.resourceClusters.length; i < numClusters; i++) {
-      state.resourceClusters.push({
-        x: locRand(CFG.WORLD_W * 0.05, CFG.WORLD_W * 0.95),
-        y: locRand(CFG.WORLD_H * 0.05, CFG.WORLD_H * 0.95),
-        radius: locRand(45, 80)
-      });
-    }
-    for (const cl of state.resourceClusters) {
-      const count = cl.centerCluster ? Math.floor(locRand(18, 28)) : Math.floor(locRand(4, 12));
-      for (let i = 0; i < count; i++) {
-        const angle = locRnd() * Math.PI * 2;
-        const r = locRnd() * cl.radius;
-        const x = clamp(cl.x + Math.cos(angle) * r, 0, CFG.WORLD_W);
-        const y = clamp(cl.y + Math.sin(angle) * r, 0, CFG.WORLD_H);
-        spawnResourceAt(x, y, locRnd);
-      }
-    }
+
+    placeMines(positions, n, locRnd);
+    placeNebulae();
   }
 
   // ------------------------------------------------------------
@@ -3357,7 +4398,10 @@
   function deleteResource(rid) {
     const r = state.res.get(rid);
     if (!r) return;
-    if (r.gfx) resLayer.removeChild(r.gfx);
+    if (r.gfx) {
+      resLayer.removeChild(r.gfx);
+      if (r.gfx.destroy) r.gfx.destroy(true);
+    }
     state.res.delete(rid);
   }
 
@@ -3365,12 +4409,14 @@
   // Units
   // ------------------------------------------------------------
   const FORM_ELONGATE = 1.85;
+  const FORM_MIN_SPACING = 50;
 
-  function pigFormationOffsets(n, dirX, dirY, depth, widthMul) {
+  function pigFormationOffsets(n, dirX, dirY, depth, widthMul, sizeMul) {
     const depthRows = Math.max(1, depth || 3);
     const wMul = Math.max(0.5, Math.min(2, widthMul || 1));
-    const sx = (CFG.FORM_SPACING_X || 18) * wMul;
-    const sy = CFG.FORM_SPACING_Y;
+    const sm = sizeMul || 1;
+    const sx = Math.max((CFG.FORM_SPACING_X || 18) * wMul * sm, FORM_MIN_SPACING * wMul);
+    const sy = Math.max(CFG.FORM_SPACING_Y * sm, FORM_MIN_SPACING);
     const out = [];
     let placed = 0;
     let row = 0;
@@ -3404,9 +4450,12 @@
     return out;
   }
 
-  function lineFormationOffsets(n, rows, dirX, dirY) {
-    const sx = CFG.FORM_SPACING_X;
-    const sy = CFG.FORM_SPACING_Y;
+  const FORM_TYPE_ORDER = ["fighter", "destroyer", "cruiser", "battleship", "hyperDestroyer"];
+
+  function lineFormationOffsets(n, rows, dirX, dirY, sizeMul) {
+    const sm = sizeMul || 1;
+    const sx = Math.max((CFG.FORM_SPACING_X || 18) * sm, FORM_MIN_SPACING);
+    const sy = Math.max((CFG.FORM_SPACING_Y || 22) * sm, FORM_MIN_SPACING);
     const cols = Math.ceil(n / Math.max(1, rows));
     const out = [];
     let idx = 0;
@@ -3423,9 +4472,53 @@
     return out;
   }
 
-  function getFormationOffsets(n, formationType, formationRows, dirX, dirY, formationPigWidth) {
-    if (formationType === "line") return lineFormationOffsets(n, Math.max(1, formationRows || 1), dirX, dirY);
-    return pigFormationOffsets(n, dirX, dirY, formationRows || 3, formationPigWidth ?? 1);
+  function lineFormationOffsetsByType(squad, dirX, dirY) {
+    const order = FORM_TYPE_ORDER;
+    const formationOrder = [];
+    for (const k of order) {
+      for (const u of squad) if ((u.unitType || "fighter") === k) formationOrder.push(u);
+    }
+    const angle = Math.atan2(dirY, dirX) + Math.PI / 2;
+    const cos = Math.cos(angle), sin = Math.sin(angle);
+    const offsetsInOrder = [];
+    let yAcc = 0;
+    for (let j = 0; j < formationOrder.length; ) {
+      const rowType = formationOrder[j].unitType || "fighter";
+      const row = [];
+      while (j < formationOrder.length && (formationOrder[j].unitType || "fighter") === rowType) {
+        row.push(formationOrder[j++]);
+      }
+      const maxSm = Math.max(...row.map(unit => Math.max(1, (UNIT_TYPES[unit.unitType] || UNIT_TYPES.fighter).sizeMultiplier * 0.7 + 0.5)), 1);
+      const sx = Math.max((CFG.FORM_SPACING_X || 18) * maxSm, FORM_MIN_SPACING);
+      const sy = Math.max((CFG.FORM_SPACING_Y || 22) * maxSm, FORM_MIN_SPACING);
+      for (let c = 0; c < row.length; c++) {
+        const x = (c - (row.length - 1) / 2) * sx;
+        const y = yAcc;
+        offsetsInOrder.push({ x: x * cos - y * sin, y: x * sin + y * cos });
+      }
+      yAcc += sy;
+    }
+    const out = [];
+    for (const u of squad) {
+      const idx = formationOrder.indexOf(u);
+      out.push(offsetsInOrder[idx] || { x: 0, y: 0 });
+    }
+    return out;
+  }
+
+  function getFormationOffsets(n, formationType, formationRows, dirX, dirY, formationPigWidth, squad) {
+    let sizeMul = 1;
+    if (squad && squad.length > 0) {
+      let maxSz = 0;
+      for (const u of squad) {
+        const t = UNIT_TYPES[u.unitType] || UNIT_TYPES.fighter;
+        if (t.sizeMultiplier > maxSz) maxSz = t.sizeMultiplier;
+      }
+      sizeMul = Math.max(1, maxSz * 0.6 + 0.4);
+    }
+    if (formationType === "lineByType" && squad && squad.length > 0) return lineFormationOffsetsByType(squad, dirX, dirY);
+    if (formationType === "line") return lineFormationOffsets(n, Math.max(1, formationRows || 1), dirX, dirY, sizeMul);
+    return pigFormationOffsets(n, dirX, dirY, formationRows || 3, formationPigWidth ?? 1, sizeMul);
   }
 
   function getFormationCenter(offsets) {
@@ -3435,56 +4528,90 @@
     return { x: cx / offsets.length, y: cy / offsets.length };
   }
 
-  function spawnUnits(ownerId, count, waypoints, opts) {
+  function spawnUnitAt(sx, sy, ownerId, unitTypeKey, waypoints) {
+    const type = UNIT_TYPES[unitTypeKey];
+    if (!type) return null;
+    const id = state.nextUnitId++;
+    const u = {
+      id, owner: ownerId,
+      color: ownerId === PIRATE_OWNER_ID ? 0x886622 : (state.players.get(ownerId)?.color ?? colorForId(ownerId)),
+      unitType: unitTypeKey,
+      x: sx, y: sy, vx: 0, vy: 0,
+      hp: type.hp, maxHp: type.hp, dmg: type.damage, atkCd: 0,
+      attackRange: type.attackRange, maxTargets: type.maxTargets, speed: type.speed,
+      orbitTarget: type.orbitTarget, popPenalty: type.popPenaltyPerUnit,
+      regenPerSec: 0, gfx: null,
+      waypoints: Array.isArray(waypoints) ? waypoints.map(w => ({ x: w.x, y: w.y })) : [{ x: sx + 50, y: sy }],
+      waypointIndex: 0, leaderId: null, formationOffsetX: 0, formationOffsetY: 0,
+      spawnTime: state.t, _cryoSlowUntil: 0, _fireDotUntil: 0, _fireDotDps: 0
+    };
+    state.units.set(id, u);
+    makeUnitVisual(u);
+    return u;
+  }
+
+  function purchaseUnit(ownerId, unitTypeKey, waypoints, opts) {
     const p = state.players.get(ownerId);
     if (!p) return { ok: false, reason: "no_player" };
-    if (p.cooldown > 0) return { ok: false, reason: "cooldown" };
+    const type = UNIT_TYPES[unitTypeKey];
+    if (!type) return { ok: false, reason: "unknown_type" };
+    const costMul = p.unitCostMul != null ? p.unitCostMul : 1;
+    const cost = Math.max(1, Math.round(type.cost * costMul));
+    if ((p.eCredits || 0) < cost) return { ok: false, reason: "no_credits" };
 
-    let active = 0;
-    for (const u of state.units.values()) if (u.owner === ownerId) active++;
-    const maxUnits = Math.max(0, Math.floor(p.pop / 2));
-    const maxByPop = Math.floor(p.pop / CFG.UNIT_POP_PER);
-    const n = Math.min(count, maxByPop, Math.max(0, maxUnits - active));
-    if (n <= 0) return { ok: false, reason: active >= maxUnits ? "unit_cap" : "no_pop" };
+    p.eCredits -= cost;
+
+    const n = type.squadSize;
     const pts = Array.isArray(waypoints) && waypoints.length > 0 ? waypoints : [{ x: p.x + 100, y: p.y }];
     const first = pts[0];
     const [vx, vy] = norm(first.x - p.x, first.y - p.y);
-    const formationType = (opts && opts.formationType) || "line";
-    const formationRows = (opts && opts.formationRows) || 2;
+    const formationType = type.formationType || (opts && opts.formationType) || "lineByType";
+    const formationRows = type.formationRows || (opts && opts.formationRows) || 1;
     const pigW = (opts && opts.formationPigWidth) ?? 1;
-    const offsets = getFormationOffsets(n, formationType, formationRows, vx, vy, pigW);
+    const virtualSquad = n > 0 ? Array.from({ length: n }, () => ({ unitType: unitTypeKey })) : [];
+    const offsets = getFormationOffsets(n, formationType, formationRows, vx, vy, pigW, virtualSquad.length ? virtualSquad : undefined);
     const fCenter = getFormationCenter(offsets);
     const adjustedPts = pts.map(w => ({ x: w.x - fCenter.x, y: w.y - fCenter.y }));
     let leaderId = null;
 
-    let cooldown = Math.max(CFG.SEND_COOLDOWN_MIN, Math.min(CFG.SEND_COOLDOWN_MAX, CFG.SEND_COOLDOWN_BASE + n * CFG.SEND_COOLDOWN_PER_UNIT));
-    cooldown *= (p.sendCooldownMul != null ? p.sendCooldownMul : 1);
-    p.cooldown = Math.max(CFG.SEND_COOLDOWN_MIN * 0.5, cooldown);
+    const lb = getLevelBonusMul(p);
+    const hpMul = (p.unitHpMul != null ? p.unitHpMul : 1) * lb;
+    const dmgMul = (p.unitDmgMul != null ? p.unitDmgMul : 1) * lb;
+    const atkRateMul = (p.unitAtkRateMul != null ? p.unitAtkRateMul : 1) * lb;
 
+    const REGEN_ROLL_CHANCE = 0.012;
     for (let i = 0; i < n; i++) {
       const id = state.nextUnitId++;
       const off = offsets[i] || { x: 0, y: 0 };
-      const lb = getLevelBonusMul(p);
-      const hpMul = (p.unitHpMul != null ? p.unitHpMul : 1) * lb;
-      const dmgMul = (p.unitDmgMul != null ? p.unitDmgMul : 1) * lb;
-      const atkRateMul = (p.unitAtkRateMul != null ? p.unitAtkRateMul : 1) * lb;
+      let regenPerSec = 0;
+      for (let r = 0; r < 3; r++) { if (Math.random() < REGEN_ROLL_CHANCE) regenPerSec++; }
       const u = {
         id,
         owner: ownerId,
         color: p.color,
+        unitType: unitTypeKey,
         x: p.x + off.x,
         y: p.y + off.y,
         vx, vy,
-        hp: Math.round(CFG.UNIT_HP * hpMul),
-        dmg: Math.max(1, Math.round(CFG.UNIT_DMG * dmgMul)),
-        atkCd: rand(0, 1 / (CFG.UNIT_ATK_RATE * atkRateMul)),
+        hp: Math.round(type.hp * hpMul),
+        maxHp: Math.round(type.hp * hpMul),
+        dmg: Math.max(1, Math.round(type.damage * dmgMul)),
+        atkCd: rand(0, 1 / (type.attackRate * atkRateMul)),
+        attackRange: type.attackRange,
+        maxTargets: type.maxTargets,
+        speed: type.speed,
+        orbitTarget: type.orbitTarget,
+        popPenalty: type.popPenaltyPerUnit,
+        regenPerSec,
         gfx: null,
         waypoints: adjustedPts.map(w => ({ x: w.x, y: w.y })),
         waypointIndex: 0,
         leaderId: i === 0 ? null : leaderId,
         formationOffsetX: i === 0 ? 0 : off.x,
         formationOffsetY: i === 0 ? 0 : off.y,
-        spawnTime: state.t
+        spawnTime: state.t,
+        _cryoSlowUntil: 0,
+        _fireDotUntil: 0, _fireDotDps: 0
       };
       if (i === 0) {
         leaderId = id;
@@ -3494,35 +4621,91 @@
       state.units.set(id, u);
       makeUnitVisual(u);
     }
-    return { ok: true, spawned: n };
+
+    if (leaderId != null) {
+      const AUTO_SQUAD_GAP = 3.0;
+      let recentLeader = null;
+      for (const v of state.units.values()) {
+        if (v.id === leaderId) continue;
+        if (v.owner !== ownerId) continue;
+        if (v.leaderId != null) continue;
+        if (v.spawnTime && (state.t - v.spawnTime) < AUTO_SQUAD_GAP) {
+          const wp = v.waypoints;
+          const atDest = !wp || (v.waypointIndex ?? 0) >= wp.length;
+          const inCombat = state._cachedCombatSet && state._cachedCombatSet.has(v.id);
+          if (!inCombat && (atDest || Math.hypot(v.x - p.x, v.y - p.y) < 120)) {
+            recentLeader = v;
+            break;
+          }
+        }
+      }
+      if (recentLeader) {
+        const newUnit = state.units.get(leaderId);
+        if (newUnit) {
+          newUnit.leaderId = recentLeader.id;
+          newUnit.formationOffsetX = newUnit.x - recentLeader.x;
+          newUnit.formationOffsetY = newUnit.y - recentLeader.y;
+          newUnit.waypoints = recentLeader.waypoints;
+          newUnit.waypointIndex = recentLeader.waypointIndex;
+        }
+      }
+    }
+
+    return { ok: true, spawned: n, cost };
   }
 
-  function spawnXPOrb(x, y, xp) {
+  function spawnUnits(ownerId, count, waypoints, opts) {
+    return purchaseUnit(ownerId, (opts && opts.unitType) || "fighter", waypoints, opts);
+  }
+
+  function spawnXPOrb(x, y, xp, killerOwner) {
     const maxRes = CFG.RES_MAX ?? 520;
     if (state.res.size >= maxRes) {
       const firstId = state.res.keys().next().value;
       if (firstId != null) deleteResource(firstId);
     }
     const id = state.nextResId++;
-    const r = { id, type: "orb", xp, x, y, color: 0xffdd44, gfx: null };
+    const r = { id, type: "orb", xp, x, y, color: 0xffdd44, gfx: null, _spawnedAt: state.t };
+    if (killerOwner != null && killerOwner !== undefined) {
+      r._targetCity = killerOwner;
+      r._interceptProtectUntil = state.t + 1.5;
+    }
     state.res.set(id, r);
     makeResVisual(r);
   }
 
+  const UNIT_XP_DROPS = { fighter: 1, destroyer: 8, cruiser: 25, battleship: 50, hyperDestroyer: 100 };
+
+  const UNIT_CREDIT_DROPS = { fighter: 5, destroyer: 50, cruiser: 150, battleship: 400, hyperDestroyer: 800 };
+
   function killUnit(u, reason = "dead", killerOwner) {
-    let xpDrop;
-    if (state._gameSeed != null) {
-      state._deathCount = (state._deathCount || 0) + 1;
-      const rng = mulberry32(state._gameSeed + state._deathCount * 7919 + (u.id || 0));
-      xpDrop = reason === "killed" ? (5 + Math.floor(rng() * 6)) : (rng() < 0.5 ? 2 : 5);
-    } else {
-      xpDrop = reason === "killed" ? (5 + Math.floor(Math.random() * 6)) : (Math.random() < 0.5 ? 2 : 5);
+    const baseXP = UNIT_XP_DROPS[u.unitType] || 1;
+    const xpDrop = Math.max(1, Math.round(baseXP * (0.8 + Math.random() * 0.4)));
+    spawnXPOrb(u.x + (Math.random() - 0.5) * 10, u.y + (Math.random() - 0.5) * 10, xpDrop, killerOwner);
+    const creditDrop = UNIT_CREDIT_DROPS[u.unitType] || 3;
+    if (creditDrop > 0) {
+      const creditVal = Math.max(1, Math.round(creditDrop * (0.6 + Math.random() * 0.8)));
+      const id = state.nextResId++;
+      const rx = u.x + (Math.random() - 0.5) * 12, ry = u.y + (Math.random() - 0.5) * 12;
+      const creditOrb = {
+        id, type: "credit", value: creditVal, x: rx, y: ry,
+        color: 0xffdd44, gfx: null, _spawnedAt: state.t, isCredit: true,
+        _targetCity: killerOwner != null ? killerOwner : undefined,
+        _interceptProtectUntil: killerOwner != null ? state.t + 1.5 : undefined
+      };
+      if (state.res.size >= (CFG.RES_MAX ?? 520)) {
+        const firstId = state.res.keys().next().value;
+        if (firstId != null) deleteResource(firstId);
+      }
+      state.res.set(id, creditOrb);
+      makeResVisual(creditOrb);
     }
-    spawnXPOrb(u.x, u.y, xpDrop);
 
     const p = state.players.get(u.owner);
     if (p) {
-      p.popFloat = Math.max(0, p.popFloat - CFG.UNIT_DEATH_POP_PENALTY);
+      const penalty = u.popPenalty || 1;
+      p.popFloat = Math.max(0, p.popFloat - penalty);
+      p.pop = Math.floor(p.popFloat);
       p.deadUnits++;
     }
     if (reason === "killed" && killerOwner && killerOwner !== u.owner) {
@@ -3530,6 +4713,8 @@
       if (kp) {
         kp.killGrowthStacks = kp.killGrowthStacks || [];
         kp.killGrowthStacks.push(state.t + 240);
+        kp._growthBonuses = kp._growthBonuses || [];
+        kp._growthBonuses.push({ amount: 1, expiresAt: state.t + 60 });
       }
     }
 
@@ -3561,119 +4746,178 @@
   }
 
   // ------------------------------------------------------------
-  // Combat (simple)
+  // Combat (all ranged, multi-target, nebula bonuses)
   // ------------------------------------------------------------
-  const COMBAT_ZONE_R2 = CFG.UNIT_VISION * CFG.UNIT_VISION * 2;
-
-  function getPlayerAtkRange(ownerId) {
-    const p = state.players.get(ownerId);
-    const mul = Math.min(UNIT_ATK_RANGE_MAX_MUL, p && p.unitAtkRangeMul != null ? p.unitAtkRangeMul : 1);
-    return CFG.UNIT_VISION * mul;
+  function getUnitHitRadius(u) {
+    const type = UNIT_TYPES[u.unitType] || UNIT_TYPES.fighter;
+    const s = type.sizeMultiplier * 6 + 6;
+    const mul = UNIT_BOUNDING_MUL[u.unitType] ?? UNIT_BOUNDING_MUL.fighter;
+    return s * mul;
   }
-  function getPlayerMeleeRange() { return CFG.UNIT_VISION; }
 
-  const RANGED_BULLET_SPEED = 160;
-  const RANGED_BULLET_HIT_R = 6;
+  const MAX_BULLETS = 800;
+
+  function applyUnitDamage(u, dmg, sourceOwnerId) {
+    let dmgLeft = dmg;
+    if (u._activeShieldHp != null && u._activeShieldHp > 0) {
+      const shieldTake = Math.min(u._activeShieldHp, dmgLeft);
+      u._activeShieldHp -= shieldTake;
+      dmgLeft -= shieldTake;
+      if (u._activeShieldHp <= 0) u._activeShieldHp = null;
+    }
+    if (dmgLeft > 0) u.hp = Math.max(0, u.hp - dmgLeft);
+    u.lastDamagedBy = sourceOwnerId;
+  }
+
+  function getUnitAtkRange(u) {
+    const p = state.players.get(u.owner);
+    const baseMul = p && p.unitAtkRangeMul != null ? p.unitAtkRangeMul : 1;
+    const nebMul = isInNebula(u.x, u.y) ? (1 + CFG.NEBULA_ATK_RANGE_BONUS) : 1;
+    return (u.attackRange || 40) * Math.min(UNIT_ATK_RANGE_MAX_MUL, baseMul) * nebMul;
+  }
+
+  function getUnitDmg(u) {
+    const nebMul = isInNebula(u.x, u.y) ? (1 + CFG.NEBULA_DMG_BONUS) : 1;
+    return Math.max(1, Math.round((u.dmg || 1) * nebMul));
+  }
+
+  function getUnitAtkRate(u) {
+    const type = UNIT_TYPES[u.unitType] || UNIT_TYPES.fighter;
+    const p = state.players.get(u.owner);
+    const rateMul = (p && p.unitAtkRateMul != null ? p.unitAtkRateMul : 1);
+    const nebMul = isInNebula(u.x, u.y) ? (1 + CFG.NEBULA_ATK_RATE_BONUS) : 1;
+    let rate = type.attackRate * rateMul * nebMul * getLevelBonusMul(p);
+    if (u._cryoSlowUntil && state.t < u._cryoSlowUntil) rate *= (1 - (u._cryoSlowAmount ?? CFG.CRYO_SLOW ?? 0.4));
+    return rate;
+  }
 
   function stepCombat(dt) {
-    const meleeR2 = BATTLE_TOUCH_R2;
-    const inCombatSet = getUnitsInCombatSet();
+    const bulletsFull = state.bullets.length >= MAX_BULLETS;
 
     for (const u of state.units.values()) {
-      const atkRateMul = u._territoryMul ?? 1;
-      u.atkCd -= dt * atkRateMul;
-      const inMelee = inCombatSet.has(u.id);
-      if (inMelee) u.combatTimeSec = (u.combatTimeSec || 0) + dt;
-      else u.combatTimeSec = 0;
+      if (u._fireDotUntil && state.t < u._fireDotUntil) {
+        const fireDmg = (u._fireDotDps || CFG.FIRE_DOT_DPS) * dt;
+        applyUnitDamage(u, fireDmg, u._fireDotOwner);
+        if (u.hp <= 0) { u.lastDamagedBy = u._fireDotOwner; continue; }
+      }
+      if (u._cryoSlowUntil && state.t > u._cryoSlowUntil) u._cryoSlowUntil = 0;
+      if (u.hp > 0 && (u.regenPerSec || 0) > 0 && u.hp < (u.maxHp || 999999)) {
+        let regen = u.regenPerSec * dt;
+        if (u._cryoSlowUntil && state.t < u._cryoSlowUntil) regen *= 0.5;
+        u.hp = Math.min(u.maxHp || u.hp, u.hp + regen);
+      }
 
-      if (u.atkCd > 0 && !inMelee) continue;
+      u.atkCd -= dt;
+      if (u.atkCd > 0) continue;
+      if (bulletsFull) continue;
 
-      const atkRange = getPlayerAtkRange(u.owner);
+      const atkRange = getUnitAtkRange(u);
       const atkRange2 = atkRange * atkRange;
+      const maxTargets = u.maxTargets || 1;
+      const p = state.players.get(u.owner);
+
+      let cityTarget = u.chaseTargetCityId;
+      if (cityTarget == null && u.leaderId != null) {
+        const leader = state.units.get(u.leaderId);
+        if (leader) cityTarget = leader.chaseTargetCityId;
+      }
+      if (cityTarget != null) {
+        const city = state.players.get(cityTarget);
+        if (city && !city.eliminated) {
+          const planetR = getPlanetRadius(city);
+          const planetAtkR = planetR * CFG.PLANET_ATTACK_R_MUL;
+          const dToCity = Math.hypot(u.x - city.x, u.y - city.y);
+          if (dToCity <= planetAtkR) {
+            u.atkCd = 1 / getUnitAtkRate(u);
+            const dmg = getUnitDmg(u);
+            state.bullets.push({
+              type: "laser", fromX: u.x, fromY: u.y,
+              toX: city.x, toY: city.y,
+              color: p ? p.color : 0xaa44ff,
+              ownerId: u.owner, dmg,
+              duration: 0.6, progress: 0,
+              targetId: city.id, targetType: "city",
+              attackEffect: p ? p.attackEffect : null,
+              attackEffects: p ? p.attackEffects : null
+            });
+            continue;
+          }
+        }
+      }
 
       const nearby = queryHash(u.x, u.y, atkRange);
-      let meleeTarget = null, meleeD = 1e18;
-      let rangedTarget = null, rangedD = 1e18;
-
+      const targets = [];
       for (let i = 0; i < nearby.length; i++) {
         const t = nearby[i];
         if (t.owner === u.owner) continue;
-        const d = (t.x - u.x) ** 2 + (t.y - u.y) ** 2;
-        if (d <= meleeR2 && d < meleeD) { meleeD = d; meleeTarget = t; }
-        if (d <= atkRange2 && d < rangedD) { rangedD = d; rangedTarget = t; }
+        const d2 = (t.x - u.x) ** 2 + (t.y - u.y) ** 2;
+        if (d2 <= atkRange2) targets.push({ t, d2 });
+      }
+      targets.sort((a, b) => a.d2 - b.d2);
+
+      const hitTargets = new Set();
+      let shotsLeft = maxTargets;
+      for (let i = 0; i < targets.length && shotsLeft > 0; i++) {
+        const tgt = targets[i].t;
+        if (hitTargets.has(tgt.id)) continue;
+        hitTargets.add(tgt.id);
+        shotsLeft--;
+
+        u.atkCd = 1 / getUnitAtkRate(u);
+        const nebDmgTaken = isInNebula(tgt.x, tgt.y) ? (1 + CFG.NEBULA_DMG_TAKEN_BONUS) : 1;
+        const dmg = Math.max(1, Math.round(getUnitDmg(u) * nebDmgTaken));
+        state.bullets.push({
+          type: "laser", fromX: u.x, fromY: u.y,
+          toX: tgt.x, toY: tgt.y,
+          color: p ? p.color : 0xaa44ff,
+          ownerId: u.owner, dmg,
+          duration: 0.6, progress: 0,
+          targetId: tgt.id, targetType: "unit",
+          attackEffect: p ? p.attackEffect : null,
+          attackEffects: p ? p.attackEffects : null
+        });
       }
 
-      if (!meleeTarget && inMelee) {
-        const cache = state._battleCache && state._battleCache.get(u.id);
-        const enemyIds = cache ? cache.enemyIds : getEnemyIdsInSameBattle(u);
-        for (const id of enemyIds) {
-          const t = state.units.get(id);
-          if (!t || t.owner === u.owner) continue;
-          const d = (t.x - u.x) ** 2 + (t.y - u.y) ** 2;
-          if (d <= meleeR2 && d < meleeD) { meleeD = d; meleeTarget = t; }
-          if (d <= atkRange2 && d < rangedD) { rangedD = d; rangedTarget = t; }
+      if (shotsLeft > 0 && u.owner !== PIRATE_OWNER_ID && state.pirateBase && state.pirateBase.hp > 0) {
+        const pb = state.pirateBase;
+        const d2base = (u.x - pb.x) ** 2 + (u.y - pb.y) ** 2;
+        if (d2base <= atkRange2) {
+          u.atkCd = 1 / getUnitAtkRate(u);
+          const dmg = getUnitDmg(u);
+          state.bullets.push({
+            type: "laser", fromX: u.x, fromY: u.y,
+            toX: pb.x, toY: pb.y,
+            color: p ? p.color : 0xaa44ff,
+            ownerId: u.owner, dmg,
+            duration: 0.6, progress: 0,
+            targetId: "pirateBase", targetType: "pirateBase",
+            attackEffect: p ? p.attackEffect : null,
+            attackEffects: p ? p.attackEffects : null
+          });
+          shotsLeft--;
         }
       }
 
-      let rangedTurretTarget = null, rangedTurretD = 1e18;
-      if (atkRange > getPlayerMeleeRange() + 1) {
+      if (hitTargets.size === 0) {
         for (const t of state.turrets.values()) {
           if (t.owner === u.owner || t.hp <= 0) continue;
-          const d = (t.x - u.x) ** 2 + (t.y - u.y) ** 2;
-          if (d <= atkRange2 && d < rangedTurretD) { rangedTurretD = d; rangedTurretTarget = t; }
+          const d2 = (t.x - u.x) ** 2 + (t.y - u.y) ** 2;
+          if (d2 <= atkRange2) {
+            u.atkCd = 1 / getUnitAtkRate(u);
+            const dmg = getUnitDmg(u);
+            state.bullets.push({
+              type: "laser", fromX: u.x, fromY: u.y,
+              toX: t.x, toY: t.y,
+              color: p ? p.color : 0xaa44ff,
+              ownerId: u.owner, dmg,
+              duration: 0.6, progress: 0,
+              targetId: t.id, targetType: "turret",
+              attackEffect: p ? p.attackEffect : null,
+              attackEffects: p ? p.attackEffects : null
+            });
+            break;
+          }
         }
-      }
-
-      if (meleeTarget) {
-        u.atkCd = 1 / (CFG.UNIT_ATK_RATE * (u._territoryMul ?? 1));
-        const dmgMul = 1 + Math.min(1.0, (meleeTarget.combatTimeSec || 0) * 0.035);
-        const rawDmg = (u.dmg != null ? u.dmg : CFG.UNIT_DMG) * dmgMul * (u._territoryMul ?? 1) / (meleeTarget._territoryMul ?? 1);
-        const dmg = Math.max(1, Math.round(rawDmg));
-        meleeTarget.lastDamagedBy = u.owner;
-        meleeTarget.hp = Math.max(0, meleeTarget.hp - dmg);
-        meleeTarget._hitFlashT = state.t;
-        state.floatingDamage.push({
-          x: meleeTarget.x, y: meleeTarget.y - 22, text: "-" + dmg, color: 0xff4444, ttl: 1.2
-        });
-      } else if (rangedTarget && atkRange > getPlayerMeleeRange() + 1) {
-        u.atkCd = 2 / (CFG.UNIT_ATK_RATE * (u._territoryMul ?? 1));
-        const rawDmg = (u.dmg != null ? u.dmg : CFG.UNIT_DMG) * (u._territoryMul ?? 1) / (rangedTarget._territoryMul ?? 1);
-        const dmg = Math.max(1, Math.round(rawDmg));
-        const p = state.players.get(u.owner);
-        state.bullets.push({
-          fromX: u.x, fromY: u.y,
-          toX: rangedTarget.x, toY: rangedTarget.y,
-          x: u.x, y: u.y,
-          speed: RANGED_BULLET_SPEED,
-          hitR: RANGED_BULLET_HIT_R,
-          targetId: rangedTarget.id,
-          dmg,
-          color: p ? p.color : 0xffaa00,
-          type: "ranged",
-          maxDist: atkRange * 1.3,
-          traveled: 0,
-          ownerId: u.owner,
-          canHitTurrets: true
-        });
-      } else if (rangedTurretTarget && atkRange > getPlayerMeleeRange() + 1) {
-        u.atkCd = 2 / (CFG.UNIT_ATK_RATE * (u._territoryMul ?? 1));
-        const rawDmg = (u.dmg != null ? u.dmg : CFG.UNIT_DMG) * (u._territoryMul ?? 1);
-        const dmg = Math.max(1, Math.round(rawDmg));
-        const p = state.players.get(u.owner);
-        state.bullets.push({
-          fromX: u.x, fromY: u.y,
-          toX: rangedTurretTarget.x, toY: rangedTurretTarget.y,
-          x: u.x, y: u.y,
-          speed: RANGED_BULLET_SPEED,
-          hitR: RANGED_BULLET_HIT_R,
-          dmg,
-          color: p ? p.color : 0xffaa00,
-          type: "ranged",
-          maxDist: atkRange * 1.3,
-          traveled: 0,
-          ownerId: u.owner,
-          canHitTurrets: true
-        });
       }
     }
 
@@ -3681,35 +4925,9 @@
       if (u.hp <= 0) killUnit(u, "killed", u.lastDamagedBy);
     }
 
-    const dmgPerUnit = CFG.CITY_DAMAGE_PER_UNIT_PER_S * dt;
-    const baseInflR = CFG.INFLUENCE_BASE_R || 240;
-    for (const p of state.players.values()) {
-      const cityScale = Math.max(1, Math.min(2.5, (p.influenceR || baseInflR) / baseInflR));
-      const cityHalfSize = 27 * cityScale;
-      const cityQueryR = cityHalfSize * 1.5 + 20;
-      let damage = 0;
-      let topAttacker = null, topDmg = 0;
-      const attackerDmg = {};
-      const near = queryHash(p.x, p.y, cityQueryR);
-      for (let i = 0; i < near.length; i++) {
-        const u = near[i];
-        if (u.owner === p.id) continue;
-        const inSquare = Math.abs(u.x - p.x) <= cityHalfSize && Math.abs(u.y - p.y) <= cityHalfSize;
-        if (inSquare) {
-          damage += dmgPerUnit;
-          attackerDmg[u.owner] = (attackerDmg[u.owner] || 0) + dmgPerUnit;
-        }
-      }
-      if (damage > 0) {
-        p.popFloat = Math.max(0, p.popFloat - damage);
-        p.pop = Math.floor(p.popFloat);
-        for (const [aid, d] of Object.entries(attackerDmg)) {
-          if (d > topDmg) { topDmg = d; topAttacker = Number(aid); }
-        }
-        p._lastCityAttacker = topAttacker;
-      }
-    }
+    // Proximity city damage removed — ships only damage planets via explicit attack order (laser)
 
+    stepShields(dt);
     stepCityDefense(dt);
 
     for (const p of [...state.players.values()]) {
@@ -3729,51 +4947,233 @@
     }
   }
 
+  // Shield HP = pop × 5; regen = 5 + 0.7% maxHp / sec, starts 30s after breaking
+  const SHIELD_REGEN_DELAY = 30;
+
+  function stepShields(dt) {
+    for (const p of state.players.values()) {
+      if (p.eliminated) continue;
+      const maxSh = Math.max(5, (p.pop || 1) * 5);
+      p.shieldMaxHp = maxSh;
+      if (p.shieldHp === undefined) { p.shieldHp = maxSh; p.shieldRegenCd = 0; }
+
+      if (p.shieldHp > 0) {
+        // Only regen if current HP < maxSh (pause regen if pop dropped and shield is over-max)
+        if (p.shieldHp < maxSh) {
+          const regen = 5 + 0.001 * maxSh;
+          p.shieldHp = Math.min(maxSh, p.shieldHp + regen * dt);
+        }
+        // Never forcefully reduce shieldHp when pop drops
+      } else {
+        p.shieldRegenCd = (p.shieldRegenCd ?? SHIELD_REGEN_DELAY) - dt;
+        if (p.shieldRegenCd <= 0) {
+          p.shieldRegenCd = 0;
+          const regen = 5 + 0.001 * maxSh;
+          p.shieldHp = Math.min(maxSh, (p.shieldHp || 0) + regen * dt);
+        }
+      }
+    }
+  }
+
   function stepCityDefense(dt) {
     const rate = CFG.CITY_ATTACK_RATE;
     for (const p of state.players.values()) {
       p.cityAtkCd = (p.cityAtkCd ?? 0) - dt;
       if (p.cityAtkCd > 0) continue;
       const turretDmgMul = (p.turretDmgMul != null ? p.turretDmgMul : 1) * getLevelBonusMul(p);
-      const turretRangeMul = p.turretRangeMul != null ? p.turretRangeMul : 1;
-      const cityAtkRadius = CFG.CITY_ATTACK_RADIUS * turretRangeMul * (p.waterBonus ? 1.25 : 1);
-      const cityR2 = cityAtkRadius * cityAtkRadius;
       const dmg = Math.max(1, Math.round(CFG.CITY_ATTACK_DMG * turretDmgMul));
-      const X = 1 + Math.floor(p.pop / (CFG.CITY_TARGETS_POP_DIVISOR || 75));
+      const X = CFG.CITY_BASE_TARGETS + (p.cityTargetBonus || 0);
       const enemies = [];
       for (const u of state.units.values()) {
         if (u.owner === p.id) continue;
-        if (dist2(u.x, u.y, p.x, p.y) <= cityR2) enemies.push(u);
+        if (isUnitInPlayerZone(u, p)) enemies.push(u);
       }
       enemies.sort((a, b) => dist2(a.x, a.y, p.x, p.y) - dist2(b.x, b.y, p.x, p.y));
       const toShoot = enemies.slice(0, X);
       if (toShoot.length > 0) {
         p.cityAtkCd = 1 / rate;
+        const cityBulletSpeed = 20;
+        const zoneR = p.influenceR || CFG.INFLUENCE_BASE_R || 240;
+        const maxFlightTime = zoneR / cityBulletSpeed;
         for (const target of toShoot) {
           state.bullets.push({
+            type: "ranged",
+            x: p.x, y: p.y,
             fromX: p.x, fromY: p.y,
             toX: target.x, toY: target.y,
-            x: p.x, y: p.y,
-            speed: CFG.CITY_BULLET_SPEED,
-            hitR: 10,
+            color: p.color,
             ownerId: p.id,
             dmg,
-            color: p.color,
-            type: "ranged",
-            maxDist: cityAtkRadius * 1.3,
+            speed: cityBulletSpeed,
             traveled: 0,
-            big: true
+            maxDist: Math.hypot(target.x - p.x, target.y - p.y) + 40,
+            aoe: true,
+            big: true,
+            spawnTime: state.t,
+            maxFlightTime
           });
         }
       }
     }
   }
 
+  function isUnitInPlayerZone(u, p) {
+    const poly = p.influencePolygon;
+    if (!poly || poly.length < 3) {
+      const r = p.influenceR || CFG.INFLUENCE_BASE_R || 240;
+      return dist2(u.x, u.y, p.x, p.y) <= r * r;
+    }
+    return isPointInPolygon(u.x, u.y, poly);
+  }
+
   function stepBullets(dt) {
     for (let i = state.bullets.length - 1; i >= 0; i--) {
       const b = state.bullets[i];
 
+      // ── Laser beam (unit ranged / city laser): progress-based, damage at end ──
+        if (b.type === "laser") {
+        if (b.targetType === "unit" && b.targetId != null) {
+          const u = state.units.get(b.targetId);
+          if (!u) { state.bullets.splice(i, 1); continue; }
+        } else if (b.targetType === "city" && b.targetId != null) {
+          const p = state.players.get(b.targetId);
+          if (!p || p.eliminated) { state.bullets.splice(i, 1); continue; }
+        } else if (b.targetType === "turret" && b.targetId != null) {
+          const t = state.turrets.get(b.targetId);
+          if (!t || t.hp <= 0) { state.bullets.splice(i, 1); continue; }
+        } else if (b.targetType === "pirateBase") {
+          if (!state.pirateBase || state.pirateBase.hp <= 0) { state.bullets.splice(i, 1); continue; }
+        }
+        b.progress = (b.progress || 0) + dt / (b.duration || 0.2);
+        if (b.progress >= 1) {
+          if (b.targetType === "unit") {
+            const u = state.units.get(b.targetId);
+            if (u && u.owner !== b.ownerId) {
+              let dmgLeft = b.dmg;
+              if (u._activeShieldHp != null && u._activeShieldHp > 0) {
+                const shieldTake = Math.min(u._activeShieldHp, dmgLeft);
+                u._activeShieldHp -= shieldTake;
+                dmgLeft -= shieldTake;
+                if (u._activeShieldHp <= 0) u._activeShieldHp = null;
+              }
+              if (dmgLeft > 0) u.hp = Math.max(0, u.hp - dmgLeft);
+              u.lastDamagedBy = b.ownerId;
+              u._hitFlashT = state.t;
+              state.floatingDamage.push({ x: u.x, y: u.y - 22, text: "-" + b.dmg, color: b.color ?? 0xaa44ff, ttl: 1.0 });
+              const efx = b.attackEffects || {};
+              const cryoLv = efx.cryo || (b.attackEffect === "cryo" ? 1 : 0);
+              const fireLv = efx.fire || (b.attackEffect === "fire" ? 1 : 0);
+              const chainLv = efx.chain || (b.attackEffect === "chain" ? 1 : 0);
+              if (cryoLv > 0) {
+                const dur = [2, 3, 4][cryoLv - 1];
+                const slow = [0.4, 0.55, 0.7][cryoLv - 1];
+                u._cryoSlowUntil = state.t + dur;
+                u._cryoSlowAmount = slow;
+              }
+              if (fireLv > 0) {
+                const dur = [3, 4, 5][fireLv - 1];
+                const dps = [3, 5, 8][fireLv - 1];
+                u._fireDotUntil = state.t + dur;
+                u._fireDotDps = dps;
+                u._fireDotOwner = b.ownerId;
+              }
+              if (chainLv > 0 && !b._chainDepth) {
+                let chainDmg = b.dmg;
+                let lastX = u.x, lastY = u.y;
+                const hitIds = new Set([u.id]);
+                const maxBounces = CFG.CHAIN_MAX_BOUNCES * chainLv;
+                for (let bounce = 0; bounce < maxBounces; bounce++) {
+                  chainDmg = Math.round(chainDmg * 0.7);
+                  if (chainDmg < 1) break;
+                  let bestTarget = null, bestD = CFG.CHAIN_BOUNCE_R * CFG.CHAIN_BOUNCE_R;
+                  for (const v of state.units.values()) {
+                    if (v.owner === b.ownerId || hitIds.has(v.id)) continue;
+                    const d2 = (v.x - lastX) ** 2 + (v.y - lastY) ** 2;
+                    if (d2 < bestD) { bestD = d2; bestTarget = v; }
+                  }
+                  if (!bestTarget) break;
+                  hitIds.add(bestTarget.id);
+                  applyUnitDamage(bestTarget, chainDmg, b.ownerId);
+                  bestTarget._hitFlashT = state.t;
+                  state.bullets.push({
+                    type: "laser", fromX: lastX, fromY: lastY,
+                    toX: bestTarget.x, toY: bestTarget.y,
+                    color: 0x44aaff, ownerId: b.ownerId, dmg: 0,
+                    duration: 0.15, progress: 0.5,
+                    targetId: bestTarget.id, targetType: "unit",
+                    _chainDepth: bounce + 1
+                  });
+                  state.floatingDamage.push({ x: bestTarget.x, y: bestTarget.y - 22, text: "⚡-" + chainDmg, color: 0x44aaff, ttl: 0.8 });
+                  lastX = bestTarget.x; lastY = bestTarget.y;
+                }
+              }
+            }
+          } else if (b.targetType === "turret") {
+            const t = state.turrets.get(b.targetId);
+            if (t && t.owner !== b.ownerId) {
+              t.hp = Math.max(0, t.hp - b.dmg);
+              state.floatingDamage.push({ x: t.x, y: t.y - 18, text: "-" + b.dmg, color: b.color ?? 0xaa44ff, ttl: 1.0 });
+              if (t.hp <= 0) { spawnXPOrb(t.x, t.y, 8); t._diedAt = state.t; }
+            }
+          } else if (b.targetType === "pirateBase") {
+            if (state.pirateBase && state.pirateBase.hp > 0) {
+              state.pirateBase.hp = Math.max(0, state.pirateBase.hp - b.dmg);
+              state.pirateBase.lastDamagedBy = b.ownerId;
+              state.floatingDamage.push({ x: state.pirateBase.x, y: state.pirateBase.y - 30, text: "-" + b.dmg, color: b.color ?? 0xaa44ff, ttl: 0.9 });
+              if (state.pirateBase.hp <= 0) {
+                const killerId = state.pirateBase.lastDamagedBy;
+                const killer = killerId != null ? state.players.get(killerId) : null;
+                if (killer) {
+                  for (let L = 0; L < 10; L++) {
+                    killer.level = (killer.level || 1) + 1;
+                    killer.pendingCardPicks = (killer.pendingCardPicks || 0) + 1;
+                    killer._levelBonusMul = 1 + (killer.level || 1) * 0.01;
+                    killer.xpNext = xpNeed(killer.level, killer);
+                  }
+                  state.floatingDamage.push({ x: killer.x, y: killer.y - 50, text: "+10 ур.!", color: 0xffdd00, ttl: 3 });
+                }
+                for (const m of state.mines.values()) {
+                  if (m.isRich) { m.ownerId = null; m.captureProgress = 0; m._capturingOwner = null; m._captureProtectedUntil = 0; updateMineVisual(m); break; }
+                }
+                if (state.pirateBase.gfx && state.pirateBase.gfx.parent) state.pirateBase.gfx.parent.removeChild(state.pirateBase.gfx);
+                if (state.pirateBase._emojiGfx && state.pirateBase._emojiGfx.parent) state.pirateBase._emojiGfx.parent.removeChild(state.pirateBase._emojiGfx);
+                state.pirateBase.gfx = null;
+                state.pirateBase._emojiGfx = null;
+                state.pirateBase = null;
+              }
+            }
+          } else if (b.targetType === "city") {
+            const p = state.players.get(b.targetId);
+            if (p && p.id !== b.ownerId) {
+              p._lastCityAttacker = b.ownerId;
+              if ((p.shieldHp || 0) > 0) {
+                pushShieldHitEffect(p.x, p.y, shieldRadius(p), b.fromX, b.fromY, b.color ?? 0xaa44ff);
+                p.shieldHp = Math.max(0, p.shieldHp - b.dmg);
+                if (p.shieldHp === 0) p.shieldRegenCd = SHIELD_REGEN_DELAY;
+                state.floatingDamage.push({ x: b.toX, y: b.toY - 10, text: "💥🛡 -" + b.dmg, color: b.color ?? 0xaa44ff, ttl: 0.9 });
+              } else {
+                p.popFloat = Math.max(0, (p.popFloat || p.pop || 0) - b.dmg * 0.1);
+                p.pop = Math.floor(p.popFloat);
+                state.floatingDamage.push({ x: p.x, y: p.y - 40, text: "-" + b.dmg, color: b.color ?? 0xff4444, ttl: 0.9 });
+              }
+            }
+          }
+          state.bullets.splice(i, 1);
+        }
+        continue;
+      }
+
       if (b.type === "ranged") {
+        if (b.targetType === "unit" && b.targetId != null) {
+          const u = state.units.get(b.targetId);
+          if (!u) { state.bullets.splice(i, 1); continue; }
+          const range = (CFG.TURRET_ATTACK_RADIUS ?? 45) * 1.6 * 1.5;
+          const owner = state.players.get(b.ownerId);
+          const tr = owner && owner.turretRangeMul != null ? owner.turretRangeMul : 1;
+          const maxR = range * tr;
+          const tx = b.fromX ?? b.x, ty = b.fromY ?? b.y;
+          if ((u.x - tx) ** 2 + (u.y - ty) ** 2 > maxR * maxR) { state.bullets.splice(i, 1); continue; }
+        }
         const dx = b.toX - b.x, dy = b.toY - b.y;
         const dl = Math.hypot(dx, dy) || 1;
         const step = b.speed * dt;
@@ -3781,19 +5181,55 @@
         b.y += (dy / dl) * step;
         b.traveled += step;
 
+        // ── Shield intercept: AOE projectiles can hit shields ──
+        if (b.aoe) {
+          let shieldHit = false;
+          for (const p of state.players.values()) {
+            if (p.id === b.ownerId || (p.shieldHp || 0) <= 0) continue;
+            const sR = shieldRadius(p) + 1;
+            if ((b.x - p.x) ** 2 + (b.y - p.y) ** 2 <= sR * sR) {
+              pushShieldHitEffect(p.x, p.y, sR - 1, b.x, b.y, p.color);
+              p.shieldHp = Math.max(0, p.shieldHp - b.dmg);
+              if (p.shieldHp === 0) p.shieldRegenCd = SHIELD_REGEN_DELAY;
+              state.floatingDamage.push({ x: p.x, y: p.y - 40, text: "🛡 -" + b.dmg, color: p.color, ttl: 0.9 });
+              shieldHit = true;
+              break;
+            }
+          }
+          if (shieldHit) { state.bullets.splice(i, 1); continue; }
+        }
+
         let hit = false;
-        const nearby = queryHash(b.x, b.y, b.hitR + 4);
+        // AOE hit: damage all units in radius
+        if (b.aoe) {
+          const aoeR = (b.hitR || 8) * 2.5;
+          const nearby = queryHash(b.x, b.y, aoeR + 20);
+          for (let j = 0; j < nearby.length; j++) {
+            const u = nearby[j];
+            if (u.owner === b.ownerId) continue;
+            const uHitR = getUnitHitRadius(u);
+            if ((b.x - u.x) ** 2 + (b.y - u.y) ** 2 <= (aoeR + uHitR) * (aoeR + uHitR)) {
+              applyUnitDamage(u, b.dmg, b.ownerId);
+              u._hitFlashT = state.t;
+              state.floatingDamage.push({ x: u.x, y: u.y - 22, text: "-" + b.dmg, color: 0xffaa00, ttl: 1.0 });
+              hit = true; // continue hitting — don't break
+            }
+          }
+        } else {
+        const nearby = queryHash(b.x, b.y, b.hitR + 20);
         for (let j = 0; j < nearby.length; j++) {
           const u = nearby[j];
           if (u.owner === b.ownerId) continue;
-          if ((b.x - u.x) ** 2 + (b.y - u.y) ** 2 <= b.hitR * b.hitR) {
-            u.hp = Math.max(0, u.hp - b.dmg);
-            u.lastDamagedBy = b.ownerId;
+          const uHitR = getUnitHitRadius(u);
+          const totalR = b.hitR + uHitR;
+          if ((b.x - u.x) ** 2 + (b.y - u.y) ** 2 <= totalR * totalR) {
+            applyUnitDamage(u, b.dmg, b.ownerId);
             u._hitFlashT = state.t;
             state.floatingDamage.push({ x: u.x, y: u.y - 22, text: "-" + b.dmg, color: 0xffaa00, ttl: 1.0 });
             hit = true;
             break;
           }
+        }
         }
         if (!hit && b.canHitTurrets) {
           const hitR2 = (b.hitR + 8) * (b.hitR + 8);
@@ -3808,14 +5244,17 @@
             }
           }
         }
-        if (hit || b.traveled > b.maxDist) {
+        if (hit) {
+          state.bullets.splice(i, 1);
+        } else if (b.traveled > b.maxDist) {
           state.bullets.splice(i, 1);
         }
       } else {
+        // Legacy arc-type bullet (city lob)
         b.progress = (b.progress || 0) + dt / b.duration;
         if (b.progress >= 1) {
           const u = state.units.get(b.targetId);
-          if (u) { u.hp -= b.dmg; if (u.hp <= 0) killUnit(u, "city"); }
+          if (u) { u.hp -= b.dmg; if (u.hp <= 0) killUnit(u, "city", b.ownerId); }
           state.bullets.splice(i, 1);
         }
       }
@@ -3826,14 +5265,38 @@
   function stepBulletsVisual(dt) {
     for (let i = state.bullets.length - 1; i >= 0; i--) {
       const b = state.bullets[i];
-      if (b.type === "ranged") {
+      if (b.type === "laser") {
+        if (b.targetType === "unit" && b.targetId != null && !state.units.has(b.targetId)) {
+          state.bullets.splice(i, 1); continue;
+        }
+        if (b.targetType === "city" && b.targetId != null) {
+          const p = state.players.get(b.targetId);
+          if (!p || p.eliminated) { state.bullets.splice(i, 1); continue; }
+        }
+        b.progress = (b.progress || 0) + dt / (b.duration || 0.2);
+        if (b.progress >= 1) state.bullets.splice(i, 1);
+      } else if (b.type === "ranged") {
         const dx = b.toX - b.x, dy = b.toY - b.y;
         const dl = Math.hypot(dx, dy) || 1;
         const step = (b.speed || 160) * dt;
         b.x += (dx / dl) * step;
         b.y += (dy / dl) * step;
         b.traveled = (b.traveled || 0) + step;
-        if (b.traveled > (b.maxDist || 80)) state.bullets.splice(i, 1);
+        if (b.big && b.aoe) {
+          const owner = state.players.get(b.ownerId);
+          const zoneR = owner ? (owner.influenceR || 240) : 300;
+          const flightTime = state.t - (b.spawnTime ?? state.t);
+          const ttlExpired = flightTime >= 60;
+          let atBoundary = false;
+          if (owner) {
+            const dFromCenter = Math.hypot(b.x - owner.x, b.y - owner.y);
+            if (dFromCenter >= zoneR) atBoundary = true;
+            else if (owner.influencePolygon && owner.influencePolygon.length >= 3 && !isPointInPolygon(b.x, b.y, owner.influencePolygon)) atBoundary = true;
+          }
+          if (ttlExpired || atBoundary) state.bullets.splice(i, 1);
+        } else if (b.traveled > (b.maxDist || 80)) {
+          state.bullets.splice(i, 1);
+        }
       } else {
         b.progress = (b.progress || 0) + dt / (b.duration || 0.5);
         if (b.progress >= 1) state.bullets.splice(i, 1);
@@ -3841,24 +5304,72 @@
     }
   }
 
+  let _bulletsGfx = null;
   function drawBullets() {
-    destroyChildren(bulletsLayer);
+    if (!_bulletsGfx || _bulletsGfx.destroyed) {
+      _bulletsGfx = new PIXI.Graphics();
+      bulletsLayer.addChild(_bulletsGfx);
+    }
+    _bulletsGfx.clear();
     if (state.bullets.length === 0) return;
-    const g = new PIXI.Graphics();
+    const g = _bulletsGfx;
     for (let i = 0; i < state.bullets.length; i++) {
       const b = state.bullets[i];
-      if (!inView(b.x || b.fromX, b.y || b.fromY)) continue;
-      if (b.type === "ranged") {
+
+      if (b.type === "laser") {
+        const t = Math.min(1, b.progress || 0);
+        const tipX = b.fromX + (b.toX - b.fromX) * t;
+        const tipY = b.fromY + (b.toY - b.fromY) * t;
+        if (!inView(tipX, tipY) && !inView(b.fromX, b.fromY)) continue;
+
+        const col = b.color ?? 0xaa44ff;
+        const big = b.big;
+        const fadeIn = Math.min(1, t * 5);
+        const fadeOut = t > 0.7 ? 1 - (t - 0.7) / 0.3 : 1;
+        const fade = fadeIn * fadeOut;
+
+        g.moveTo(b.fromX, b.fromY); g.lineTo(tipX, tipY);
+        g.stroke({ color: col, width: big ? 22 : 14, alpha: 0.1 * fade });
+        g.moveTo(b.fromX, b.fromY); g.lineTo(tipX, tipY);
+        g.stroke({ color: col, width: big ? 10 : 7, alpha: 0.3 * fade });
+        g.moveTo(b.fromX, b.fromY); g.lineTo(tipX, tipY);
+        g.stroke({ color: col, width: big ? 4 : 2.5, alpha: 0.85 * fade });
+        g.moveTo(b.fromX, b.fromY); g.lineTo(tipX, tipY);
+        g.stroke({ color: 0xffffff, width: big ? 2 : 1, alpha: 0.9 * fade });
+
+        g.circle(tipX, tipY, big ? 4 : 2.5);
+        g.fill({ color: 0xffffff, alpha: 0.7 * fade });
+
+      } else if (b.type === "ranged") {
+        if (!inView(b.x || b.fromX, b.y || b.fromY)) continue;
         const dx = b.toX - b.fromX, dy = b.toY - b.fromY;
         const dl = Math.hypot(dx, dy) || 1;
         const tx = -(dx / dl) * 6, ty = -(dy / dl) * 6;
-        g.lineStyle(2, b.color ?? 0xffaa00, 0.9);
-        g.moveTo(b.x, b.y);
-        g.lineTo(b.x + tx, b.y + ty);
-        g.beginFill(0xffffff, 1);
-        g.drawCircle(b.x, b.y, b.big ? 4 : 2.5);
-        g.endFill();
+        const bPulse = 0.7 + 0.3 * Math.sin(performance.now() / 100 + (b.x || 0) * 0.1);
+        const bCol = b.color ?? 0xffaa44;
+        // City shots: small bullet + trail only (no glow circles)
+        if (b.aoe) {
+          const borderFade = b._fadeAlpha != null ? b._fadeAlpha : 1;
+          g.lineStyle(3, bCol, 0.4 * bPulse * borderFade);
+          g.moveTo(b.x, b.y); g.lineTo(b.x + tx * 3, b.y + ty * 3);
+          g.lineStyle(1.5, bCol, 0.6 * bPulse * borderFade);
+          g.moveTo(b.x, b.y); g.lineTo(b.x + tx * 2, b.y + ty * 2);
+          g.beginFill(bCol, 0.9 * borderFade);
+          g.drawCircle(b.x, b.y, 2.5);
+          g.endFill();
+        } else {
+          g.beginFill(bCol, 0.12 * bPulse);
+          g.drawCircle(b.x, b.y, 7);
+          g.endFill();
+          g.lineStyle(2, bCol, 0.9);
+          g.moveTo(b.x, b.y); g.lineTo(b.x + tx, b.y + ty);
+          g.beginFill(bCol, 1);
+          g.drawCircle(b.x, b.y, b.big ? 4 : 2.5);
+          g.endFill();
+        }
+
       } else {
+        if (!inView(b.fromX, b.fromY)) continue;
         const t = Math.min(1, b.progress || 0);
         const x = b.fromX + (b.toX - b.fromX) * t;
         const y = b.fromY + (b.toY - b.fromY) * t;
@@ -3867,13 +5378,13 @@
         g.endFill();
       }
     }
-    bulletsLayer.addChild(g);
   }
 
   function destroyCity(p) {
     if (p.cityGfx) cityLayer.removeChild(p.cityGfx);
     if (p.label) cityLayer.removeChild(p.label);
     if (p.popLabel) cityLayer.removeChild(p.popLabel);
+    if (p.shieldGfx) { cityLayer.removeChild(p.shieldGfx); p.shieldGfx = null; }
     if (p.zoneGfx) zonesLayer.removeChild(p.zoneGfx);
     if (p.zoneGlow) zonesLayer.removeChild(p.zoneGlow);
 
@@ -3927,6 +5438,7 @@
 
   function stepUnits(dt) {
     buildBattleCache();
+    state._cachedCombatSet = getUnitsInCombatSet();
 
     for (const u of state.units.values()) {
       if (u.leaderId !== null && u.leaderId !== undefined) continue;
@@ -3943,7 +5455,16 @@
         const city = state.players.get(u.chaseTargetCityId);
         if (!city) u.chaseTargetCityId = undefined;
         else {
-          u.waypoints = [{ x: city.x, y: city.y }];
+          const planetR = getPlanetRadius(city);
+          const noFlyR = planetR + 18;
+          const stopR = Math.max(noFlyR + 6, planetR * CFG.PLANET_ATTACK_R_MUL * 0.95);
+          const dToCity = Math.hypot(u.x - city.x, u.y - city.y);
+          if (dToCity > stopR + 5) {
+            const ang = Math.atan2(city.y - u.y, city.x - u.x);
+            u.waypoints = [{ x: city.x - Math.cos(ang) * stopR, y: city.y - Math.sin(ang) * stopR }];
+          } else {
+            u.waypoints = [{ x: u.x, y: u.y }];
+          }
           u.waypointIndex = 0;
           u.straightMode = false;
         }
@@ -3963,7 +5484,41 @@
         }
       }
     }
-    const inCombatSet = getUnitsInCombatSet();
+    for (const u of state.units.values()) {
+      if (!u.leaderId) continue;
+      const leader = state.units.get(u.leaderId);
+      if (!leader) continue;
+      if (leader.chaseTargetCityId != null) {
+        const city = state.players.get(leader.chaseTargetCityId);
+        if (city) {
+          const planetR = getPlanetRadius(city);
+          const noFlyR = planetR + 18;
+          const stopR = Math.max(noFlyR + 6, planetR * CFG.PLANET_ATTACK_R_MUL * 0.95);
+          const dToCity = Math.hypot(u.x - city.x, u.y - city.y);
+          if (dToCity > stopR + 5) {
+            const ang = Math.atan2(city.y - u.y, city.x - u.x);
+            u.waypoints = [{ x: city.x - Math.cos(ang) * stopR, y: city.y - Math.sin(ang) * stopR }];
+          } else {
+            u.waypoints = [{ x: u.x, y: u.y }];
+          }
+          u.waypointIndex = 0;
+          u.straightMode = false;
+        }
+      } else if (leader.chaseTargetUnitId != null) {
+        const target = state.units.get(leader.chaseTargetUnitId);
+        if (!target || target.x < 50 || target.x > CFG.WORLD_W - 50 || target.y < 50 || target.y > CFG.WORLD_H - 50) {
+          leader.chaseTargetUnitId = null;
+        } else {
+          const margin = 80;
+          const tx = clamp(target.x, margin, CFG.WORLD_W - margin);
+          const ty = clamp(target.y, margin, CFG.WORLD_H - margin);
+          u.waypoints = [{ x: tx, y: ty }];
+          u.waypointIndex = 0;
+          u.straightMode = false;
+        }
+      }
+    }
+    const inCombatSet = state._cachedCombatSet || getUnitsInCombatSet();
 
     for (const u of state.units.values()) {
       if (u.leaderId && !state.units.get(u.leaderId)) u.leaderId = null;
@@ -3971,13 +5526,32 @@
       let dx, dy;
       const leader = u.leaderId ? state.units.get(u.leaderId) : null;
 
-      if (inCombatSet.has(u.id)) {
+      const attackingShield = u.chaseTargetCityId != null && (() => {
+        const c = state.players.get(u.chaseTargetCityId);
+        return c && (c.shieldHp || 0) > 0;
+      })();
+      if (inCombatSet.has(u.id) && !attackingShield) {
+        if (u.orbitTarget) {
+          const bc = state._battleCache && state._battleCache.get(u.id);
+          const orbitCenter = bc ? { x: bc.ecx, y: bc.ecy } : null;
+          if (orbitCenter) {
+            const orbitR = (u.attackRange || 40) * 0.7;
+            if (!u._orbitAngle) u._orbitAngle = Math.atan2(u.y - orbitCenter.y, u.x - orbitCenter.x) + (Math.random() - 0.5) * 0.5;
+            const orbitSpeed = 2.5 + Math.random() * 0.5;
+            u._orbitAngle += orbitSpeed * dt * (u.id % 2 === 0 ? 1 : -1);
+            const tx = orbitCenter.x + Math.cos(u._orbitAngle) * orbitR;
+            const ty = orbitCenter.y + Math.sin(u._orbitAngle) * orbitR;
+            dx = tx - u.x;
+            dy = ty - u.y;
+          } else { dx = 0; dy = 0; }
+        } else {
         const slot = getUnitFrontSlot(u);
         if (slot) {
           dx = slot.tx - u.x;
           dy = slot.ty - u.y;
           if (Math.hypot(dx, dy) < FORMATION_DEAD_ZONE) dx = dy = 0;
         } else { dx = 0; dy = 0; }
+        }
       } else if (leader && u.leaderId) {
         const tx = leader.x + (u.formationOffsetX ?? 0);
         const ty = leader.y + (u.formationOffsetY ?? 0);
@@ -3992,9 +5566,11 @@
           dx = 0;
           dy = 0;
         } else if (wp && idx < wp.length) {
-          const t = wp[idx];
-          dx = t.x - u.x;
-          dy = t.y - u.y;
+          let t = wp[idx];
+          const margin = 60;
+          const tClamp = { x: clamp(t.x, margin, CFG.WORLD_W - margin), y: clamp(t.y, margin, CFG.WORLD_H - margin) };
+          dx = tClamp.x - u.x;
+          dy = tClamp.y - u.y;
           const dist = Math.hypot(dx, dy);
           if (dist <= WAYPOINT_RADIUS) {
             u.waypointIndex = idx + 1;
@@ -4008,8 +5584,9 @@
             }
             if (u.waypointIndex < wp.length) {
               const next = wp[u.waypointIndex];
-              dx = next.x - u.x;
-              dy = next.y - u.y;
+              const nextClamp = { x: clamp(next.x, margin, CFG.WORLD_W - margin), y: clamp(next.y, margin, CFG.WORLD_H - margin) };
+              dx = nextClamp.x - u.x;
+              dy = nextClamp.y - u.y;
             } else {
               dx = 0;
               dy = 0;
@@ -4025,17 +5602,43 @@
       }
 
       const len = Math.hypot(dx, dy) || 1;
-      if (!u.straightMode || Math.hypot(dx, dy) < 1) {
+      if (len > 0.01 && (!u.straightMode || Math.hypot(dx, dy) < 1)) {
         u.vx = dx / len;
         u.vy = dy / len;
       }
+      if (u.vx === 0 && u.vy === 0) { u.vx = Math.cos(u.gfx?.rotation ?? 0); u.vy = Math.sin(u.gfx?.rotation ?? 0); }
 
       const zoneOwner = getZoneOwnerFast(u.x, u.y);
       u._territoryMul = zoneOwner === u.owner ? 1.1 : (zoneOwner !== 0 && zoneOwner !== u.owner ? 0.9 : 1);
-      const speedMul = getTerrainSpeedMultiplier(u.x, u.y);
+      const terrainSpd = getTerrainSpeedMultiplier(u.x, u.y);
       const owner = state.players.get(u.owner);
-      const unitSpeedMul = (owner && owner.unitSpeedMul != null ? owner.unitSpeedMul : 1) * getLevelBonusMul(owner);
-      const speed = CFG.UNIT_SPEED * speedMul * unitSpeedMul * (u._territoryMul ?? 1);
+      let unitSpeedMul = (owner && owner.unitSpeedMul != null ? owner.unitSpeedMul : 1) * getLevelBonusMul(owner);
+      if (owner && state._battleMarchUntil && state._battleMarchUntil[owner.id] > state.t) unitSpeedMul *= 1.3;
+      let baseSpeed = (u.speed || UNIT_TYPES[u.unitType || "fighter"]?.speed || 9) * 1.1;
+      const classOrder = ["fighter", "destroyer", "cruiser", "battleship", "hyperDestroyer"];
+      const classIdx = classOrder.indexOf(u.unitType || "fighter");
+      const classSlowness = 1 - classIdx * 0.06;
+      baseSpeed *= Math.max(0.5, classSlowness);
+      const squadLeaderId = u.leaderId != null ? u.leaderId : u.id;
+      let hasSquad = false;
+      for (const v of state.units.values()) {
+        if (v.id === u.id) continue;
+        if ((v.leaderId === squadLeaderId || v.id === squadLeaderId) && v.owner === u.owner) {
+          hasSquad = true;
+          let vs = (v.speed || UNIT_TYPES[v.unitType || "fighter"]?.speed || 9) * 1.1;
+          const vClassIdx = classOrder.indexOf(v.unitType || "fighter");
+          vs *= Math.max(0.5, 1 - vClassIdx * 0.06);
+          if (vs < baseSpeed) baseSpeed = vs;
+        }
+      }
+      const nebulaSpd = isInNebula(u.x, u.y) ? (1 - CFG.NEBULA_SPEED_PENALTY) : 1;
+      const cryoSpd = (u._cryoSlowUntil && state.t < u._cryoSlowUntil) ? (1 - (u._cryoSlowAmount || CFG.CRYO_SLOW)) : 1;
+      let hyperMul = 1;
+      const hpPct = (u.maxHp > 0) ? u.hp / u.maxHp : 1;
+      const isFighter = (u.unitType || "fighter") === "fighter";
+      const minSpeedFactor = isFighter ? 0.6 : 0.1;
+      const hpSpeedMul = minSpeedFactor + (1 - minSpeedFactor) * hpPct;
+      const speed = baseSpeed * terrainSpd * unitSpeedMul * (u._territoryMul ?? 1) * nebulaSpd * cryoSpd * hpSpeedMul * hyperMul;
       if (inCombatSet.has(u.id)) {
         const slot = getUnitFrontSlot(u);
         if (slot) {
@@ -4049,30 +5652,56 @@
         u.x += u.vx * speed * dt;
         u.y += u.vy * speed * dt;
 
+        for (const cp of state.players.values()) {
+          if (cp.eliminated) continue;
+          const pR = getPlanetRadius(cp);
+          const noFlyR = pR + 18;
+          const dToCity = Math.hypot(u.x - cp.x, u.y - cp.y);
+          if (dToCity > 0 && dToCity < noFlyR) {
+            const scale = noFlyR / dToCity;
+            u.x = cp.x + (u.x - cp.x) * scale;
+            u.y = cp.y + (u.y - cp.y) * scale;
+          }
+        }
+
         if (u.x < 0 || u.x > CFG.WORLD_W || u.y < 0 || u.y > CFG.WORLD_H) {
-        u.x = clamp(u.x, 0, CFG.WORLD_W);
-        u.y = clamp(u.y, 0, CFG.WORLD_H);
-        if (u.vx > 0 && u.x >= CFG.WORLD_W) u.vx = -Math.abs(u.vx);
-        if (u.vx < 0 && u.x <= 0) u.vx = Math.abs(u.vx);
-        if (u.vy > 0 && u.y >= CFG.WORLD_H) u.vy = -Math.abs(u.vy);
-        if (u.vy < 0 && u.y <= 0) u.vy = Math.abs(u.vy);
+          u.x = clamp(u.x, 0, CFG.WORLD_W);
+          u.y = clamp(u.y, 0, CFG.WORLD_H);
+          if (u.vx > 0 && u.x >= CFG.WORLD_W) u.vx = -Math.abs(u.vx);
+          if (u.vx < 0 && u.x <= 0) u.vx = Math.abs(u.vx);
+          if (u.vy > 0 && u.y >= CFG.WORLD_H) u.vy = -Math.abs(u.vy);
+          if (u.vy < 0 && u.y <= 0) u.vy = Math.abs(u.vy);
         }
       }
 
-      const UNIT_MIN_DIST = 4;
+      const uR = getUnitHitRadius(u);
+      const UNIT_GAP = 4;
+      const UNIT_MIN_DIST = uR * 2 + UNIT_GAP;
       const atRest = (dx === 0 && dy === 0);
-      const nearU = queryHash(u.x, u.y, UNIT_MIN_DIST + 2);
+      const nearU = queryHash(u.x, u.y, UNIT_MIN_DIST);
       for (let ni = 0; ni < nearU.length; ni++) {
         const v = nearU[ni];
         if (v.id === u.id) continue;
+        const vR = getUnitHitRadius(v);
+        const minD = uR + vR + UNIT_GAP;
         const sx = u.x - v.x, sy = u.y - v.y;
         const sd = Math.hypot(sx, sy);
-        if (sd < UNIT_MIN_DIST && sd > 0.01) {
-          let force = v.owner === u.owner ? 0.8 : 2.5;
-          if (atRest) force *= 0.12;
-          const push = (UNIT_MIN_DIST - sd) * force * dt;
-          u.x += (sx / sd) * push;
-          u.y += (sy / sd) * push;
+        if (sd < minD && sd > 0.01) {
+          const sameOwner = v.owner === u.owner;
+          const bigShip = uR > 14 || vR > 14;
+          let force = sameOwner ? (bigShip ? 0.35 : 0.6) : 2.0;
+          if (atRest) force *= 0.08;
+          const overlap = minD - sd;
+          const push = Math.min(overlap * force * dt, overlap * 0.25);
+          const nx = sx / sd, ny = sy / sd;
+          u.x += nx * push;
+          u.y += ny * push;
+          if (sameOwner && bigShip && !atRest) {
+            const tangentX = -ny, tangentY = nx;
+            const side = (u.id > v.id) ? 1 : -1;
+            u.x += tangentX * push * 0.5 * side;
+            u.y += tangentY * push * 0.5 * side;
+          }
         }
       }
 
@@ -4092,19 +5721,48 @@
             u._lastHovered = hovered;
             const col = flashing ? 0xff2222 : (sel ? 0xffffff : (hovered ? 0xff4444 : (u.color || 0x888888)));
             u.gfx.clear();
-            u.gfx.beginFill(col, 0.9);
-            u.gfx.drawRoundedRect(-5, -5, 10, 10, 2);
-            u.gfx.endFill();
-            u.gfx.lineStyle(2, 0xffffff, 0.8);
-            u.gfx.moveTo(0, 0);
-            u.gfx.lineTo(10, 0);
+            drawShipShape(u.gfx, u.unitType || "fighter", u.color || 0x888888, col);
+            if ((u._activeShieldHp != null && u._activeShieldHp > 0) || (u._activeShieldEffectUntil != null && state.t < u._activeShieldEffectUntil)) {
+              const shieldR = getUnitHitRadius(u) + 6;
+              const shieldPulse = 0.5 + 0.3 * Math.sin(state.t * 4 + u.id);
+              const shieldPct = u._activeShieldHp ? Math.min(1, u._activeShieldHp / ((u.maxHp || 1) * 0.25)) : 0.3;
+              u.gfx.circle(0, 0, shieldR);
+              u.gfx.fill({ color: 0x2266cc, alpha: 0.06 * shieldPct });
+              u.gfx.circle(0, 0, shieldR);
+              u.gfx.stroke({ color: 0x44aaff, width: 2.5, alpha: (0.4 + 0.2 * shieldPulse) * shieldPct });
+              u.gfx.circle(0, 0, shieldR + 3);
+              u.gfx.stroke({ color: 0x88ddff, width: 1, alpha: 0.2 * shieldPct });
+            }
+            const ownerForMarch = state.players.get(u.owner);
+            if (ownerForMarch && state._battleMarchUntil && state._battleMarchUntil[ownerForMarch.id] > state.t) {
+              const marchAlpha = 0.15 + 0.1 * Math.sin(state.t * 5 + u.id);
+              const trailLen = (UNIT_TYPES[u.unitType]?.sizeMultiplier || 1) * 8 + 6;
+              u.gfx.moveTo(0, 0);
+              u.gfx.lineTo(-trailLen, -3);
+              u.gfx.lineTo(-trailLen, 3);
+              u.gfx.closePath();
+              u.gfx.fill({ color: 0xffaa22, alpha: marchAlpha });
+            }
             if (hovered) {
-              u.gfx.lineStyle(2, 0xff4444, 0.8);
-              u.gfx.drawCircle(0, 0, 12);
+              const hType = UNIT_TYPES[u.unitType] || UNIT_TYPES.fighter;
+              const hR = hType.sizeMultiplier * 6 + 8;
+              u.gfx.circle(0, 0, hR);
+              u.gfx.stroke({ color: 0xff4444, width: 2, alpha: 0.8 });
             }
           }
           u.gfx.position.set(u.x, u.y);
-          u.gfx.rotation = Math.atan2(u.vy, u.vx);
+          const vx = u.vx || 0, vy = u.vy || 0;
+          const targetRot = (vx !== 0 || vy !== 0) ? Math.atan2(vy, vx) : (u.gfx.rotation);
+          let curRot = u.gfx.rotation;
+          let diff = targetRot - curRot;
+          while (diff > Math.PI) diff -= Math.PI * 2;
+          while (diff < -Math.PI) diff += Math.PI * 2;
+          const isLeader = !u.leaderId;
+          const baseTurnSpeed = (u.unitType === "fighter" ? 8 : u.unitType === "destroyer" ? 5 : u.unitType === "cruiser" ? 3.5 : 2.5);
+          const turnSpeed = isLeader ? baseTurnSpeed * 2.2 : baseTurnSpeed;
+          const step = Math.min(Math.PI * 0.5, turnSpeed * (state._lastDt || 0.016));
+          if (Math.abs(diff) < step) u.gfx.rotation = targetRot;
+          else u.gfx.rotation = curRot + Math.sign(diff) * step;
         }
       }
     }
@@ -4204,17 +5862,13 @@
           r.gfx.tint = hslToHex(hue, 0.9, 0.65);
         }
       }
-
-      if (!r._targetCity && !isInOverlapFast(r.x, r.y)) {
+      if ((r.type === "orb" || r.type === "credit") && !r._targetCity && !isInOverlapFast(r.x, r.y)) {
         const owner = getZoneOwnerFast(r.x, r.y);
         if (owner) {
           const p = state.players.get(owner);
-          if (p) {
-            r._targetCity = owner;
-          }
+          if (p) r._targetCity = owner;
         }
       }
-
       if (r.gfx) {
         const vis = inView(r.x, r.y);
         r.gfx.visible = vis;
@@ -4233,37 +5887,63 @@
         if (!p) { r._targetCity = null; continue; }
         const dx = p.x - r.x, dy = p.y - r.y;
         const dl = Math.hypot(dx, dy);
-        if (dl < 15) {
-          gainXP(p, r.xp);
+        const minFlyTime = 0.4;
+        const canPickup = !r._spawnedAt || (state.t - r._spawnedAt >= minFlyTime);
+        if (dl < 28 && canPickup) {
+          if (r.type === "credit") {
+            p.eCredits = (p.eCredits || 0) + (r.value || 0);
+          } else {
+            gainXP(p, r.xp || 0);
+          }
           if (p.id === state.myPlayerId) tickSound(1480, 0.03, 0.04);
           toDelete.push(r.id);
           continue;
         }
         const isRainbow = r.type === "rainbow";
-        let speed = isRainbow ? CFG.RES_MAGNET_SPEED * 0.5 : CFG.RES_MAGNET_SPEED * 1.8;
+        const magnetSpeed = CFG.RES_MAGNET_SPEED ?? 120;
+        let speed = isRainbow ? magnetSpeed * 0.5 : magnetSpeed * 1.8;
         const terrain = getTerrainType(r.x, r.y);
         if (terrain === "shallowWater" || terrain === "deepWater") speed *= 1.8;
         if (!isRainbow) {
           const zoneOwner = getZoneOwnerFast(r.x, r.y);
-          if (zoneOwner === r._targetCity) speed += CFG.RES_MAGNET_SPEED;
+          if (zoneOwner === r._targetCity) speed += magnetSpeed;
         }
         r.x += (dx / dl) * speed * dt;
         r.y += (dy / dl) * speed * dt;
         if (r.gfx) r.gfx.position.set(r.x, r.y);
       }
 
-      const nearby = queryHash(r.x, r.y, touchR);
-      for (let i = 0; i < nearby.length; i++) {
-        const u = nearby[i];
-        if (r._targetCity && r._targetCity === u.owner) continue;
-        r._targetCity = u.owner;
-        break;
+      const interceptProtected = r._interceptProtectUntil && state.t < r._interceptProtectUntil;
+      if (!r._targetCity || !interceptProtected) {
+        const nearby = queryHash(r.x, r.y, touchR);
+        for (let i = 0; i < nearby.length; i++) {
+          const u = nearby[i];
+          if (r._targetCity && r._targetCity === u.owner) continue;
+          if (interceptProtected && u.owner !== r._targetCity) continue;
+          const uHR = getUnitHitRadius(u);
+          const d2 = (u.x - r.x) ** 2 + (u.y - r.y) ** 2;
+          if (d2 <= (uHR + 4) * (uHR + 4)) {
+            r._targetCity = u.owner;
+            r._interceptProtectUntil = state.t + 1.0;
+            break;
+          }
+        }
       }
 
-      if (!r._targetCity) {
+      if (!r._targetCity && r.type === "orb") {
         for (const p of state.players.values()) {
           if ((r.x - p.x) ** 2 + (r.y - p.y) ** 2 <= 100) {
-            gainXP(p, r.xp);
+            gainXP(p, r.xp || 0);
+            if (p.id === state.myPlayerId) tickSound(1480, 0.03, 0.04);
+            toDelete.push(r.id);
+            break;
+          }
+        }
+      }
+      if (!r._targetCity && r.type === "credit") {
+        for (const p of state.players.values()) {
+          if ((r.x - p.x) ** 2 + (r.y - p.y) ** 2 <= 100) {
+            p.eCredits = (p.eCredits || 0) + (r.value || 0);
             if (p.id === state.myPlayerId) tickSound(1480, 0.03, 0.04);
             toDelete.push(r.id);
             break;
@@ -4280,7 +5960,7 @@
       if (isPointInPolygon(x, y, p.influencePolygon)) return true;
       for (const u of state.units.values()) {
         if (u.owner !== p.id) continue;
-        if (dist2(x, y, u.x, u.y) <= CFG.UNIT_VISION * CFG.UNIT_VISION) return true;
+        if (dist2(x, y, u.x, u.y) <= (u.attackRange || 40) * (u.attackRange || 40)) return true;
       }
     }
     return false;
@@ -4289,7 +5969,7 @@
   function getNearestThreat(x, y) {
     let best = null;
     let bestD = 1e18;
-    const fleeR2 = CFG.RAINBOW_FLEE_DIST * CFG.RAINBOW_FLEE_DIST;
+    const fleeR2 = (CFG.RAINBOW_FLEE_DIST || 200) * (CFG.RAINBOW_FLEE_DIST || 200);
     for (const p of state.players.values()) {
       const d = dist2(x, y, p.x, p.y);
       if (d < bestD && isPointInPolygon(x, y, p.influencePolygon)) {
@@ -4299,7 +5979,7 @@
     }
     for (const u of state.units.values()) {
       const d = dist2(x, y, u.x, u.y);
-      if (d < bestD && d <= CFG.UNIT_VISION * CFG.UNIT_VISION) {
+      if (d < bestD && d <= (u.attackRange || 40) * (u.attackRange || 40)) {
         bestD = d;
         best = { x: u.x, y: u.y };
       }
@@ -4415,17 +6095,25 @@
         const myP = (p.pop || 0) * (p.influenceSpeedMul != null ? p.influenceSpeedMul : 1) * armyPenalty;
         const otherP = (other.pop || 0) * (other.influenceSpeedMul != null ? other.influenceSpeedMul : 1) * Math.max(0.1, 1 - (other.activeUnits ?? 0) * 0.0045);
         if (otherP <= myP) continue;
+        const otherR = other.influenceR || 0;
+        const distToOther = Math.hypot(p.x - other.x, p.y - other.y);
+        const maxPossibleReach = (p.influenceR || 0) + 20;
+        if (distToOther > maxPossibleReach + otherR) continue;
         for (let i = 0; i < numRays; i++) {
           const angle = (i / numRays) * Math.PI * 2;
           const d = p.influenceRayDistances[i] ?? 0;
           const ex = p.x + Math.cos(angle) * d;
           const ey = p.y + Math.sin(angle) * d;
+          const dToOther = (ex - other.x) ** 2 + (ey - other.y) ** 2;
+          if (dToOther > otherR * otherR) continue;
           if (isPointInPolygon(ex, ey, other.influencePolygon)) boost[i] = 0;
         }
       }
       const speed = (CFG.INFLUENCE_GROWTH_SPEED ?? 0.15) * influenceSpeedMul;
       const maxGrowthDelta = 2;
       let maxR = 0;
+      const pR = getPlanetRadius(p);
+      const minInflR = Math.max(pR * 3, (p.shieldHp || 0) > 0 ? shieldRadius(p) + 3 : 0);
       for (let i = 0; i < numRays; i++) {
         const target = targetDist[i] ?? 0;
         let cur = p.influenceRayDistances[i] ?? target;
@@ -4433,7 +6121,7 @@
         const lerpFactor = Math.min(1, dt * speed * mul);
         let delta = (target - cur) * lerpFactor;
         delta = delta > 0 ? Math.min(delta, maxGrowthDelta) : Math.max(delta, -maxGrowthDelta);
-        cur = Math.max(0, cur + delta);
+        cur = Math.max(minInflR, cur + delta);
         p.influenceRayDistances[i] = cur;
         if (cur > maxR) maxR = cur;
       }
@@ -4534,14 +6222,14 @@
   function botMergeSmallSquads(pid) {
     const squads = getSquads().filter(s => s.length > 0 && s[0].owner === pid);
     const inCombat = getUnitsInCombatSet();
-    const small = squads.filter(s => s.length < 8 && !s.some(u => inCombat.has(u.id)));
-    if (small.length < 2) return;
-    small.sort((a, b) => b.length - a.length);
-    const mainSquad = small[0];
+    const mergeable = squads.filter(s => !s.some(u => inCombat.has(u.id)));
+    if (mergeable.length < 2) return;
+    mergeable.sort((a, b) => b.length - a.length);
+    const mainSquad = mergeable[0];
     const mainLeader = mainSquad.find(u => !u.leaderId) || mainSquad[0];
     const mainLeaderId = mainLeader.id;
-    for (let i = 1; i < small.length; i++) {
-      for (const u of small[i]) {
+    for (let i = 1; i < mergeable.length; i++) {
+      for (const u of mergeable[i]) {
         u.leaderId = mainLeaderId;
         u.formationOffsetX = u.x - mainLeader.x;
         u.formationOffsetY = u.y - mainLeader.y;
@@ -4565,22 +6253,24 @@
       function nearestEnemyCity() {
         let best = null, bestD = 1e18;
         for (const other of state.players.values()) {
-          if (other.id === p.id) continue;
+          if (other.id === p.id || other.eliminated) continue;
           const d = dist2(p.x, p.y, other.x, other.y);
-          if (d < bestD) { bestD = d; best = other; }
+          const weakFactor = other.pop < p.pop * 0.8 ? 0.5 : 1;
+          if (d * weakFactor < bestD) { bestD = d * weakFactor; best = other; }
         }
         return best;
       }
-      function nearestResource(outsideZone) {
+
+      function nearestUnownedMine() {
         let best = null, bestD = 1e18;
-        for (const r of state.res.values()) {
-          const d = dist2(p.x, p.y, r.x, r.y);
-          if (d >= bestD) continue;
-          if (outsideZone && getZoneOwnerFast(r.x, r.y) === p.id) continue;
-          bestD = d; best = r;
+        for (const m of state.mines.values()) {
+          if (m.ownerId === p.id) continue;
+          const d = dist2(p.x, p.y, m.x, m.y);
+          if (d < bestD) { bestD = d; best = m; }
         }
         return best;
       }
+
       function setSquadWaypoint(squad, x, y) {
         const leader = squad.find(u => (u.leaderId || u.id) === (squad[0].leaderId || squad[0].id)) || squad[0];
         leader.chaseTargetUnitId = undefined;
@@ -4595,13 +6285,20 @@
       }
 
       const enemyCity = nearestEnemyCity();
-      const resToFarm = nearestResource(true);
       const distToEnemy = enemyCity ? Math.hypot(enemyCity.x - p.x, enemyCity.y - p.y) : 1e18;
+      const mineTarget = nearestUnownedMine();
 
       if (tick) {
-        const target = (enemyCity && distToEnemy < 650) ? enemyCity
-          : (resToFarm && (!enemyCity || distToEnemy > 500)) ? resToFarm
-          : enemyCity || resToFarm || { x: p.x + rand(-400, 400), y: p.y + rand(-400, 400) };
+        const ownedMineCount = [...state.mines.values()].filter(m => m.ownerId === p.id).length;
+        const armyThreshold = 6 + (p.level || 0) * 2;
+        const strongEnough = myUnitCount >= armyThreshold;
+        const needMines = ownedMineCount < 3 && mineTarget;
+        const weakEnemy = enemyCity && enemyCity.pop < p.pop * 0.7;
+        const shouldAttack = enemyCity && !needMines && (strongEnough || weakEnemy);
+        const target = needMines ? mineTarget
+          : shouldAttack ? enemyCity
+          : mineTarget ? mineTarget
+          : enemyCity || { x: p.x + rand(-400, 400), y: p.y + rand(-400, 400) };
         const wx = target.x != null ? target.x : p.x, wy = target.y != null ? target.y : p.y;
         for (const squad of squads) {
           const leader = squad.find(u => (u.leaderId || u.id) === (squad[0].leaderId || squad[0].id)) || squad[0];
@@ -4609,33 +6306,76 @@
           const idx = leader.waypointIndex ?? 0;
           const idle = !wp || idx >= wp.length;
           const inCombat = getUnitsInCombatSet().has(leader.id);
-          if (!inCombat && (idle || p._botAcc === 0)) setSquadWaypoint(squad, wx, wy);
+          if (!inCombat && (idle || p._botAcc === 0)) {
+            if (shouldAttack && enemyCity) {
+              leader.chaseTargetCityId = enemyCity.id;
+              leader.chaseTargetUnitId = undefined;
+              const planetR = getPlanetRadius(enemyCity);
+              const minStopR = Math.max(planetR + 22, planetR * CFG.PLANET_ATTACK_R_MUL * 0.95);
+              const stopR = Math.max(getUnitAtkRange(leader), minStopR);
+              const dx = leader.x - enemyCity.x, dy = leader.y - enemyCity.y;
+              const dl = Math.hypot(dx, dy) || 1;
+              const wp = { x: enemyCity.x + (dx / dl) * stopR, y: enemyCity.y + (dy / dl) * stopR };
+              leader.waypoints = [wp];
+              leader.waypointIndex = 0;
+              for (const u of squad) {
+                if (u !== leader) {
+                  u.waypoints = [{ x: wp.x, y: wp.y }];
+                  u.waypointIndex = 0;
+                }
+              }
+            } else {
+              setSquadWaypoint(squad, wx, wy);
+            }
+          }
         }
       }
 
-      if (p.sendDelay > 0) {
-        p.sendDelay -= dt;
-        if (p.sendDelay <= 0 && p.pendingSend) {
-          const { count, tx, ty } = p.pendingSend;
-          p.pendingSend = null;
-          spawnUnits(p.id, count, [{ x: tx, y: ty }]);
-        }
-        continue;
+      if (!tick) continue;
+
+      const credits = p.eCredits || 0;
+      const gameTime = state.t || 0;
+      const costMul = p.unitCostMul != null ? p.unitCostMul : 1;
+
+      const affordType = (key) => {
+        const t = UNIT_TYPES[key];
+        return t && credits >= Math.max(1, Math.round(t.cost * costMul));
+      };
+
+      let unitToBuy = "fighter";
+      const ownedMines = [...state.mines.values()].filter(m => m.ownerId === p.id).length;
+      const level = p.level || 0;
+
+      if (myUnitCount < 4 || ownedMines < 2) {
+        unitToBuy = "fighter";
+      } else if (gameTime > 600 && affordType("hyperDestroyer") && Math.random() < 0.3) {
+        unitToBuy = "hyperDestroyer";
+      } else if (gameTime > 360 && affordType("battleship") && Math.random() < 0.35) {
+        unitToBuy = "battleship";
+      } else if (gameTime > 180 && affordType("cruiser") && Math.random() < 0.4) {
+        unitToBuy = "cruiser";
+      } else if (gameTime > 60 && affordType("destroyer") && Math.random() < 0.5) {
+        unitToBuy = "destroyer";
+      } else {
+        unitToBuy = "fighter";
       }
-      if (p.cooldown > 0) continue;
-      if (p.pop < CFG.UNIT_POP_PER) continue;
 
-      const wantAttack = enemyCity && distToEnemy < 600;
-      const target = wantAttack ? enemyCity : (resToFarm || enemyCity || { x: p.x + (CFG.WORLD_W * 0.5 - p.x) * 0.2 + rand(-200, 200), y: p.y + (CFG.WORLD_H * 0.5 - p.y) * 0.2 + rand(-200, 200) });
-      const tx = clamp((target.x || 0) + rand(-30, 30), 0, CFG.WORLD_W);
-      const ty = clamp((target.y || 0) + rand(-30, 30), 0, CFG.WORLD_H);
-      const maxAvailable = Math.floor(p.pop / CFG.UNIT_POP_PER);
-      const desired = Math.max(10, Math.floor(p.pop / (wantAttack ? 16 : 22)));
-      if (maxAvailable < 10 && maxAvailable < 3) continue;
-      const count = Math.min(desired, maxAvailable);
+      if (credits >= 200 && myUnitCount < 3) unitToBuy = "fighter";
 
-      p.pendingSend = { count, tx, ty };
-      p.sendDelay = BOT_SPAWN_INTERVAL;
+      const type = UNIT_TYPES[unitToBuy];
+      const cost = Math.max(1, Math.round(type.cost * costMul));
+      const savingThreshold = gameTime > 180 ? cost * 2.5 : (gameTime > 90 ? cost * 1.8 : cost);
+      if (credits >= cost && (credits >= savingThreshold || myUnitCount < 4)) {
+        const target = mineTarget || enemyCity || { x: p.x + rand(-200, 200), y: p.y + rand(-200, 200) };
+        const tx = clamp((target.x || 0) + rand(-30, 30), 0, CFG.WORLD_W);
+        const ty = clamp((target.y || 0) + rand(-30, 30), 0, CFG.WORLD_H);
+        purchaseUnit(p.id, unitToBuy, [{ x: tx, y: ty }]);
+      }
+
+      if (tick && p._levelUpCards && p._levelUpCards.length > 0) {
+        const cardIdx = Math.floor(Math.random() * p._levelUpCards.length);
+        if (typeof applyLevelUpCard === "function") applyLevelUpCard(p.id, cardIdx);
+      }
     }
   }
 
@@ -4664,6 +6404,18 @@
     for (const u of state.units.values()) {
       const d = (u.x - wx) ** 2 + (u.y - wy) ** 2;
       if (d < bestD) { bestD = d; best = u; }
+    }
+    return best;
+  }
+
+  function mineAtWorld(wx, wy) {
+    let best = null;
+    let bestD = Infinity;
+    for (const mine of state.mines.values()) {
+      const R = mine.isRich ? 40 : 32;
+      const d = (mine.x - wx) ** 2 + (mine.y - wy) ** 2;
+      if (d > R * R) continue;
+      if (d < bestD) { bestD = d; best = mine; }
     }
     return best;
   }
@@ -4706,10 +6458,6 @@
     const unitDmgMul = (p.unitDmgMul != null ? p.unitDmgMul : 1) * getLevelBonusMul(p);
     const unitSpdMul = (p.unitSpeedMul != null ? p.unitSpeedMul : 1) * getLevelBonusMul(p);
     const unitAtkRMul = (p.unitAtkRateMul != null ? p.unitAtkRateMul : 1) * getLevelBonusMul(p);
-    const unitAtkRngMul = Math.min(UNIT_ATK_RANGE_MAX_MUL, p.unitAtkRangeMul != null ? p.unitAtkRangeMul : 1);
-    const meleeR = CFG.UNIT_VISION;
-    const atkR = Math.round(CFG.UNIT_VISION * unitAtkRngMul);
-    const isRanged = atkR > meleeR + 1;
     const myPop = me ? me.pop : 0;
     const myLevel = me ? me.level : 0;
     const myXpNext = me ? me.xpNext : 1;
@@ -4718,11 +6466,11 @@
     const myInfR = me ? (me.influenceR || 0) : 0;
     const myInfSpd = me ? (me.influenceSpeedMul != null ? me.influenceSpeedMul : 1) : 1;
     const myTurretCount = me ? (me.turretIds || []).filter(tid => { const t = state.turrets.get(tid); return t && t.hp > 0; }).length : 0;
-    const myCooldown = me ? (me.cooldown ?? 0) : 0;
-    const myUnitHp = me ? Math.round(CFG.UNIT_HP * (me.unitHpMul != null ? me.unitHpMul : 1) * getLevelBonusMul(me)) : 0;
-    const myUnitDmg = me ? (CFG.UNIT_DMG * (me.unitDmgMul != null ? me.unitDmgMul : 1) * getLevelBonusMul(me)) : 0;
-    const myUnitSpd = me ? (CFG.UNIT_SPEED * (me.unitSpeedMul != null ? me.unitSpeedMul : 1) * getLevelBonusMul(me)) : 0;
-    const myUnitAtkR = me ? (CFG.UNIT_ATK_RATE * (me.unitAtkRateMul != null ? me.unitAtkRateMul : 1) * getLevelBonusMul(me)) : 0;
+    const ft = UNIT_TYPES.fighter;
+    const myUnitHp = me ? Math.round(ft.hp * (me.unitHpMul != null ? me.unitHpMul : 1) * getLevelBonusMul(me)) : 0;
+    const myUnitDmg = me ? (ft.damage * (me.unitDmgMul != null ? me.unitDmgMul : 1) * getLevelBonusMul(me)) : 0;
+    const myUnitSpd = me ? (ft.speed * (me.unitSpeedMul != null ? me.unitSpeedMul : 1) * getLevelBonusMul(me)) : 0;
+    const myUnitAtkR = me ? (ft.attackRate * (me.unitAtkRateMul != null ? me.unitAtkRateMul : 1) * getLevelBonusMul(me)) : 0;
     const cityPart =
       "<div class='stat-line'><span class='stat-label'>Население</span><span class='stat-val'>" + p.pop + statDiffHTML(p.pop, myPop) + "</span></div>" +
       "<div class='stat-line'><span class='stat-label'>Уровень</span><span class='stat-val'>" + p.level + statDiffHTML(p.level, myLevel) + "</span></div>" +
@@ -4731,15 +6479,14 @@
       "<div class='stat-line'><span class='stat-label'>Урон города</span><span class='stat-val'>" + cityDmg + statDiffHTML(cityDmg, myCityDmg) + "</span></div>" +
       "<div class='stat-line'><span class='stat-label'>Зона</span><span class='stat-val'>R " + (p.influenceR || 0).toFixed(0) + statDiffHTML(p.influenceR || 0, myInfR) + "</span></div>" +
       "<div class='stat-line'><span class='stat-label'>Скор. зоны</span><span class='stat-val'>×" + infSpdMul.toFixed(2) + statDiffHTML(infSpdMul, myInfSpd) + "</span></div>" +
-      "<div class='stat-line'><span class='stat-label'>Турели</span><span class='stat-val'>" + turretCount + statDiffHTML(turretCount, myTurretCount) + "</span></div>" +
-      "<div class='stat-line'><span class='stat-label'>КД</span><span class='stat-val'>" + (p.cooldown ?? 0).toFixed(1) + "с" + statDiffHTML((p.cooldown ?? 0), myCooldown) + "</span></div>";
+      "<div class='stat-line'><span class='stat-label'>Турели</span><span class='stat-val'>" + turretCount + statDiffHTML(turretCount, myTurretCount) + "</span></div>";
+    const eFt = UNIT_TYPES.fighter;
     const armyPart =
-      "<div class='stat-line'><span class='stat-label'>ХП</span><span class='stat-val'>" + Math.round(CFG.UNIT_HP * unitHpMul) + statDiffHTML(Math.round(CFG.UNIT_HP * unitHpMul), myUnitHp) + "</span></div>" +
-      "<div class='stat-line'><span class='stat-label'>Урон</span><span class='stat-val'>" + (CFG.UNIT_DMG * unitDmgMul).toFixed(1) + statDiffHTML(CFG.UNIT_DMG * unitDmgMul, myUnitDmg) + "</span></div>" +
-      "<div class='stat-line'><span class='stat-label'>Скорость движения</span><span class='stat-val'>" + (CFG.UNIT_SPEED * unitSpdMul).toFixed(1) + statDiffHTML(CFG.UNIT_SPEED * unitSpdMul, myUnitSpd) + "</span></div>" +
-      "<div class='stat-line'><span class='stat-label'>Атак/с</span><span class='stat-val'>" + (CFG.UNIT_ATK_RATE * unitAtkRMul).toFixed(1) + statDiffHTML(CFG.UNIT_ATK_RATE * unitAtkRMul, myUnitAtkR) + "</span></div>" +
-      "<div class='stat-line'><span class='stat-label'>Р. сцепки</span><span class='stat-val'>" + meleeR + "</span></div>" +
-      "<div class='stat-line'><span class='stat-label'>Р. атаки</span><span class='stat-val'>" + atkR + (isRanged ? " ⚔→" : "") + "</span></div>";
+      "<div class='stat-line'><span class='stat-label'>ХП (истр.)</span><span class='stat-val'>" + Math.round(eFt.hp * unitHpMul) + statDiffHTML(Math.round(eFt.hp * unitHpMul), myUnitHp) + "</span></div>" +
+      "<div class='stat-line'><span class='stat-label'>Урон (истр.)</span><span class='stat-val'>" + (eFt.damage * unitDmgMul).toFixed(1) + statDiffHTML(eFt.damage * unitDmgMul, myUnitDmg) + "</span></div>" +
+      "<div class='stat-line'><span class='stat-label'>Скорость (истр.)</span><span class='stat-val'>" + (eFt.speed * unitSpdMul).toFixed(1) + statDiffHTML(eFt.speed * unitSpdMul, myUnitSpd) + "</span></div>" +
+      "<div class='stat-line'><span class='stat-label'>Атак/с (истр.)</span><span class='stat-val'>" + (eFt.attackRate * unitAtkRMul).toFixed(1) + statDiffHTML(eFt.attackRate * unitAtkRMul, myUnitAtkR) + "</span></div>" +
+      "<div class='stat-line'><span class='stat-label'>Дальность</span><span class='stat-val'>" + eFt.attackRange + "</span></div>";
     return "<div class='box stats-columns'>" +
       "<div class='stats-col'><div class='subtitle'>Город</div><div class='me-stats'>" + cityPart + "</div></div>" +
       "<div class='stats-col'><div class='subtitle'>Армия</div><div class='me-stats'>" + armyPart + "</div></div>" +
@@ -4808,7 +6555,11 @@
         state.formationPreview = {
           x: pt.x,
           y: pt.y,
-          angle: Math.atan2(pt.y - cy, pt.x - cx)
+          angle: Math.atan2(pt.y - cy, pt.x - cx),
+          startX: e.clientX,
+          startY: e.clientY,
+          dragRows: null,
+          dragWidth: null
         };
         return;
       }
@@ -4820,6 +6571,7 @@
     }
 
     if (btn === 0) {
+      if (state._abilityTargeting) return;
       if (state.rallyPointMode) {
         state.rallyPoint = { x: pt.x, y: pt.y };
         state.rallyPointMode = false;
@@ -4845,15 +6597,39 @@
           }
           return;
         }
+        const clickedMine = mineAtWorld(pt.x, pt.y);
+        if (clickedMine && clickedMine.ownerId !== state.myPlayerId) {
+          const squads = getSelectedSquads();
+          for (const squad of squads) {
+            const leader = squad.find(v => (v.leaderId || v.id) === (squad[0].leaderId || squad[0].id)) || squad[0];
+            leader.chaseTargetUnitId = undefined;
+            leader.chaseTargetCityId = undefined;
+            leader.waypoints = [{ x: clickedMine.x, y: clickedMine.y }];
+            leader.waypointIndex = 0;
+            leader.straightMode = false;
+            for (const u of squad) {
+              if (u !== leader) {
+                u.waypoints = [{ x: clickedMine.x, y: clickedMine.y }];
+                u.waypointIndex = 0;
+              }
+            }
+          }
+          return;
+        }
         const city = cityAtWorld(pt.x, pt.y);
         if (city && city.id !== state.myPlayerId) {
           const squads = getSelectedSquads();
           const leaderIds = [];
+          const planetR = getPlanetRadius(city);
+          const minStopR = Math.max(planetR + 22, planetR * CFG.PLANET_ATTACK_R_MUL * 0.95);
           for (const squad of squads) {
             const leader = squad.find(v => (v.leaderId || v.id) === (squad[0].leaderId || squad[0].id)) || squad[0];
             leader.chaseTargetCityId = city.id;
             leader.chaseTargetUnitId = undefined;
-            leader.waypoints = [{ x: city.x, y: city.y }];
+            const stopR = Math.max(getUnitAtkRange(leader), minStopR);
+            const dx = leader.x - city.x, dy = leader.y - city.y;
+            const dl = Math.hypot(dx, dy) || 1;
+            leader.waypoints = [{ x: city.x + (dx / dl) * stopR, y: city.y + (dy / dl) * stopR }];
             leader.waypointIndex = 0;
             leader.straightMode = false;
             leaderIds.push(leader.id);
@@ -4913,14 +6689,16 @@
       for (const squad of squads) {
         const leader = squad.find(u => (u.leaderId || u.id) === (squad[0].leaderId || squad[0].id)) || squad[0];
         const fType = leader.formationType || "pig";
-        const fRows = leader.formationRows || 1;
-        const pigW = leader.formationPigWidth ?? 1;
+        const fRows = fp.dragRows != null ? fp.dragRows : (leader.formationRows || 1);
+        const pigW = fp.dragWidth != null ? fp.dragWidth : (leader.formationPigWidth ?? 1);
         const cosA = Math.cos(fp.angle), sinA = Math.sin(fp.angle);
-        const offs = getFormationOffsets(squad.length, fType, fRows, cosA, sinA, pigW);
+        const offs = getFormationOffsets(squad.length, fType, fRows, cosA, sinA, pigW, squad);
         const fc = getFormationCenter(offs);
         const newPt = { x: fp.x - fc.x, y: fp.y - fc.y };
         const waypoints = addWaypoint ? [...(leader.waypoints || []), newPt] : [newPt];
         leader.targetFormationAngle = fp.angle;
+        if (fp.dragRows != null) leader.formationRows = fRows;
+        if (fp.dragWidth != null) leader.formationPigWidth = pigW;
         leader.chaseTargetUnitId = undefined;
         leader.chaseTargetCityId = undefined;
         for (const u of squad) {
@@ -4944,12 +6722,25 @@
   });
 
   window.addEventListener("pointermove", (e) => {
-    if (state.boxStart && e.buttons === 1) {
+    state._mouseScreenX = e.clientX;
+    state._mouseScreenY = e.clientY;
+    if (state.boxStart && e.buttons === 1 && !state._abilityTargeting) {
       state.boxEnd = screenToWorld(e.clientX, e.clientY);
     }
     if (state.formationPreview && (e.buttons & 2)) {
       const w = screenToWorld(e.clientX, e.clientY);
-      state.formationPreview.angle = Math.atan2(w.y - state.formationPreview.y, w.x - state.formationPreview.x);
+      const fp = state.formationPreview;
+      fp.angle = Math.atan2(w.y - fp.y, w.x - fp.x);
+      const screenDx = e.clientX - fp.startX;
+      const screenDy = e.clientY - fp.startY;
+      const dragDist = Math.hypot(screenDx, screenDy);
+      if (dragDist > 20) {
+        const cosA = Math.cos(fp.angle), sinA = Math.sin(fp.angle);
+        const along = screenDx * cosA + screenDy * sinA;
+        const perp = Math.abs(-screenDx * sinA + screenDy * cosA);
+        fp.dragRows = Math.max(1, Math.min(10, Math.round(Math.abs(along) / 40)));
+        fp.dragWidth = Math.max(0.5, Math.min(3, perp / 60));
+      }
     }
     if (isPanning) {
       const dx = e.clientX - lastX;
@@ -5077,36 +6868,50 @@
     });
   }
 
-  sendBtn.addEventListener("click", () => {
+  function doPurchaseUnit(unitTypeKey) {
     const me = state.players.get(state.myPlayerId);
     if (!me) return;
-    if (!state.targetPoints) state.targetPoints = state.rallyPoint ? [state.rallyPoint] : [{ x: me.x + 220, y: me.y }];
-    if (state.targetPoints.length === 0) state.targetPoints = state.rallyPoint ? [state.rallyPoint] : [{ x: me.x + 220, y: me.y }];
-    const want = Number(sendCountEl?.value ?? 3);
-    const formationType = (formationSelect && formationSelect.value) || "pig";
-    const formationRows = (formationRowsEl && parseInt(formationRowsEl.value, 10)) || 1;
+    const wps = (state.targetPoints && state.targetPoints.length > 0)
+      ? state.targetPoints
+      : (state.rallyPoint ? [state.rallyPoint] : [{ x: me.x + 220, y: me.y }]);
     if (state._multiSlots && !state._multiIsHost && state._socket) {
-      console.log("[MP-ACTION] send spawn pid=", state.myPlayerId, "count=", want);
-      state._socket.emit("playerAction", { type: "spawn", pid: state.myPlayerId, count: want, waypoints: state.targetPoints, formationType, formationRows });
+      state._socket.emit("playerAction", { type: "purchase", pid: state.myPlayerId, unitType: unitTypeKey, waypoints: wps });
+      const optRes = purchaseUnit(me.id, unitTypeKey, wps);
+      if (!optRes.ok) tickSound(220, 0.05, 0.03);
       state.targetPoints = [];
       return;
     }
-    const res = spawnUnits(me.id, want, state.targetPoints, { formationType, formationRows });
+    const res = purchaseUnit(me.id, unitTypeKey, wps);
     if (res.ok) state.targetPoints = [];
-    if (!res.ok) tickSound(220, 0.05, 0.03);
+    else tickSound(220, 0.05, 0.03);
+  }
+
+  document.querySelectorAll(".unit-buy-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const typeKey = btn.dataset.type;
+      if (typeKey) doPurchaseUnit(typeKey);
+    });
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA" || e.target.tagName === "SELECT") return;
+    const keyMap = { "1": "fighter", "2": "destroyer", "3": "cruiser", "4": "battleship", "5": "hyperDestroyer" };
+    if (keyMap[e.key]) { e.preventDefault(); doPurchaseUnit(keyMap[e.key]); }
   });
 
   document.querySelectorAll(".speed-btn").forEach(btn => {
     btn.addEventListener("click", () => {
       if (state._multiSlots && !state._multiIsHost) return;
       const speed = parseInt(btn.dataset.speed, 10) || 1;
-      state.timeScale = speed;
+      state.timeScale = speed >= 2 ? speed / 2 : 0.5;
       document.querySelectorAll(".speed-btn").forEach(b => b.classList.remove("active"));
       btn.classList.add("active");
     });
   });
-  const firstSpeed = document.querySelector(".speed-btn[data-speed='1']");
-  if (firstSpeed) firstSpeed.classList.add("active");
+  state.timeScale = 1;
+  const defaultSpeedBtn = document.querySelector(".speed-btn[data-speed='2']");
+  if (defaultSpeedBtn) defaultSpeedBtn.classList.add("active");
+  else document.querySelector(".speed-btn[data-speed='1']")?.classList.add("active");
 
   const lvlUpBtn = document.getElementById("lvlUpBtn");
   if (lvlUpBtn) lvlUpBtn.addEventListener("click", openCardModal);
@@ -5209,12 +7014,16 @@
   }
   function getCardCurrentParamText(p, card) {
     if (!p) return "";
+    if (card.attackEffect) {
+      const lv = (p.attackEffects && p.attackEffects[card.attackEffect]) || 0;
+      return lv >= 3 ? "МАКС (ур. 3/3)" : "Сейчас: ур. " + lv + "/3";
+    }
     if (card.popBonus) return "Сейчас население: " + p.pop;
     const keys = Object.keys(card);
     const uHp = (p.unitHpMul != null ? p.unitHpMul : 1) * (p._levelBonusMul ?? 1);
     const uDmg = (p.unitDmgMul != null ? p.unitDmgMul : 1) * (p._levelBonusMul ?? 1);
-    if (keys.some(k => k.startsWith("unitHp"))) return "Сейчас: HP " + Math.round(CFG.UNIT_HP * uHp);
-    if (keys.some(k => k.startsWith("unitDmg"))) return "Сейчас: урон " + (CFG.UNIT_DMG * uDmg).toFixed(1);
+    if (keys.some(k => k.startsWith("unitHp"))) return "Сейчас: HP (истр.) " + Math.round(UNIT_TYPES.fighter.hp * uHp);
+    if (keys.some(k => k.startsWith("unitDmg"))) return "Сейчас: урон (истр.) " + (UNIT_TYPES.fighter.damage * uDmg).toFixed(1);
     if (keys.some(k => k.startsWith("unitAtkRate"))) return "Сейчас: ×" + ((p.unitAtkRateMul ?? 1) * (p._levelBonusMul ?? 1)).toFixed(2);
     if (keys.some(k => k.startsWith("unitSpeed"))) return "Сейчас: ×" + ((p.unitSpeedMul ?? 1) * (p._levelBonusMul ?? 1)).toFixed(2);
     if (keys.some(k => k.startsWith("unitAtkRange"))) return "Сейчас: ×" + (p.unitAtkRangeMul ?? 1).toFixed(2);
@@ -5304,9 +7113,17 @@
         const paramHint = getCardParamTooltip(card);
         const currentText = getCardCurrentParamText(me, card);
         const div = document.createElement("div");
-        const flashClass = card.rarity === "legendary" ? " flash" : "";
+        const flashClass = (card.rarity === "legendary" || card.rarity === "mythic") ? " flash" : "";
         div.className = "card-option " + card.rarity + flashClass;
-        div.innerHTML = "<div class='card-emoji'>" + emoji + "</div><div class='card-name'>" + (card.name || "").replace(/</g, "&lt;") + "</div><div class='card-desc'>" + (card.desc || "").replace(/</g, "&lt;") + "</div>" + (currentText ? "<div class='card-param-now'>" + currentText.replace(/</g, "&lt;") + "</div>" : "");
+        div.dataset.rarity = card.rarity;
+        const rarityLabel = CARD_RARITY_LABELS[card.rarity] || card.rarity;
+        const cardEmoji = card.emoji || emoji;
+        div.innerHTML =
+          "<div class='card-rarity-label card-rarity-" + card.rarity + "'>" + rarityLabel + "</div>" +
+          "<div class='card-emoji'>" + cardEmoji + "</div>" +
+          "<div class='card-name'>" + (card.name || "").replace(/</g, "&lt;") + "</div>" +
+          "<div class='card-desc'>" + (card.desc || "").replace(/</g, "&lt;") + "</div>" +
+          (currentText ? "<div class='card-param-now'>" + currentText.replace(/</g, "&lt;") + "</div>" : "");
         if (paramHint) {
           div.title = paramHint;
           div.addEventListener("mouseenter", (e) => {
@@ -5355,12 +7172,19 @@
 
     updateLvlUpButton();
 
-    const maxSend = Math.max(1, Math.floor(me.pop / CFG.UNIT_POP_PER));
-    if (Number(sendCountEl.max) !== maxSend) sendCountEl.max = String(maxSend);
-    if (Number(sendCountEl.value) > maxSend) {
-      sendCountEl.value = String(maxSend);
-      sendCountValEl.textContent = sendCountEl.value;
-    }
+    const eCreditsEl = document.getElementById("eCreditsValue");
+    if (eCreditsEl) eCreditsEl.textContent = Math.floor(me.eCredits || 0);
+
+    document.querySelectorAll(".unit-buy-btn").forEach(btn => {
+      const typeKey = btn.dataset.type;
+      const type = UNIT_TYPES[typeKey];
+      if (!type) return;
+      const costMul = me.unitCostMul != null ? me.unitCostMul : 1;
+      const cost = Math.max(1, Math.round(type.cost * costMul));
+      const costEl = btn.querySelector(".unit-buy-cost");
+      if (costEl) costEl.textContent = cost + " ⚡€";
+      btn.disabled = (me.eCredits || 0) < cost;
+    });
 
     const base = CFG.GROWTH_BASE_PER_MIN + Math.floor(me.pop / 100) * CFG.GROWTH_PER_100;
     const pen = Math.min(CFG.ACTIVE_SOLDIER_PENALTY_CAP, me.activeUnits * CFG.ACTIVE_SOLDIER_PENALTY_PER);
@@ -5368,13 +7192,15 @@
     const cityDestroyBonusHUD = ((me._growthBonuses || []).filter(b => b.expiresAt > state.t)).reduce((s, b) => s + b.amount, 0);
     const growthMulHUD = me.growthMul != null ? me.growthMul : 1;
     const perMin = (base * (1 - pen) + killBonus + cityDestroyBonusHUD) * growthMulHUD;
-    const maxUnits = Math.max(0, Math.floor(me.pop / 2));
 
     const turretCount = (me.turretIds || []).filter(tid => { const t = state.turrets.get(tid); return t && t.hp > 0; }).length;
     const cityDmgMul = me.turretDmgMul != null ? me.turretDmgMul : 1;
     const cityDmg = Math.max(1, Math.round(CFG.CITY_ATTACK_DMG * cityDmgMul));
 
     const infSpdMul = me.influenceSpeedMul != null ? me.influenceSpeedMul : 1;
+    const myMineCount = [...state.mines.values()].filter(m => m.ownerId === me.id).length;
+    const shieldPct = me.shieldMaxHp > 0 ? Math.round((me.shieldHp / me.shieldMaxHp) * 100) : 0;
+
     if (state._enemyCityPanelPlayerId) {
       const ep = state.players.get(state._enemyCityPanelPlayerId);
       const panelEl = document.getElementById("enemyCityPanel");
@@ -5387,37 +7213,42 @@
       "<div class='stat-line'><span class='stat-label'>Население</span><span class='stat-val'>" + me.pop + "</span></div>" +
       "<div class='stat-line'><span class='stat-label'>Уровень</span><span class='stat-val'>" + me.level + "</span></div>" +
       "<div class='stat-line'><span class='stat-label'>Опыт</span><span class='stat-val'>" + me.xp + "/" + me.xpNext + "</span></div>" +
+      "<div class='stat-line'><span class='stat-label'>Щит</span><span class='stat-val'>" + Math.round(me.shieldHp || 0) + " (" + shieldPct + "%)</span></div>" +
       "<div class='stat-line'><span class='stat-label'>Рост</span><span class='stat-val'>" + perMin.toFixed(1) + "/мин</span></div>" +
-      "<div class='stat-line'><span class='stat-label'>Урон города</span><span class='stat-val'>" + cityDmg + "</span></div>" +
+      "<div class='stat-line'><span class='stat-label'>Урон планеты</span><span class='stat-val'>" + cityDmg + " ×" + (CFG.CITY_BASE_TARGETS + (me.cityTargetBonus || 0)) + " цели</span></div>" +
+      "<div class='stat-line'><span class='stat-label'>Шахты</span><span class='stat-val'>" + myMineCount + "</span></div>" +
       "<div class='stat-line'><span class='stat-label'>Зона</span><span class='stat-val'>R " + me.influenceR.toFixed(0) + "</span></div>" +
       "<div class='stat-line'><span class='stat-label'>Скор. зоны</span><span class='stat-val'>×" + infSpdMul.toFixed(2) + "</span></div>" +
-      "<div class='stat-line'><span class='stat-label'>Турели</span><span class='stat-val'>" + turretCount + "</span></div>" +
-      "<div class='stat-line'><span class='stat-label'>КД</span><span class='stat-val'>" + me.cooldown.toFixed(1) + "с</span></div>";
+      "<div class='stat-line'><span class='stat-label'>Турели</span><span class='stat-val'>" + turretCount + "</span></div>";
 
-    const unitHpMul = me.unitHpMul != null ? me.unitHpMul : 1;
-    const unitDmgMul = me.unitDmgMul != null ? me.unitDmgMul : 1;
-    const unitSpdMul = me.unitSpeedMul != null ? me.unitSpeedMul : 1;
-    const unitAtkRMul = me.unitAtkRateMul != null ? me.unitAtkRateMul : 1;
-    const unitAtkRngMul = Math.min(UNIT_ATK_RANGE_MAX_MUL, me.unitAtkRangeMul != null ? me.unitAtkRangeMul : 1);
-    const meleeR = CFG.UNIT_VISION;
-    const atkR = Math.round(CFG.UNIT_VISION * unitAtkRngMul);
-    const isRanged = atkR > meleeR + 1;
-
-    if (armyStatsEl) armyStatsEl.innerHTML =
-      "<div class='stat-line'><span class='stat-label'>В поле</span><span class='stat-val'>" + me.activeUnits + "/" + maxUnits + "</span></div>" +
-      "<div class='stat-line'><span class='stat-label'>ХП</span><span class='stat-val'>" + Math.round(CFG.UNIT_HP * unitHpMul) + "</span></div>" +
-      "<div class='stat-line'><span class='stat-label'>Урон</span><span class='stat-val'>" + (CFG.UNIT_DMG * unitDmgMul).toFixed(1) + "</span></div>" +
-      "<div class='stat-line'><span class='stat-label'>Скорость движения</span><span class='stat-val'>" + (CFG.UNIT_SPEED * unitSpdMul).toFixed(1) + "</span></div>" +
-      "<div class='stat-line'><span class='stat-label'>Атак/с</span><span class='stat-val'>" + (CFG.UNIT_ATK_RATE * unitAtkRMul).toFixed(1) + "</span></div>" +
-      "<div class='stat-line'><span class='stat-label'>Р. сцепки</span><span class='stat-val'>" + meleeR + "</span></div>" +
-      "<div class='stat-line'><span class='stat-label'>Р. атаки</span><span class='stat-val'>" + atkR + (isRanged ? " ⚔→" : "") + "</span></div>" +
-      "<div class='stat-line'><span class='stat-label'>За юнит</span><span class='stat-val'>" + CFG.UNIT_POP_PER + " нас.</span></div>";
+    const unitCountByType = {};
+    for (const u of state.units.values()) {
+      if (u.owner !== me.id) continue;
+      const t = u.unitType || "fighter";
+      unitCountByType[t] = (unitCountByType[t] || 0) + 1;
+    }
+    let fleetHtml = "<div class='stat-line'><span class='stat-label'>В поле</span><span class='stat-val'>" + me.activeUnits + "</span></div>";
+    for (const key of UNIT_TYPE_ORDER) {
+      const count = unitCountByType[key] || 0;
+      if (count > 0) {
+        fleetHtml += "<div class='stat-line'><span class='stat-label'>" + (UNIT_TYPES[key]?.name || key) + "</span><span class='stat-val'>" + count + "</span></div>";
+      }
+    }
+    if (me.attackEffects) {
+      const effectNames = { chain: "⚡ Цепная", cryo: "❄️ Крио", fire: "🔥 Огонь" };
+      for (const [eff, lv] of Object.entries(me.attackEffects)) {
+        if (lv > 0) {
+          fleetHtml += "<div class='stat-line'><span class='stat-label'>" + (effectNames[eff] || eff) + "</span><span class='stat-val'>Ур." + lv + "/3</span></div>";
+        }
+      }
+    }
+    if (armyStatsEl) armyStatsEl.innerHTML = fleetHtml;
   }
 
   // ------------------------------------------------------------
   // Storm Front
   // ------------------------------------------------------------
-  const STORM_INTERVAL = 180;
+  const STORM_INTERVAL = 540;
   const STORM_DURATION = 60;
   const STORM_RADIUS = 210;
   const STORM_DIR_CHANGE = 10;
@@ -5526,6 +7357,16 @@
     s.x = Math.max(50, Math.min(CFG.WORLD_W - 50, s.x));
     s.y = Math.max(50, Math.min(CFG.WORLD_H - 50, s.y));
 
+    // Morph storm shape over time
+    const t = state.t;
+    for (let i = 0; i < s.blobs.length; i++) {
+      const b = s.blobs[i];
+      if (!b._baseOx) { b._baseOx = b.ox; b._baseOy = b.oy; b._baseR = b.r; b._phase = i * 1.3; }
+      b.ox = b._baseOx + Math.sin(t * 0.3 + b._phase) * 20;
+      b.oy = b._baseOy + Math.cos(t * 0.25 + b._phase * 0.7) * 15;
+      b.r = b._baseR * (0.85 + 0.15 * Math.sin(t * 0.4 + b._phase * 1.5));
+    }
+
     if (state.t - s.lastDmgTick >= STORM_DMG_INTERVAL) {
       s.lastDmgTick = state.t;
       const cosA = Math.cos(s.rotAngle), sinA = Math.sin(s.rotAngle);
@@ -5570,6 +7411,64 @@
     return pts;
   }
 
+  function drawNebulae() {
+    if (!state.nebulae || !state.nebulae.length) return;
+    if (!state._nebulaGfx || state._nebulaGfx.destroyed) {
+      state._nebulaGfx = new PIXI.Graphics();
+      combatLayer.addChild(state._nebulaGfx);
+    }
+    const g = state._nebulaGfx;
+    g.clear();
+    const slowPulse = 0.35 + Math.sin(state.t * 0.6) * 0.15;
+
+    for (const neb of state.nebulae) {
+      if (!inView(neb.x, neb.y)) continue;
+
+      g.circle(neb.x, neb.y, neb.radius);
+      g.stroke({ color: 0x4488cc, width: 2.5, alpha: slowPulse });
+      g.circle(neb.x, neb.y, neb.radius + 3);
+      g.stroke({ color: 0x66aaff, width: 1, alpha: slowPulse * 0.4 });
+
+      for (const d of neb.discharges) {
+        const age = d.maxLife - d.life;
+        const growPhase = 0.35;
+        let growthFrac = 1;
+        if (age < d.maxLife * growPhase) {
+          growthFrac = age / (d.maxLife * growPhase);
+          growthFrac = growthFrac * growthFrac;
+        } else if (d.life < d.maxLife * 0.35) {
+          growthFrac = d.life / (d.maxLife * 0.35);
+          growthFrac = Math.sqrt(growthFrac);
+        }
+        const visibleLen = (d.totalLen || 9999) * growthFrac;
+        const fade = Math.min(1, growthFrac) * 0.85;
+        const hue = d.hue || 0x6699cc;
+        let drawn = 0;
+        for (const seg of (d.segs || [])) {
+          if (drawn >= visibleLen) break;
+          const segLen = Math.hypot(seg.x2 - seg.x1, seg.y2 - seg.y1);
+          const segEnd = drawn + segLen;
+          let ex = seg.x2, ey = seg.y2;
+          if (segEnd > visibleLen) {
+            const t = (visibleLen - drawn) / segLen;
+            ex = seg.x1 + (seg.x2 - seg.x1) * t;
+            ey = seg.y1 + (seg.y2 - seg.y1) * t;
+          }
+          g.moveTo(seg.x1, seg.y1);
+          g.lineTo(ex, ey);
+          g.stroke({ color: hue, width: 4, alpha: fade * 0.05 });
+          g.moveTo(seg.x1, seg.y1);
+          g.lineTo(ex, ey);
+          g.stroke({ color: 0x88bbee, width: 2, alpha: fade * 0.12 });
+          g.moveTo(seg.x1, seg.y1);
+          g.lineTo(ex, ey);
+          g.stroke({ color: 0xbbddff, width: 1.2, alpha: fade * 0.4 });
+          drawn = segEnd;
+        }
+      }
+    }
+  }
+
   function drawStorm() {
     const s = state.storm;
     if (!s) return;
@@ -5585,11 +7484,11 @@
     if (!s.emojiContainer || s.emojiContainer.destroyed) {
       s.emojiContainer = new PIXI.Container();
       world.addChild(s.emojiContainer);
-      for (let i = 0; i < 25; i++) {
-        const txt = new PIXI.Text({ text: "⚡", style: { fontSize: 24 + Math.random() * 18, fill: 0xffffff } });
+      for (let i = 0; i < 20; i++) {
+        const txt = new PIXI.Text({ text: "⚡", style: { fontSize: 22 + Math.random() * 16, fill: 0xffffff } });
         txt.anchor.set(0.5);
-        txt._stormOx = rand(-STORM_RADIUS * s.stretch * 0.6, STORM_RADIUS * s.stretch * 0.6);
-        txt._stormOy = rand(-STORM_RADIUS * 0.45, STORM_RADIUS * 0.45);
+        txt._stormOx = rand(-STORM_RADIUS * s.stretch * 0.55, STORM_RADIUS * s.stretch * 0.55);
+        txt._stormOy = rand(-STORM_RADIUS * 0.4, STORM_RADIUS * 0.4);
         txt._stormPhase = Math.random() * Math.PI * 2;
         txt._stormCycle = 0.4 + Math.random() * 0.6;
         s.emojiContainer.addChild(txt);
@@ -5600,31 +7499,35 @@
     s.gfx.clear();
 
     const contour = stormContourPoints(s);
-    const shimmer = 0.4 + 0.1 * Math.sin(state.t * 1.5);
-
-    s.gfx.beginFill(0x0d0d25, shimmer);
-    s.gfx.moveTo(contour[0].x, contour[0].y);
-    for (let i = 1; i < contour.length; i++) s.gfx.lineTo(contour[i].x, contour[i].y);
-    s.gfx.closePath();
-    s.gfx.endFill();
-
-    s.gfx.beginFill(0x111133, shimmer * 0.5);
-    const innerScale = 0.7;
-    s.gfx.moveTo(s.x + (contour[0].x - s.x) * innerScale, s.y + (contour[0].y - s.y) * innerScale);
-    for (let i = 1; i < contour.length; i++) {
-      s.gfx.lineTo(s.x + (contour[i].x - s.x) * innerScale, s.y + (contour[i].y - s.y) * innerScale);
-    }
-    s.gfx.closePath();
-    s.gfx.endFill();
-
-    s.gfx.lineStyle(2.5, 0x5555aa, 0.5);
-    s.gfx.moveTo(contour[0].x, contour[0].y);
-    for (let i = 1; i < contour.length; i++) s.gfx.lineTo(contour[i].x, contour[i].y);
-    s.gfx.closePath();
-
     const t = state.t;
-    const cosA = Math.cos(s.rotAngle), sinA = Math.sin(s.rotAngle);
+    const shimmer = 0.5 + 0.12 * Math.sin(t * 1.5);
 
+    // Outer glow layer
+    const outerContour = contour.map(pt => ({
+      x: s.x + (pt.x - s.x) * 1.12,
+      y: s.y + (pt.y - s.y) * 1.12
+    }));
+    s.gfx.beginFill(0x161640, shimmer * 0.2);
+    s.gfx.moveTo(outerContour[0].x, outerContour[0].y);
+    for (let i = 1; i < outerContour.length; i++) s.gfx.lineTo(outerContour[i].x, outerContour[i].y);
+    s.gfx.closePath();
+    s.gfx.endFill();
+
+    // Core nebula fill
+    s.gfx.beginFill(0x1e1e55, shimmer * 0.45);
+    s.gfx.moveTo(contour[0].x, contour[0].y);
+    for (let i = 1; i < contour.length; i++) s.gfx.lineTo(contour[i].x, contour[i].y);
+    s.gfx.closePath();
+    s.gfx.endFill();
+
+    // Soft nebula edge
+    s.gfx.lineStyle(6, 0x3355aa, 0.18 * shimmer);
+    s.gfx.moveTo(contour[0].x, contour[0].y);
+    for (let i = 1; i < contour.length; i++) s.gfx.lineTo(contour[i].x, contour[i].y);
+    s.gfx.closePath();
+
+    // Emoji lightning
+    const cosA = Math.cos(s.rotAngle), sinA = Math.sin(s.rotAngle);
     for (const ch of s.emojiContainer.children) {
       const lx = ch._stormOx * cosA - ch._stormOy * sinA;
       const ly = ch._stormOx * sinA + ch._stormOy * cosA;
@@ -5634,6 +7537,1345 @@
       ch.alpha = cycle < 0.5 ? Math.min(1, cycle * 4) : Math.max(0, 1 - (cycle - 0.5) * 4);
     }
   }
+
+  // ------------------------------------------------------------
+  // Abilities
+  // ------------------------------------------------------------
+  const ABILITY_DEFS = [
+    {
+      id: "ionNebula",
+      name: "Ионная туманность",
+      desc: "Создаёт грозу в выбранной зоне на 10 сек",
+      cooldown: 120,
+      icon: "🌩️"
+    },
+    {
+      id: "meteor",
+      name: "Сверхбыстрый метеор",
+      desc: "Огромный метеор уничтожает юнитов на пути, 25% урон по щиту/планете",
+      cooldown: 120,
+      icon: "☄️"
+    },
+    {
+      id: "timeJump",
+      name: "Временной скачок",
+      desc: "Одноразово: отматывает время на 1 минуту назад. Уничтоженные игроки заменяются ботом.",
+      cooldown: 0,
+      oneTime: true,
+      icon: "⏪"
+    },
+    {
+      id: "blackHole",
+      name: "Чёрная дыра",
+      desc: "Создаёт чёрную дыру, засасывающую и наносящую урон юнитам (" + (CFG.BLACKHOLE_DURATION) + " сек)",
+      cooldown: CFG.BLACKHOLE_COOLDOWN,
+      icon: "🕳️"
+    },
+    { id: "activeShield", name: "Активный Щит", desc: "Даёт всем своим кораблям щит 25% от макс. HP разово", cooldown: 90, icon: "🛡️" },
+    { id: "pirateRaid", name: "Налёт Пиратов", desc: "С границы карты прилетают пираты (5 корветов, 2 эсминца, 1 крейсер), атакуют всех", cooldown: 150, icon: "🏴‍☠️" },
+    { id: "gloriousBattleMarch", name: "Славный боевой марш", desc: "+30% скорости движения своим кораблям (не поворот)", cooldown: 60, icon: "🎺" },
+    { id: "raiderCapture", name: "Рейдерский захват", desc: "Выберите вражескую планету: разово воруется 10% населения вам", cooldown: 120, icon: "⚔️" }
+  ];
+
+  state._abilityCooldowns = {};
+  state._abilityCooldownsByPlayer = state._abilityCooldownsByPlayer || {};
+  state._abilityUsedByPlayer = state._abilityUsedByPlayer || {};
+  state._abilityAnnouncements = state._abilityAnnouncements || [];
+  state._abilityTargeting = null;
+  state._timeSnapshots = state._timeSnapshots || [];
+  state._lastTimeSnapshotAt = state._lastTimeSnapshotAt ?? 0;
+  state._abilityStorms = [];
+  state._meteorTargeting = null; // {phase:'point'|'angle', x, y, angle}
+  state._activeMeteors = [];
+  state._battleMarchUntil = state._battleMarchUntil || {};
+  state._raiderCaptureTargeting = null;
+  const PIRATE_OWNER_ID = -1;
+
+  function pushAbilityAnnouncement(pid, abilityId) {
+    const p = state.players.get(pid);
+    const def = ABILITY_DEFS.find(d => d.id === abilityId);
+    const playerName = p ? (p.name || "Игрок " + pid) : ("Игрок " + pid);
+    const abilityName = def ? def.name : abilityId;
+    state._abilityAnnouncements.push({
+      text: playerName + " применил способность «" + abilityName + "»",
+      ttl: 4.5,
+      t0: state.t
+    });
+    while (state._abilityAnnouncements.length > 8) state._abilityAnnouncements.shift();
+  }
+
+  const abilityOverlay = document.getElementById("abilityOverlay");
+  const abilityPanel = document.getElementById("abilityPanel");
+  const abilityCards = document.getElementById("abilityCards");
+  const abilityClose = document.getElementById("abilityClose");
+  const abilitiesBtn = document.getElementById("abilitiesBtn");
+
+  if (abilitiesBtn) {
+    abilitiesBtn.disabled = false;
+    abilitiesBtn.addEventListener("click", () => {
+      if (state._abilityTargeting) { cancelAbilityTargeting(); return; }
+      showAbilityPicker();
+    });
+  }
+  if (abilityClose) abilityClose.addEventListener("click", hideAbilityPicker);
+  if (abilityOverlay) abilityOverlay.addEventListener("click", (e) => {
+    if (e.target === abilityOverlay) hideAbilityPicker();
+  });
+
+  function showAbilityPicker() {
+    if (!abilityOverlay || !abilityCards) return;
+    abilityCards.innerHTML = "";
+    const myCds = state._abilityCooldownsByPlayer[state.myPlayerId] || state._abilityCooldowns || {};
+    const myUsed = state._abilityUsedByPlayer[state.myPlayerId] || [];
+    const timeJumpAvailableAt = state._timeJumpAvailableAt ?? 0;
+    for (const def of ABILITY_DEFS) {
+      const used = def.oneTime && myUsed.includes(def.id);
+      const onCooldownStart = def.id === "timeJump" && state.t < timeJumpAvailableAt;
+      const cd = used ? 1 : (myCds[def.id] ?? 0);
+      const ready = !used && cd <= 0 && !onCooldownStart;
+      const card = document.createElement("div");
+      card.style.cssText = `
+        width:130px;height:190px;background:linear-gradient(180deg,#12143a 0%,#1a1d55 100%);
+        border:2px solid ${ready ? "#44aaff" : "#555"};border-radius:12px;cursor:${ready ? "pointer" : "not-allowed"};
+        display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;
+        padding:12px 8px;transition:transform 0.15s,box-shadow 0.15s;
+        ${ready ? "box-shadow:0 0 16px #2266ff44;" : "opacity:0.5;"}
+      `;
+      if (ready) {
+        card.onmouseenter = () => { card.style.transform = "scale(1.07)"; card.style.boxShadow = "0 0 28px #44aaffaa"; };
+        card.onmouseleave = () => { card.style.transform = ""; card.style.boxShadow = "0 0 16px #2266ff44"; };
+      }
+      card.innerHTML = `
+        <div style="font-size:36px;">${def.icon}</div>
+        <div style="color:#ddeeff;font-size:13px;font-weight:700;text-align:center;">${def.name}</div>
+        <div style="color:#8899bb;font-size:11px;text-align:center;line-height:1.3;">${def.desc}</div>
+        ${!ready ? `<div style="color:#ff6644;font-size:12px;font-weight:600;">${def.id === "timeJump" && state.t < timeJumpAvailableAt ? "через " + Math.ceil(timeJumpAvailableAt - state.t) + "с" : Math.ceil(cd) + "с"}</div>` : ""}
+      `;
+      if (ready) {
+        card.addEventListener("click", () => {
+          if (def.id === "timeJump") useTimeJump();
+          else startAbilityTargeting(def.id);
+        });
+      }
+      abilityCards.appendChild(card);
+    }
+    abilityOverlay.style.display = "flex";
+  }
+
+  function hideAbilityPicker() {
+    if (abilityOverlay) abilityOverlay.style.display = "none";
+  }
+
+  function startAbilityTargeting(abilityId) {
+    hideAbilityPicker();
+    state._abilityTargeting = abilityId;
+    state._meteorTargeting = null;
+    if (abilityId === "meteor") {
+      state._meteorTargeting = { phase: "point", x: 0, y: 0, angle: 0 };
+    }
+    if (abilityId === "pirateRaid") {
+      state._meteorTargeting = { phase: "point", x: 0, y: 0, angle: 0 };
+    }
+    app.canvas.style.cursor = "crosshair";
+  }
+
+  function cancelAbilityTargeting() {
+    state._abilityTargeting = null;
+    state._meteorTargeting = null;
+    app.canvas.style.cursor = "";
+  }
+
+  function _spawnIonNebulaLocal(wx, wy) {
+    const stretch = 0.8 + Math.random() * 0.6;
+    const rotAngle = Math.random() * Math.PI * 2;
+    const blobCount = 4 + Math.floor(Math.random() * 3);
+    const blobs = [];
+    for (let i = 0; i < blobCount; i++) {
+      const t = (i / (blobCount - 1)) - 0.5;
+      blobs.push({
+        ox: t * STORM_RADIUS * stretch * 0.9 + rand(-15, 15),
+        oy: rand(-STORM_RADIUS * 0.25, STORM_RADIUS * 0.25),
+        r: STORM_RADIUS * (0.45 + Math.random() * 0.25),
+        _baseOx: 0, _baseOy: 0, _baseR: 0, _phase: i * 1.3
+      });
+    }
+    for (const b of blobs) { b._baseOx = b.ox; b._baseOy = b.oy; b._baseR = b.r; }
+    state._abilityStorms.push({
+      x: wx, y: wy, vx: 0, vy: 0,
+      spawnedAt: state.t, duration: 10, lastDmgTick: state.t,
+      gfx: null, emojiContainer: null,
+      rotAngle, stretch, blobs, lastDirChange: state.t
+    });
+  }
+
+  function setAbilityCooldown(pid, abilityId, seconds) {
+    if (!state._abilityCooldownsByPlayer[pid]) state._abilityCooldownsByPlayer[pid] = {};
+    state._abilityCooldownsByPlayer[pid][abilityId] = seconds;
+  }
+  function useIonNebula(wx, wy) {
+    const def = ABILITY_DEFS.find(d => d.id === "ionNebula");
+    if (state._multiSlots && !state._multiIsHost && state._socket) {
+      state._socket.emit("playerAction", { type: "useAbility", abilityId: "ionNebula", pid: state.myPlayerId, x: wx, y: wy });
+    } else {
+      _spawnIonNebulaLocal(wx, wy);
+      setAbilityCooldown(state.myPlayerId, "ionNebula", def.cooldown);
+      pushAbilityAnnouncement(state.myPlayerId, "ionNebula");
+    }
+    cancelAbilityTargeting();
+  }
+
+  const METEOR_RADIUS = 11;
+  const METEOR_AOE_RADIUS = 30;
+  const METEOR_SPEED_PX_PER_S = Math.hypot(CFG.WORLD_W, CFG.WORLD_H) / 22;
+
+  function _spawnMeteorLocal(targetX, targetY, angle, ownerId) {
+    const cosA = Math.cos(angle), sinA = Math.sin(angle);
+    let tMin = Infinity;
+    if (cosA > 0.001) { const t = targetX / cosA; if (t > 0 && t < tMin) tMin = t; }
+    if (cosA < -0.001) { const t = (targetX - CFG.WORLD_W) / cosA; if (t > 0 && t < tMin) tMin = t; }
+    if (sinA > 0.001) { const t = targetY / sinA; if (t > 0 && t < tMin) tMin = t; }
+    if (sinA < -0.001) { const t = (targetY - CFG.WORLD_H) / sinA; if (t > 0 && t < tMin) tMin = t; }
+    if (tMin === Infinity || tMin <= 0) tMin = Math.hypot(CFG.WORLD_W, CFG.WORLD_H);
+    const sx = targetX - cosA * tMin;
+    const sy = targetY - sinA * tMin;
+    state._activeMeteors.push({
+      x: sx, y: sy,
+      vx: Math.cos(angle) * METEOR_SPEED_PX_PER_S,
+      vy: Math.sin(angle) * METEOR_SPEED_PX_PER_S,
+      angle,
+      radius: METEOR_RADIUS,
+      aoeR: METEOR_AOE_RADIUS,
+      ownerId: ownerId ?? state.myPlayerId,
+      alive: true, gfx: null, trajGfx: null
+    });
+  }
+
+  function useMeteor(targetX, targetY, angle) {
+    const def = ABILITY_DEFS.find(d => d.id === "meteor");
+    if (state._multiSlots && !state._multiIsHost && state._socket) {
+      state._socket.emit("playerAction", { type: "useAbility", abilityId: "meteor", pid: state.myPlayerId, x: targetX, y: targetY, angle });
+    } else {
+      _spawnMeteorLocal(targetX, targetY, angle, state.myPlayerId);
+      setAbilityCooldown(state.myPlayerId, "meteor", def.cooldown);
+      pushAbilityAnnouncement(state.myPlayerId, "meteor");
+    }
+    cancelAbilityTargeting();
+  }
+
+  const TIME_JUMP_REWIND_SEC = 60;
+  const TIME_SNAPSHOT_INTERVAL = 5;
+  const TIME_SNAPSHOT_MAX = 15;
+  const SKIP_KEYS = new Set(["gfx", "cityGfx", "zoneGfx", "zoneGlow", "zoneLightGfx", "label", "shieldGfx", "labelGfx", "radiusGfx", "emojiContainer", "trajGfx", "_polyBuf", "zoneGfx", "zoneGlow"]);
+
+  function cloneForSnapshot(obj) {
+    const out = {};
+    for (const k of Object.keys(obj)) {
+      if (SKIP_KEYS.has(k)) continue;
+      out[k] = obj[k];
+    }
+    try {
+      return JSON.parse(JSON.stringify(out));
+    } catch (_) {
+      return out;
+    }
+  }
+
+  function saveTimeSnapshot() {
+    const inSolo = !state._multiSlots;
+    const inMpHost = state._multiIsHost && state._multiSlots;
+    if (!inSolo && !inMpHost || state._timeSnapshots == null) return;
+    const now = state.t;
+    if (now < (state._timeJumpAvailableAt ?? 0)) return;
+    if (now - state._lastTimeSnapshotAt < TIME_SNAPSHOT_INTERVAL) return;
+    state._lastTimeSnapshotAt = now;
+    const players = [];
+    for (const p of state.players.values()) {
+      players.push(cloneForSnapshot(p));
+    }
+    const units = [];
+    for (const u of state.units.values()) {
+      units.push(cloneForSnapshot(u));
+    }
+    const turrets = [];
+    for (const t of state.turrets.values()) {
+      turrets.push(cloneForSnapshot(t));
+    }
+    const bullets = state.bullets.map(b => ({ ...b }));
+    const res = [];
+    for (const r of state.res.values()) {
+      res.push(cloneForSnapshot(r));
+    }
+    state._timeSnapshots.push({
+      t: now,
+      nextUnitId: state.nextUnitId,
+      nextResId: state.nextResId,
+      players,
+      units,
+      turrets,
+      bullets,
+      res
+    });
+    while (state._timeSnapshots.length > TIME_SNAPSHOT_MAX) state._timeSnapshots.shift();
+  }
+
+  function markAbilityUsed(pid, abilityId) {
+    if (!state._abilityUsedByPlayer[pid]) state._abilityUsedByPlayer[pid] = [];
+    if (!state._abilityUsedByPlayer[pid].includes(abilityId)) state._abilityUsedByPlayer[pid].push(abilityId);
+  }
+
+  function restoreFromTimeSnapshot(snap, eliminatedBeforeRewind, usedByPid) {
+    const destroyGfx = (o) => {
+      if (o && o.gfx && o.gfx.parent) o.gfx.parent.removeChild(o.gfx);
+      if (o && o.gfx && o.gfx.destroy) o.gfx.destroy(true);
+    };
+    for (const p of state.players.values()) {
+      if (p.cityGfx && p.cityGfx.parent) p.cityGfx.parent.removeChild(p.cityGfx);
+      if (p.zoneGfx && p.zoneGfx.parent) p.zoneGfx.parent.removeChild(p.zoneGfx);
+      if (p.zoneGlow && p.zoneGlow.parent) p.zoneGlow.parent.removeChild(p.zoneGlow);
+      if (p.zoneLightGfx && p.zoneLightGfx.parent) p.zoneLightGfx.parent.removeChild(p.zoneLightGfx);
+      if (p.shieldGfx && p.shieldGfx.parent) p.shieldGfx.parent.removeChild(p.shieldGfx);
+    }
+    for (const u of state.units.values()) destroyGfx(u);
+    for (const t of state.turrets.values()) {
+      destroyGfx(t);
+      if (t.labelGfx && t.labelGfx.parent) t.labelGfx.parent.removeChild(t.labelGfx);
+      if (t.radiusGfx && t.radiusGfx.parent) t.radiusGfx.parent.removeChild(t.radiusGfx);
+    }
+    for (const r of state.res.values()) destroyGfx(r);
+
+    state.players.clear();
+    state.units.clear();
+    state.turrets.clear();
+    state.bullets.length = 0;
+    state.res.clear();
+    state.t = snap.t;
+    state.nextUnitId = snap.nextUnitId;
+    state.nextResId = snap.nextResId;
+
+    for (const o of snap.players) {
+      const p = { ...o, cityGfx: null, zoneGfx: null, zoneGlow: null, zoneLightGfx: null, shieldGfx: null, label: null };
+      state.players.set(p.id, p);
+      if (eliminatedBeforeRewind.includes(p.id)) {
+        if (!state.botPlayerIds) state.botPlayerIds = new Set();
+        state.botPlayerIds.add(p.id);
+        p._isBot = true;
+      }
+      makeCityVisual(p);
+      makeZoneVisual(p);
+    }
+    for (const o of snap.units) {
+      const u = { ...o, gfx: null };
+      state.units.set(u.id, u);
+      makeUnitVisual(u);
+    }
+    for (const o of snap.turrets) {
+      const t = { ...o, gfx: null, labelGfx: null, radiusGfx: null };
+      state.turrets.set(t.id, t);
+    }
+    for (const b of snap.bullets) state.bullets.push({ ...b });
+    for (const o of snap.res) {
+      const r = { ...o, gfx: null };
+      state.res.set(r.id, r);
+      makeResVisual(r);
+    }
+    markAbilityUsed(usedByPid, "timeJump");
+    state._abilityStorms = [];
+    state._activeMeteors = [];
+    rebuildGrid();
+    for (const p of state.players.values()) {
+      redrawZone(p);
+      if (typeof rebuildTurrets === "function") rebuildTurrets(p);
+    }
+  }
+
+  function useTimeJump() {
+    const def = ABILITY_DEFS.find(d => d.id === "timeJump");
+    if (!def || def.oneTime && (state._abilityUsedByPlayer[state.myPlayerId] || []).includes("timeJump")) return;
+    if (state._multiSlots && !state._multiIsHost && state._socket) {
+      state._socket.emit("playerAction", { type: "useAbility", abilityId: "timeJump", pid: state.myPlayerId });
+      cancelAbilityTargeting();
+      hideAbilityPicker();
+      return;
+    }
+    const availableAt = state._timeJumpAvailableAt ?? 0;
+    if (state.t < availableAt) {
+      cancelAbilityTargeting();
+      hideAbilityPicker();
+      return;
+    }
+    if (!state._timeSnapshots || state._timeSnapshots.length === 0) {
+      cancelAbilityTargeting();
+      hideAbilityPicker();
+      return;
+    }
+    const targetT = Math.max(0, state.t - TIME_JUMP_REWIND_SEC);
+    let snap = null;
+    for (let i = state._timeSnapshots.length - 1; i >= 0; i--) {
+      if (state._timeSnapshots[i].t <= targetT) {
+        snap = state._timeSnapshots[i];
+        break;
+      }
+    }
+    if (!snap) {
+      cancelAbilityTargeting();
+      hideAbilityPicker();
+      return;
+    }
+    const eliminatedBeforeRewind = [...state.players.values()].filter(p => p.eliminated).map(p => p.id);
+    restoreFromTimeSnapshot(snap, eliminatedBeforeRewind, state.myPlayerId);
+    pushAbilityAnnouncement(state.myPlayerId, "timeJump");
+    cancelAbilityTargeting();
+    hideAbilityPicker();
+  }
+
+  function stepMeteors(dt) {
+    for (let i = state._activeMeteors.length - 1; i >= 0; i--) {
+      const m = state._activeMeteors[i];
+      if (!m.alive) { removeMeteorGfx(m); state._activeMeteors.splice(i, 1); continue; }
+      m.x += m.vx * dt;
+      m.y += m.vy * dt;
+      // Off map
+      if (m.x < -800 || m.x > CFG.WORLD_W + 800 || m.y < -800 || m.y > CFG.WORLD_H + 800) {
+        m.alive = false; removeMeteorGfx(m); state._activeMeteors.splice(i, 1); continue;
+      }
+      const aR = m.aoeR || METEOR_AOE_RADIUS;
+      const aR2 = aR * aR;
+      // Kill ALL units in AOE path (instant kill, any HP)
+      for (const u of state.units.values()) {
+        if (u.hp <= 0) continue;
+        if ((u.x - m.x) ** 2 + (u.y - m.y) ** 2 <= aR2) {
+          state.floatingDamage.push({ x: u.x, y: u.y - 15, text: "💥", color: 0xff4400, ttl: 0.7 });
+          u.hp = 0;
+          u.lastDamagedBy = m.ownerId;
+        }
+      }
+      // Damage turrets in AOE path
+      for (const t of state.turrets.values()) {
+        if (t.hp <= 0) continue;
+        if ((t.x - m.x) ** 2 + (t.y - m.y) ** 2 <= aR2) {
+          state.floatingDamage.push({ x: t.x, y: t.y - 12, text: "💥", color: 0xff4400, ttl: 0.7 });
+          t.hp = 0;
+          t._diedAt = state.t;
+          spawnXPOrb(t.x, t.y, 8);
+        }
+      }
+      // Hit shield only (meteors pass through planets)
+      for (const p of state.players.values()) {
+        if (p.eliminated) continue;
+        if ((p.shieldHp || 0) <= 0) continue;
+        const sR = shieldRadius(p);
+        const dist = Math.hypot(m.x - p.x, m.y - p.y);
+        if (dist <= sR + aR) {
+          const dmg = Math.max(1, Math.round(p.shieldHp * 0.25));
+          p.shieldHp = Math.max(0, p.shieldHp - dmg);
+          if (p.shieldHp === 0) p.shieldRegenCd = SHIELD_REGEN_DELAY;
+          state.floatingDamage.push({ x: m.x, y: m.y - 10, text: "💥🛡 -" + dmg, color: 0xff4400, ttl: 1.2 });
+          m.alive = false; break;
+        }
+      }
+      if (!m.alive) { removeMeteorGfx(m); state._activeMeteors.splice(i, 1); }
+    }
+  }
+
+  function removeMeteorGfx(m) {
+    if (m.gfx) { m.gfx.parent?.removeChild(m.gfx); m.gfx.destroy(true); m.gfx = null; }
+    if (m.trajGfx) { m.trajGfx.parent?.removeChild(m.trajGfx); m.trajGfx.destroy(true); m.trajGfx = null; }
+  }
+
+  function drawMeteors() {
+    const pulse = 0.7 + 0.3 * Math.sin(performance.now() / 80);
+    const diag = Math.hypot(CFG.WORLD_W, CFG.WORLD_H) + 400;
+    for (const m of state._activeMeteors) {
+      const ang = m.angle ?? Math.atan2(m.vy, m.vx);
+      const cosA = Math.cos(ang), sinA = Math.sin(ang);
+      const halfW = m.aoeR || METEOR_AOE_RADIUS;
+
+      // Trajectory corridor — full AOE width, 50% transparent
+      if (!m.trajGfx || m.trajGfx.destroyed) { m.trajGfx = new PIXI.Graphics(); world.addChild(m.trajGfx); }
+      m.trajGfx.clear();
+      const tStartX = m.x - cosA * diag, tStartY = m.y - sinA * diag;
+      const tEndX = m.x + cosA * diag, tEndY = m.y + sinA * diag;
+      // Corridor fill (4 corners of a rectangle along the trajectory)
+      const nx = -sinA * halfW, ny = cosA * halfW;
+      m.trajGfx.beginFill(0xff2200, 0.12);
+      m.trajGfx.moveTo(tStartX + nx, tStartY + ny);
+      m.trajGfx.lineTo(tEndX + nx, tEndY + ny);
+      m.trajGfx.lineTo(tEndX - nx, tEndY - ny);
+      m.trajGfx.lineTo(tStartX - nx, tStartY - ny);
+      m.trajGfx.closePath();
+      m.trajGfx.endFill();
+      // Edge lines
+      m.trajGfx.lineStyle(1.5, 0xff4400, 0.5);
+      m.trajGfx.moveTo(tStartX + nx, tStartY + ny);
+      m.trajGfx.lineTo(tEndX + nx, tEndY + ny);
+      m.trajGfx.moveTo(tStartX - nx, tStartY - ny);
+      m.trajGfx.lineTo(tEndX - nx, tEndY - ny);
+      // Center line
+      m.trajGfx.lineStyle(1, 0xff6600, 0.3);
+      m.trajGfx.moveTo(tStartX, tStartY); m.trajGfx.lineTo(tEndX, tEndY);
+      // Direction arrows along trajectory (every 120px ahead of meteor)
+      const arrowSpacing = 120;
+      const arrowSize = 10;
+      for (let d = 60; d < diag; d += arrowSpacing) {
+        const ax = m.x + cosA * d, ay = m.y + sinA * d;
+        if (ax < -100 || ax > CFG.WORLD_W + 100 || ay < -100 || ay > CFG.WORLD_H + 100) continue;
+        const apulse = 0.3 + 0.2 * Math.sin(performance.now() / 200 + d * 0.01);
+        m.trajGfx.lineStyle(2, 0xff6600, apulse);
+        m.trajGfx.moveTo(ax - cosA * arrowSize + nx * 0.6, ay - sinA * arrowSize + ny * 0.6);
+        m.trajGfx.lineTo(ax, ay);
+        m.trajGfx.lineTo(ax - cosA * arrowSize - nx * 0.6, ay - sinA * arrowSize - ny * 0.6);
+      }
+
+      // Meteor body
+      if (!m.gfx || m.gfx.destroyed) { m.gfx = new PIXI.Graphics(); world.addChild(m.gfx); }
+      m.gfx.clear();
+      m.gfx.beginFill(0xff4400, 0.08 * pulse);
+      m.gfx.drawCircle(m.x, m.y, halfW);
+      m.gfx.endFill();
+      m.gfx.beginFill(0xff4400, 0.2 * pulse);
+      m.gfx.drawCircle(m.x, m.y, m.radius * 2.5);
+      m.gfx.endFill();
+      m.gfx.beginFill(0xff6600, 0.55 * pulse);
+      m.gfx.drawCircle(m.x, m.y, m.radius * 1.5);
+      m.gfx.endFill();
+      m.gfx.beginFill(0xffcc44, 0.9);
+      m.gfx.drawCircle(m.x, m.y, m.radius);
+      m.gfx.endFill();
+      m.gfx.beginFill(0xffffff, 0.8);
+      m.gfx.drawCircle(m.x, m.y, m.radius * 0.4);
+      m.gfx.endFill();
+      // Trail — long multi-segment glow
+      const spd = Math.hypot(m.vx, m.vy) || 1;
+      const trailLen = spd * 0.45;
+      const tdx = -(m.vx / spd), tdy = -(m.vy / spd);
+      const steps = 8;
+      for (let s = 0; s < steps; s++) {
+        const f = s / steps;
+        const lx = m.x + tdx * trailLen * f;
+        const ly = m.y + tdy * trailLen * f;
+        const alpha = (1 - f) * 0.08 * pulse;
+        const rad = m.radius * (1.5 + (1 - f) * 2);
+        m.gfx.beginFill(0xff2200, alpha);
+        m.gfx.drawCircle(lx, ly, rad);
+        m.gfx.endFill();
+      }
+      m.gfx.lineStyle(m.radius * 2.5, 0xff4400, 0.1);
+      m.gfx.moveTo(m.x, m.y); m.gfx.lineTo(m.x + tdx * trailLen * 0.5, m.y + tdy * trailLen * 0.5);
+      m.gfx.lineStyle(m.radius * 1.2, 0xff8844, 0.25);
+      m.gfx.moveTo(m.x, m.y); m.gfx.lineTo(m.x + tdx * trailLen * 0.35, m.y + tdy * trailLen * 0.35);
+    }
+  }
+
+  function stepAbilityStorms(dt) {
+    for (let i = state._abilityStorms.length - 1; i >= 0; i--) {
+      const s = state._abilityStorms[i];
+      if (state.t - s.spawnedAt > s.duration) {
+        if (s.gfx) { s.gfx.parent?.removeChild(s.gfx); s.gfx.destroy(true); }
+        if (s.emojiContainer) { s.emojiContainer.parent?.removeChild(s.emojiContainer); s.emojiContainer.destroy({ children: true }); }
+        state._abilityStorms.splice(i, 1);
+        continue;
+      }
+      // Morph shape
+      const t = state.t;
+      for (const b of s.blobs) {
+        b.ox = b._baseOx + Math.sin(t * 0.3 + b._phase) * 20;
+        b.oy = b._baseOy + Math.cos(t * 0.25 + b._phase * 0.7) * 15;
+        b.r = b._baseR * (0.85 + 0.15 * Math.sin(t * 0.4 + b._phase * 1.5));
+      }
+      // Damage
+      if (state.t - s.lastDmgTick >= STORM_DMG_INTERVAL) {
+        s.lastDmgTick = state.t;
+        const cosA = Math.cos(s.rotAngle), sinA = Math.sin(s.rotAngle);
+        for (const u of state.units.values()) {
+          if (u.hp <= 1) continue;
+          const rx = (u.x - s.x) * cosA + (u.y - s.y) * sinA;
+          const ry = -(u.x - s.x) * sinA + (u.y - s.y) * cosA;
+          for (const b of s.blobs) {
+            if ((rx - b.ox) ** 2 + (ry - b.oy) ** 2 <= b.r * b.r) {
+              const dmg = Math.max(1, Math.floor(u.hp * 0.1));
+              if (u.hp - dmg < 1) u.hp = 1; else u.hp -= dmg;
+              u._hitFlashT = state.t;
+              state.floatingDamage.push({ x: u.x, y: u.y - 22, text: "-" + dmg + "⚡", color: 0x8888ff, ttl: 0.8 });
+              break;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // ── Black Hole step ──
+  if (!state._blackHoles) state._blackHoles = [];
+
+  function spawnBlackHole(x, y, ownerId) {
+    state._blackHoles.push({
+      x, y, ownerId,
+      spawnedAt: state.t,
+      duration: CFG.BLACKHOLE_DURATION,
+      radius: CFG.BLACKHOLE_RADIUS,
+      gfx: null, phase: 0
+    });
+  }
+
+  function useActiveShield(pid) {
+    const p = state.players.get(pid);
+    if (!p) return;
+    for (const u of state.units.values()) {
+      if (u.owner !== pid) continue;
+      const shieldAmt = Math.max(1, Math.round((u.maxHp || u.hp) * 0.25));
+      u._activeShieldHp = (u._activeShieldHp || 0) + shieldAmt;
+      u._activeShieldEffectUntil = state.t + 2;
+    }
+    state._activeShieldEffects = state._activeShieldEffects || [];
+    state._activeShieldEffects.push({ pid, t0: state.t, duration: 2 });
+  }
+
+  const PIRATE_RAID_CORRIDOR_HALFW = 55;
+  const PIRATE_RAID_ARRIVE_DIST = 180;
+  function spawnPirateRaid(targetX, targetY, angle) {
+    const cosA = Math.cos(angle), sinA = Math.sin(angle);
+    const types = ["fighter", "fighter", "fighter", "fighter", "fighter", "destroyer", "destroyer", "cruiser"];
+    for (const unitTypeKey of types) {
+      const spread = (Math.random() - 0.5) * 120;
+      const perpX = -sinA * spread, perpY = cosA * spread;
+      const arrDist = PIRATE_RAID_ARRIVE_DIST + Math.random() * 80;
+      const sx = targetX - cosA * arrDist + perpX;
+      const sy = targetY - sinA * arrDist + perpY;
+      const wpX = targetX + (Math.random() - 0.5) * 100;
+      const wpY = targetY + (Math.random() - 0.5) * 100;
+      const u = spawnUnitAt(
+        clamp(sx, 20, CFG.WORLD_W - 20),
+        clamp(sy, 20, CFG.WORLD_H - 20),
+        PIRATE_OWNER_ID, unitTypeKey,
+        [{ x: wpX, y: wpY }]
+      );
+      if (u) {
+        u._hyperArrivalFlash = state.t + 1.2;
+        u.vx = cosA;
+        u.vy = sinA;
+      }
+    }
+    state._hyperFlashes = state._hyperFlashes || [];
+    state._hyperFlashes.push({ x: targetX - cosA * PIRATE_RAID_ARRIVE_DIST, y: targetY - sinA * PIRATE_RAID_ARRIVE_DIST, t0: state.t, duration: 1.0 });
+  }
+
+  function useGloriousBattleMarch(pid) {
+    state._battleMarchUntil = state._battleMarchUntil || {};
+    state._battleMarchUntil[pid] = state.t + 30;
+  }
+
+  function useRaiderCapture(pid, targetCityId) {
+    const p = state.players.get(pid);
+    const targetCity = state.players.get(targetCityId);
+    if (!p || !targetCity || targetCity.eliminated || targetCityId === pid) return;
+    const steal = Math.max(1, Math.floor((targetCity.pop || 0) * 0.1));
+    targetCity.popFloat = Math.max(0, (targetCity.popFloat || targetCity.pop || 0) - steal);
+    targetCity.pop = Math.floor(targetCity.popFloat);
+    p.popFloat = (p.popFloat || p.pop || 0) + steal;
+    p.pop = Math.floor(p.popFloat);
+    state.floatingDamage.push({ x: targetCity.x, y: targetCity.y - 40, text: "-" + steal + " нас.", color: 0xff4444, ttl: 2 });
+    state.floatingDamage.push({ x: p.x, y: p.y - 40, text: "+" + steal + " нас.", color: 0x44ff44, ttl: 2 });
+  }
+
+  function stepBlackHoles(dt) {
+    const growT = CFG.BLACKHOLE_GROWTH_TIME || 3;
+    const holdT = CFG.BLACKHOLE_HOLD_TIME || 10;
+    const fadeT = CFG.BLACKHOLE_FADE_TIME || 4;
+    for (let i = state._blackHoles.length - 1; i >= 0; i--) {
+      const bh = state._blackHoles[i];
+      const elapsed = state.t - bh.spawnedAt;
+      if (elapsed > bh.duration) {
+        if (bh.gfx && !bh.gfx.destroyed) { bh.gfx.parent?.removeChild(bh.gfx); bh.gfx.destroy(true); }
+        bh.gfx = null;
+        state._blackHoles.splice(i, 1);
+        continue;
+      }
+      bh.phase += dt;
+
+      let sizeFrac;
+      if (elapsed < growT) {
+        sizeFrac = elapsed / growT;
+      } else if (elapsed < growT + holdT) {
+        sizeFrac = 1;
+      } else {
+        sizeFrac = Math.max(0, 1 - (elapsed - growT - holdT) / fadeT);
+      }
+      const curR = bh.radius * sizeFrac;
+      bh._curRadius = curR;
+      bh._sizeFrac = sizeFrac;
+
+      const gravMul = sizeFrac * sizeFrac;
+      for (const u of state.units.values()) {
+        const dx = bh.x - u.x, dy = bh.y - u.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist > curR || dist < 1) continue;
+
+        const pull = CFG.BLACKHOLE_GRAVITY * (1 - dist / curR) * gravMul * dt;
+        u.x += (dx / dist) * pull;
+        u.y += (dy / dist) * pull;
+
+        const dmgT = dist / curR;
+        const dmg = (CFG.BLACKHOLE_MAX_DPS * (1 - dmgT) + CFG.BLACKHOLE_MIN_DPS * dmgT) * sizeFrac * dt;
+        u.hp -= dmg;
+        u.lastDamagedBy = bh.ownerId;
+        if (Math.random() < dt * 2) {
+          const showDmg = Math.max(1, Math.round(dmg));
+          state.floatingDamage.push({ x: u.x, y: u.y - 20, text: "-" + showDmg + "🕳️", color: 0x8800ff, ttl: 0.6 });
+        }
+      }
+    }
+  }
+
+  function drawPirateBase() {
+    if (!state.pirateBase || state.pirateBase.hp <= 0) {
+      if (state.pirateBase && state.pirateBase.gfx) state.pirateBase.gfx.visible = false;
+      if (state.pirateBase && state.pirateBase._emojiGfx) state.pirateBase._emojiGfx.visible = false;
+      return;
+    }
+    const pb = state.pirateBase;
+    if (!inView(pb.x, pb.y)) {
+      if (pb.gfx) pb.gfx.visible = false;
+      if (pb._emojiGfx) pb._emojiGfx.visible = false;
+      return;
+    }
+    if (!pb.gfx || pb.gfx.destroyed) {
+      pb.gfx = new PIXI.Graphics();
+      resLayer.addChild(pb.gfx);
+    }
+    if (!pb._emojiGfx || pb._emojiGfx.destroyed) {
+      pb._emojiGfx = new PIXI.Text({ text: "🏴‍☠️", style: { fontSize: 36 } });
+      pb._emojiGfx.anchor.set(0.5);
+      resLayer.addChild(pb._emojiGfx);
+    }
+    pb.gfx.visible = true;
+    pb._emojiGfx.visible = true;
+    pb.gfx.position.set(pb.x, pb.y);
+    pb._emojiGfx.position.set(pb.x, pb.y - 2);
+    pb.gfx.clear();
+    const R = 46;
+    const g = pb.gfx;
+    g.moveTo(0, -R);
+    g.lineTo(R * 0.87, R * 0.5);
+    g.lineTo(-R * 0.87, R * 0.5);
+    g.closePath();
+    g.fill({ color: 0x111111, alpha: 0.92 });
+    g.moveTo(0, -R);
+    g.lineTo(R * 0.87, R * 0.5);
+    g.lineTo(-R * 0.87, R * 0.5);
+    g.closePath();
+    g.stroke({ color: 0xaa6622, width: 3 });
+    g.moveTo(0, -R * 0.55);
+    g.lineTo(R * 0.48, R * 0.28);
+    g.lineTo(-R * 0.48, R * 0.28);
+    g.closePath();
+    g.stroke({ color: 0xcc8833, width: 1.5, alpha: 0.5 });
+    const hpBarW = R * 1.6, hpBarH = 5;
+    const hpPct = pb.maxHp > 0 ? pb.hp / pb.maxHp : 1;
+    g.rect(-hpBarW / 2, -R - 16, hpBarW, hpBarH);
+    g.fill({ color: 0x331111, alpha: 0.8 });
+    g.rect(-hpBarW / 2, -R - 16, hpBarW * hpPct, hpBarH);
+    g.fill({ color: 0xcc4422, alpha: 0.9 });
+  }
+
+  function drawHyperFlashes() {
+    if (!state._hyperFlashes || !state._hyperFlashes.length) return;
+    if (!state._hyperFlashGfx || state._hyperFlashGfx.destroyed) {
+      state._hyperFlashGfx = new PIXI.Graphics();
+      combatLayer.addChild(state._hyperFlashGfx);
+    }
+    const g = state._hyperFlashGfx;
+    g.clear();
+    for (let i = state._hyperFlashes.length - 1; i >= 0; i--) {
+      const f = state._hyperFlashes[i];
+      const elapsed = state.t - f.t0;
+      if (elapsed > f.duration) { state._hyperFlashes.splice(i, 1); continue; }
+      const t = elapsed / f.duration;
+      const alpha = (1 - t) * 0.7;
+      const r1 = 20 + t * 160;
+      const r2 = 10 + t * 80;
+      g.circle(f.x, f.y, r1);
+      g.fill({ color: 0x4488ff, alpha: alpha * 0.15 });
+      g.circle(f.x, f.y, r2);
+      g.fill({ color: 0x88ccff, alpha: alpha * 0.3 });
+      g.circle(f.x, f.y, r2 * 0.3);
+      g.fill({ color: 0xffffff, alpha: alpha * 0.6 });
+      for (let s = 0; s < 6; s++) {
+        const a = (s / 6) * Math.PI * 2 + t * 3;
+        const len = r1 * (0.5 + t * 0.5);
+        g.moveTo(f.x, f.y);
+        g.lineTo(f.x + Math.cos(a) * len, f.y + Math.sin(a) * len);
+        g.stroke({ color: 0x66aaff, width: 2, alpha: alpha * 0.4 });
+      }
+    }
+    for (const u of state.units.values()) {
+      if (u._hyperArrivalFlash && state.t < u._hyperArrivalFlash) {
+        const left = u._hyperArrivalFlash - state.t;
+        const a = Math.min(1, left) * 0.5;
+        g.circle(u.x, u.y, 15 + (1 - left) * 20);
+        g.fill({ color: 0x4488ff, alpha: a * 0.3 });
+        g.circle(u.x, u.y, 8);
+        g.fill({ color: 0xaaddff, alpha: a * 0.5 });
+      }
+    }
+  }
+
+  function drawBlackHoles() {
+    const growT = CFG.BLACKHOLE_GROWTH_TIME || 3;
+    const holdT = CFG.BLACKHOLE_HOLD_TIME || 10;
+    const fadeT = CFG.BLACKHOLE_FADE_TIME || 4;
+    for (const bh of state._blackHoles) {
+      if (!inView(bh.x, bh.y)) {
+        if (bh.gfx) bh.gfx.visible = false;
+        continue;
+      }
+      if (!bh.gfx || bh.gfx.destroyed) {
+        bh.gfx = new PIXI.Graphics();
+        combatLayer.addChild(bh.gfx);
+      }
+      bh.gfx.visible = true;
+      bh.gfx.clear();
+
+      const elapsed = state.t - bh.spawnedAt;
+      let sizeFrac = bh._sizeFrac;
+      if (sizeFrac == null) {
+        if (elapsed < growT) sizeFrac = elapsed / growT;
+        else if (elapsed < growT + holdT) sizeFrac = 1;
+        else sizeFrac = Math.max(0, 1 - (elapsed - growT - holdT) / fadeT);
+      }
+      const alpha = sizeFrac;
+      const R = (bh._curRadius != null ? bh._curRadius : bh.radius * sizeFrac);
+      if (R < 2) continue;
+      const slowPhase = (bh.phase != null ? bh.phase : elapsed) * 0.3;
+      const g = bh.gfx;
+
+      const spawnFrac = Math.min(1, elapsed / growT);
+      if (spawnFrac < 1) {
+        const tearSpan = R * 3.0 * (1 - spawnFrac);
+        const tearA = alpha * (1 - spawnFrac * 0.6);
+        if (tearSpan > 3) {
+          for (let h = 0; h < 8; h++) {
+            const ang = (h / 8) * Math.PI * 2 + slowPhase * 0.15;
+            const tipR = tearSpan * (0.8 + (h % 3) * 0.15);
+            const c1A = ang + 0.3 * ((h % 2) * 2 - 1), c2A = ang + 0.15 * ((h % 2) * 2 - 1);
+            const c1R = tipR * 0.4, c2R = tipR * 0.75;
+            g.moveTo(bh.x, bh.y);
+            g.bezierCurveTo(bh.x + Math.cos(c1A) * c1R, bh.y + Math.sin(c1A) * c1R, bh.x + Math.cos(c2A) * c2R, bh.y + Math.sin(c2A) * c2R, bh.x + Math.cos(ang) * tipR, bh.y + Math.sin(ang) * tipR);
+            g.stroke({ color: 0x997788, width: 2, alpha: tearA * 0.5 });
+          }
+        }
+      }
+
+      const numArms = 6;
+      for (let arm = 0; arm < numArms; arm++) {
+        const baseAngle = slowPhase * 0.25 + (arm / numArms) * Math.PI * 2;
+        const spiralSegs = 40;
+        const armLen = R * (0.6 + (arm % 3) * 0.2);
+        for (let s = 0; s < spiralSegs; s++) {
+          const frac = s / spiralSegs;
+          const tightness = 3.5 + (arm % 2) * 1.5;
+          const sAngle = baseAngle + frac * tightness;
+          const sR = R * 0.2 + frac * armLen;
+          const x1 = bh.x + Math.cos(sAngle) * sR;
+          const y1 = bh.y + Math.sin(sAngle) * sR;
+          const frac2 = (s + 1) / spiralSegs;
+          const sAngle2 = baseAngle + frac2 * tightness;
+          const sR2 = R * 0.2 + frac2 * armLen;
+          const x2 = bh.x + Math.cos(sAngle2) * sR2;
+          const y2 = bh.y + Math.sin(sAngle2) * sR2;
+          const w = Math.max(0.5, 3.5 * (1 - frac * 0.8));
+          const armAlpha = 0.5 * alpha * (1 - frac * 0.85);
+          g.moveTo(x1, y1); g.lineTo(x2, y2);
+          g.stroke({ color: 0xeeddcc, width: w + 2, alpha: armAlpha * 0.3 });
+          g.moveTo(x1, y1); g.lineTo(x2, y2);
+          g.stroke({ color: 0xfff8ee, width: w, alpha: armAlpha });
+        }
+      }
+
+      for (let ring = 3; ring >= 0; ring--) {
+        const rr = R * (0.22 + ring * 0.06);
+        const ringA = alpha * (ring === 0 ? 0.8 : (0.4 - ring * 0.08));
+        const col = ring === 0 ? 0xffeedd : ring === 1 ? 0xeeccaa : ring === 2 ? 0xcc9966 : 0x886644;
+        g.circle(bh.x, bh.y, rr);
+        g.stroke({ color: col, width: ring === 0 ? 4 : 2.5, alpha: ringA });
+      }
+
+      g.circle(bh.x, bh.y, R * 0.18);
+      g.fill({ color: 0x000000, alpha: 1 });
+      g.circle(bh.x, bh.y, R * 0.2);
+      g.stroke({ color: 0xffeedd, width: 2.5, alpha: 0.85 * alpha });
+
+      const numWisps = 12;
+      for (let wi = 0; wi < numWisps; wi++) {
+        const wAngle = (wi / numWisps) * Math.PI * 2 + slowPhase * 0.12 + wi * 0.3;
+        const wLen = R * (0.8 + (wi % 4) * 0.15);
+        const stR = R * 0.35;
+        const sx = bh.x + Math.cos(wAngle) * stR, sy = bh.y + Math.sin(wAngle) * stR;
+        const ex = bh.x + Math.cos(wAngle + 0.3) * wLen, ey = bh.y + Math.sin(wAngle + 0.3) * wLen;
+        g.moveTo(sx, sy); g.lineTo(ex, ey);
+        g.stroke({ color: 0xddccbb, width: 1, alpha: 0.15 * alpha });
+      }
+    }
+  }
+
+  function drawAbilityStorms() {
+    const GLASS_ALPHA = 0.09;
+    const BOUNDARY_ALPHA = 0.35;
+    for (const s of state._abilityStorms) {
+      if (!inView(s.x, s.y)) {
+        if (s.gfx) s.gfx.visible = false;
+        if (s.emojiContainer) s.emojiContainer.visible = false;
+        continue;
+      }
+      if (!s.gfx || s.gfx.destroyed) {
+        s.gfx = new PIXI.Graphics();
+        world.addChild(s.gfx);
+      }
+      if (!s.emojiContainer || s.emojiContainer.destroyed) {
+        s.emojiContainer = new PIXI.Container();
+        world.addChild(s.emojiContainer);
+        const emojis = ["⛈️", "☁️", "⚡"];
+        for (let i = 0; i < 12; i++) {
+          const txt = new PIXI.Text({ text: emojis[i % 3], style: { fontSize: 16 + Math.random() * 10, fill: 0xffffff } });
+          txt.anchor.set(0.5);
+          const edge = 0.85 + Math.random() * 0.15;
+          const angle = Math.random() * Math.PI * 2;
+          txt._stormOx = Math.cos(angle) * STORM_RADIUS * s.stretch * edge;
+          txt._stormOy = Math.sin(angle) * STORM_RADIUS * 0.4 * edge;
+          txt._stormPhase = Math.random() * Math.PI * 2;
+          txt._stormCycle = 0.5 + Math.random() * 0.7;
+          s.emojiContainer.addChild(txt);
+        }
+      }
+      s.gfx.visible = true;
+      s.emojiContainer.visible = true;
+      s.gfx.clear();
+      const contour = stormContourPoints(s);
+      const t = state.t;
+      const shimmer = 0.6 + 0.15 * Math.sin(t * 1.5);
+      const outerContour = contour.map(pt => ({ x: s.x + (pt.x - s.x) * 1.08, y: s.y + (pt.y - s.y) * 1.08 }));
+      s.gfx.beginFill(0x4488cc, GLASS_ALPHA * shimmer);
+      s.gfx.moveTo(outerContour[0].x, outerContour[0].y);
+      for (let j = 1; j < outerContour.length; j++) s.gfx.lineTo(outerContour[j].x, outerContour[j].y);
+      s.gfx.closePath();
+      s.gfx.endFill();
+      s.gfx.lineStyle(10, 0x88bbff, 0.12 * shimmer);
+      s.gfx.moveTo(outerContour[0].x, outerContour[0].y);
+      for (let j = 1; j < outerContour.length; j++) s.gfx.lineTo(outerContour[j].x, outerContour[j].y);
+      s.gfx.closePath();
+      const inner1 = contour.map(pt => ({ x: s.x + (pt.x - s.x) * 0.88, y: s.y + (pt.y - s.y) * 0.88 }));
+      s.gfx.lineStyle(4, 0x66aadd, BOUNDARY_ALPHA * 0.5);
+      s.gfx.moveTo(inner1[0].x, inner1[0].y);
+      for (let j = 1; j < inner1.length; j++) s.gfx.lineTo(inner1[j].x, inner1[j].y);
+      s.gfx.closePath();
+      const inner2 = contour.map(pt => ({ x: s.x + (pt.x - s.x) * 0.72, y: s.y + (pt.y - s.y) * 0.72 }));
+      s.gfx.lineStyle(2, 0x88ccff, BOUNDARY_ALPHA * 0.35);
+      s.gfx.moveTo(inner2[0].x, inner2[0].y);
+      for (let j = 1; j < inner2.length; j++) s.gfx.lineTo(inner2[j].x, inner2[j].y);
+      s.gfx.closePath();
+      s.gfx.lineStyle(5, 0x5599dd, BOUNDARY_ALPHA);
+      s.gfx.moveTo(contour[0].x, contour[0].y);
+      for (let j = 1; j < contour.length; j++) s.gfx.lineTo(contour[j].x, contour[j].y);
+      s.gfx.closePath();
+      const cosA = Math.cos(s.rotAngle), sinA = Math.sin(s.rotAngle);
+      for (const ch of s.emojiContainer.children) {
+        const lx = ch._stormOx * cosA - ch._stormOy * sinA;
+        const ly = ch._stormOx * sinA + ch._stormOy * cosA;
+        ch.x = s.x + lx + Math.sin(t * 1.5 + ch._stormPhase) * 4;
+        ch.y = s.y + ly + Math.cos(t * 1.5 + ch._stormPhase) * 4;
+        const cycle = ((t + ch._stormPhase * 2) % ch._stormCycle) / ch._stormCycle;
+        ch.alpha = (0.4 + 0.6 * (cycle < 0.5 ? Math.min(1, cycle * 3) : Math.max(0, 1 - (cycle - 0.5) * 3)));
+      }
+    }
+  }
+
+  state._testNoCooldowns = false;
+
+  function stepAbilityCooldowns(dt) {
+    if (state._testNoCooldowns) {
+      for (const pid in state._abilityCooldownsByPlayer) {
+        for (const key in state._abilityCooldownsByPlayer[pid]) state._abilityCooldownsByPlayer[pid][key] = 0;
+      }
+      return;
+    }
+    for (const pid in state._abilityCooldownsByPlayer) {
+      const cds = state._abilityCooldownsByPlayer[pid];
+      for (const key in cds) {
+        if (cds[key] > 0) cds[key] -= dt;
+      }
+    }
+  }
+
+  // Test panel (solo only)
+  (function initTestPanel() {
+    const panel = document.getElementById("testPanel");
+    if (!panel) return;
+    function showIfSolo() {
+      if (!state._multiSlots) panel.style.display = "flex";
+      else panel.style.display = "none";
+    }
+    const _origResetWorld = typeof resetWorld === "function" ? resetWorld : null;
+    setInterval(showIfSolo, 1000);
+    showIfSolo();
+
+    const btnPop = document.getElementById("testAddPop");
+    const btnLvl = document.getElementById("testAddLevel");
+    const btnCD = document.getElementById("testNoCooldowns");
+
+    if (btnPop) btnPop.addEventListener("click", () => {
+      const me = state.players.get(state.myPlayerId);
+      if (me) { me.popFloat = (me.popFloat || me.pop || 0) + 1000; me.pop = Math.floor(me.popFloat); }
+    });
+    if (btnLvl) btnLvl.addEventListener("click", () => {
+      const me = state.players.get(state.myPlayerId);
+      if (me) { me.level = (me.level || 0) + 100; me.xp = me.xp || 0; }
+    });
+    if (btnCD) btnCD.addEventListener("click", () => {
+      state._testNoCooldowns = !state._testNoCooldowns;
+      btnCD.textContent = state._testNoCooldowns ? "Перезарядки: ВЫКЛ" : "Без перезарядок";
+      btnCD.style.borderColor = state._testNoCooldowns ? "#44ff66" : "#44aaff";
+    });
+  })();
+
+  function drawAbilityTargetPreview() {
+    if (!state._abilityTargeting) { clearAbilityPreview(); return; }
+    if (!state._abilityPreviewGfx || state._abilityPreviewGfx.destroyed) {
+      state._abilityPreviewGfx = new PIXI.Graphics();
+      world.addChild(state._abilityPreviewGfx);
+    }
+    const g = state._abilityPreviewGfx;
+    g.clear();
+    const msx = state._mouseScreenX ?? lastX;
+    const msy = state._mouseScreenY ?? lastY;
+    const mx = (msx - cam.x) / cam.zoom;
+    const my = (msy - cam.y) / cam.zoom;
+
+    if (state._abilityTargeting === "ionNebula") {
+      const t = performance.now() / 1000;
+      const pulse = 0.5 + 0.3 * Math.sin(t * 2);
+      g.circle(mx, my, STORM_RADIUS);
+      g.fill({ color: 0x1133aa, alpha: 0.06 + 0.02 * Math.sin(t * 1.5) });
+      g.circle(mx, my, STORM_RADIUS);
+      g.stroke({ color: 0x44aaff, width: 2.5, alpha: 0.3 + 0.2 * pulse });
+      const r2 = STORM_RADIUS * (0.7 + 0.1 * Math.sin(t * 3));
+      g.circle(mx, my, r2);
+      g.stroke({ color: 0x66ccff, width: 1.5, alpha: 0.15 + 0.1 * pulse });
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2 + t * 0.5;
+        const px = mx + Math.cos(a) * STORM_RADIUS * 0.9;
+        const py = my + Math.sin(a) * STORM_RADIUS * 0.9;
+        g.circle(px, py, 3);
+        g.fill({ color: 0x88ddff, alpha: 0.3 + 0.2 * Math.sin(t * 4 + i) });
+      }
+      for (const u of state.units.values()) {
+        if (u.owner === state.myPlayerId || u.hp <= 0) continue;
+        if ((u.x - mx) ** 2 + (u.y - my) ** 2 <= STORM_RADIUS * STORM_RADIUS) {
+          g.circle(u.x, u.y, 7);
+          g.fill({ color: 0xff2222, alpha: 0.35 });
+          g.circle(u.x, u.y, 10);
+          g.stroke({ color: 0xff4444, width: 1, alpha: 0.25 });
+        }
+      }
+    }
+
+    if (state._abilityTargeting === "meteor" && state._meteorTargeting) {
+      const mt = state._meteorTargeting;
+      if (mt.phase === "point") {
+        g.beginFill(0xff4400, 0.12);
+        g.drawCircle(mx, my, METEOR_RADIUS * 3);
+        g.endFill();
+        g.lineStyle(2, 0xff6600, 0.7);
+        g.drawCircle(mx, my, METEOR_RADIUS);
+      } else if (mt.phase === "angle") {
+        const ang = mt.angle;
+        const cosA = Math.cos(ang), sinA = Math.sin(ang);
+        const diag = Math.hypot(CFG.WORLD_W, CFG.WORLD_H);
+        const sx = mt.x - cosA * diag;
+        const sy = mt.y - sinA * diag;
+        const ex = mt.x + cosA * diag;
+        const ey = mt.y + sinA * diag;
+        const halfW = METEOR_AOE_RADIUS;
+        // Corridor fill (rectangle along trajectory)
+        const nx = -sinA * halfW, ny = cosA * halfW;
+        g.beginFill(0xff2200, 0.12);
+        g.moveTo(sx + nx, sy + ny);
+        g.lineTo(ex + nx, ey + ny);
+        g.lineTo(ex - nx, ey - ny);
+        g.lineTo(sx - nx, sy - ny);
+        g.closePath();
+        g.endFill();
+        // Edge lines
+        g.lineStyle(1.5, 0xff4400, 0.5);
+        g.moveTo(sx + nx, sy + ny); g.lineTo(ex + nx, ey + ny);
+        g.moveTo(sx - nx, sy - ny); g.lineTo(ex - nx, ey - ny);
+        // Center line
+        g.lineStyle(1, 0xff6600, 0.3);
+        g.moveTo(sx, sy); g.lineTo(ex, ey);
+        // Direction arrows along trajectory
+        const arrowSpacing = 100;
+        const arrowSize = 12;
+        for (let d = 0; d < diag * 2; d += arrowSpacing) {
+          const ax = sx + cosA * d, ay = sy + sinA * d;
+          if (ax < -200 || ax > CFG.WORLD_W + 200 || ay < -200 || ay > CFG.WORLD_H + 200) continue;
+          const ap = 0.35 + 0.25 * Math.sin(performance.now() / 200 + d * 0.01);
+          g.lineStyle(2.5, 0xff8800, ap);
+          g.moveTo(ax - cosA * arrowSize + nx * 0.5, ay - sinA * arrowSize + ny * 0.5);
+          g.lineTo(ax, ay);
+          g.lineTo(ax - cosA * arrowSize - nx * 0.5, ay - sinA * arrowSize - ny * 0.5);
+        }
+        // Target point marker
+        g.lineStyle(3, 0xff8800, 0.9);
+        g.drawCircle(mt.x, mt.y, 8);
+        // Highlight units on path
+        for (const u of state.units.values()) {
+          if (u.hp <= 0) continue;
+          const perpDist = Math.abs((u.x - sx) * sinA - (u.y - sy) * cosA);
+          if (perpDist <= halfW + 6) {
+            g.beginFill(0xff2222, 0.4);
+            g.drawCircle(u.x, u.y, 6);
+            g.endFill();
+          }
+        }
+        // Indicate shield hit
+        for (const p of state.players.values()) {
+          if (p.eliminated || (p.shieldHp || 0) <= 0) continue;
+          const perpDist = Math.abs((p.x - sx) * sinA - (p.y - sy) * cosA);
+          const sR = shieldRadius(p);
+          if (perpDist <= sR + halfW) {
+            g.lineStyle(3, 0xff0000, 0.6);
+            g.drawCircle(p.x, p.y, sR + 5);
+          }
+        }
+      }
+    }
+
+    if (state._abilityTargeting === "blackHole") {
+      const R = CFG.BLACKHOLE_RADIUS || 400;
+      const t = performance.now() / 1000;
+      const pulse = 0.5 + 0.3 * Math.sin(t * 1.5);
+      g.circle(mx, my, R);
+      g.fill({ color: 0x110022, alpha: 0.08 + 0.03 * Math.sin(t) });
+      g.circle(mx, my, R);
+      g.stroke({ color: 0x8844cc, width: 2.5, alpha: 0.3 + 0.2 * pulse });
+      g.circle(mx, my, R * 0.6);
+      g.stroke({ color: 0xaa66ee, width: 1.5, alpha: 0.15 });
+      g.circle(mx, my, R * 0.3);
+      g.fill({ color: 0x220044, alpha: 0.12 });
+      for (let i = 0; i < 12; i++) {
+        const a = (i / 12) * Math.PI * 2 + t * 0.8;
+        const d = R * (0.4 + 0.5 * ((i % 3) / 3));
+        const px = mx + Math.cos(a) * d, py = my + Math.sin(a) * d;
+        g.circle(px, py, 2.5);
+        g.fill({ color: 0xaa88ff, alpha: 0.25 + 0.15 * Math.sin(t * 3 + i) });
+      }
+    }
+    if (state._abilityTargeting === "activeShield") {
+      const t = performance.now() / 1000;
+      const p = 0.5 + 0.3 * Math.sin(t * 2.5);
+      for (const u of state.units.values()) {
+        if (u.owner !== state.myPlayerId || u.hp <= 0) continue;
+        const r = getUnitHitRadius(u) + 10;
+        const shieldVal = Math.max(1, Math.round((u.maxHp || u.hp) * 0.25));
+        g.circle(u.x, u.y, r);
+        g.stroke({ color: 0x44ccff, width: 2, alpha: 0.4 + 0.2 * p });
+        g.circle(u.x, u.y, r + 4);
+        g.stroke({ color: 0x2288cc, width: 1, alpha: 0.2 });
+      }
+    }
+    if (state._abilityTargeting === "pirateRaid" && state._meteorTargeting) {
+      const mt = state._meteorTargeting;
+      const t = performance.now() / 1000;
+      if (mt.phase === "point") {
+        const p = 0.5 + 0.3 * Math.sin(t * 2);
+        g.circle(mx, my, PIRATE_RAID_ARRIVE_DIST);
+        g.fill({ color: 0x553300, alpha: 0.06 });
+        g.circle(mx, my, PIRATE_RAID_ARRIVE_DIST);
+        g.stroke({ color: 0xaa7733, width: 2, alpha: 0.3 + 0.2 * p });
+        g.circle(mx, my, 20);
+        g.fill({ color: 0xffaa22, alpha: 0.3 });
+        g.circle(mx, my, 20);
+        g.stroke({ color: 0xffcc44, width: 2, alpha: 0.6 });
+      } else if (mt.phase === "angle") {
+        const ang = mt.angle;
+        const cosA = Math.cos(ang), sinA = Math.sin(ang);
+        const arrX = mt.x - cosA * PIRATE_RAID_ARRIVE_DIST;
+        const arrY = mt.y - sinA * PIRATE_RAID_ARRIVE_DIST;
+        g.circle(mt.x, mt.y, PIRATE_RAID_ARRIVE_DIST);
+        g.fill({ color: 0x553300, alpha: 0.05 });
+        g.circle(mt.x, mt.y, PIRATE_RAID_ARRIVE_DIST);
+        g.stroke({ color: 0xaa7733, width: 2, alpha: 0.25 });
+        g.moveTo(arrX, arrY);
+        g.lineTo(mt.x, mt.y);
+        g.stroke({ color: 0xffaa44, width: 2, alpha: 0.5 });
+        for (let i = 0; i < 5; i++) {
+          const frac = i / 5 + ((t * 0.5) % 0.2);
+          if (frac > 1) continue;
+          const ax = arrX + (mt.x - arrX) * frac;
+          const ay = arrY + (mt.y - arrY) * frac;
+          g.moveTo(ax - cosA * 8 - sinA * 6, ay - sinA * 8 + cosA * 6);
+          g.lineTo(ax, ay);
+          g.lineTo(ax - cosA * 8 + sinA * 6, ay - sinA * 8 - cosA * 6);
+          g.stroke({ color: 0xffcc44, width: 2, alpha: 0.4 });
+        }
+        g.circle(arrX, arrY, 25);
+        g.fill({ color: 0x4488ff, alpha: 0.15 + 0.1 * Math.sin(t * 3) });
+        g.circle(arrX, arrY, 25);
+        g.stroke({ color: 0x66aaff, width: 2, alpha: 0.4 });
+        g.circle(mt.x, mt.y, 10);
+        g.fill({ color: 0xffaa22, alpha: 0.4 });
+      }
+    }
+    if (state._abilityTargeting === "gloriousBattleMarch") {
+      const t = performance.now() / 1000;
+      const p = 0.5 + 0.3 * Math.sin(t * 2);
+      for (const u of state.units.values()) {
+        if (u.owner !== state.myPlayerId || u.hp <= 0) continue;
+        const r = getUnitHitRadius(u);
+        const rot = u.gfx ? u.gfx.rotation : 0;
+        const trailLen = r * 2.5;
+        g.moveTo(u.x, u.y);
+        g.lineTo(u.x - Math.cos(rot) * trailLen, u.y - Math.sin(rot) * trailLen);
+        g.stroke({ color: 0xffaa00, width: 3, alpha: 0.2 + 0.15 * p });
+        g.circle(u.x, u.y, r + 5);
+        g.stroke({ color: 0xffcc44, width: 1.5, alpha: 0.35 + 0.15 * p });
+      }
+    }
+    if (state._abilityTargeting === "raiderCapture") {
+      const t = performance.now() / 1000;
+      for (const p of state.players.values()) {
+        if (p.eliminated || p.id === state.myPlayerId) continue;
+        const pR = getPlanetRadius(p) + 40;
+        if ((p.x - mx) ** 2 + (p.y - my) ** 2 <= pR * pR) {
+          const pr = getPlanetRadius(p);
+          const pulse = 0.4 + 0.3 * Math.sin(t * 3);
+          g.circle(p.x, p.y, pr + 12);
+          g.stroke({ color: 0xff4422, width: 3, alpha: pulse });
+          g.circle(p.x, p.y, pr + 20);
+          g.stroke({ color: 0xff6644, width: 1.5, alpha: pulse * 0.5 });
+          const stolen = Math.round((p.population || 0) * 0.1);
+          if (stolen > 0) {
+            for (let i = 0; i < 6; i++) {
+              const a = (i / 6) * Math.PI * 2 + t * 2;
+              const d = pr + 16 + 8 * Math.sin(t * 4 + i);
+              g.circle(p.x + Math.cos(a) * d, p.y + Math.sin(a) * d, 3);
+              g.fill({ color: 0xff8844, alpha: 0.4 });
+            }
+          }
+        }
+      }
+    }
+  }
+
+  function clearAbilityPreview() {
+    if (state._abilityPreviewGfx && !state._abilityPreviewGfx.destroyed) {
+      state._abilityPreviewGfx.clear();
+    }
+  }
+
+  app.canvas.addEventListener("mousedown", (e) => {
+    if (!state._abilityTargeting) return;
+    if (e.button === 0) {
+      e.stopPropagation();
+      e.preventDefault();
+      const wx = (e.clientX - cam.x) / cam.zoom;
+      const wy = (e.clientY - cam.y) / cam.zoom;
+      if (state._abilityTargeting === "ionNebula") {
+        useIonNebula(wx, wy);
+      } else if (state._abilityTargeting === "blackHole") {
+        const me = state.players.get(state.myPlayerId);
+        if (state._multiSlots && !state._multiIsHost && state._socket) {
+          state._socket.emit("playerAction", { type: "useAbility", abilityId: "blackHole", pid: state.myPlayerId, x: wx, y: wy });
+          if (me) {
+            if (!state._abilityCooldownsByPlayer[me.id]) state._abilityCooldownsByPlayer[me.id] = {};
+            state._abilityCooldownsByPlayer[me.id]["blackHole"] = state.t + CFG.BLACKHOLE_COOLDOWN;
+          }
+        } else {
+          spawnBlackHole(wx, wy, state.myPlayerId);
+          if (me) {
+            if (!state._abilityCooldownsByPlayer[me.id]) state._abilityCooldownsByPlayer[me.id] = {};
+            state._abilityCooldownsByPlayer[me.id]["blackHole"] = state.t + CFG.BLACKHOLE_COOLDOWN;
+          }
+          pushAbilityAnnouncement(state.myPlayerId, "blackHole");
+        }
+        cancelAbilityTargeting();
+      } else if (state._abilityTargeting === "activeShield") {
+        const def = ABILITY_DEFS.find(d => d.id === "activeShield");
+        if (state._multiSlots && !state._multiIsHost && state._socket) {
+          state._socket.emit("playerAction", { type: "useAbility", abilityId: "activeShield", pid: state.myPlayerId });
+        } else {
+          useActiveShield(state.myPlayerId);
+          if (def) setAbilityCooldown(state.myPlayerId, "activeShield", def.cooldown);
+          pushAbilityAnnouncement(state.myPlayerId, "activeShield");
+        }
+        cancelAbilityTargeting();
+      } else if (state._abilityTargeting === "gloriousBattleMarch") {
+        const def = ABILITY_DEFS.find(d => d.id === "gloriousBattleMarch");
+        if (state._multiSlots && !state._multiIsHost && state._socket) {
+          state._socket.emit("playerAction", { type: "useAbility", abilityId: "gloriousBattleMarch", pid: state.myPlayerId });
+        } else {
+          useGloriousBattleMarch(state.myPlayerId);
+          if (def) setAbilityCooldown(state.myPlayerId, "gloriousBattleMarch", def.cooldown);
+          pushAbilityAnnouncement(state.myPlayerId, "gloriousBattleMarch");
+        }
+        cancelAbilityTargeting();
+      } else if (state._abilityTargeting === "raiderCapture") {
+        let targetCityId = null;
+        for (const p of state.players.values()) {
+          if (p.eliminated || p.id === state.myPlayerId) continue;
+          const d2 = (wx - p.x) ** 2 + (wy - p.y) ** 2;
+          if (d2 <= (getPlanetRadius(p) + 40) ** 2) { targetCityId = p.id; break; }
+        }
+        if (targetCityId != null) {
+          const def = ABILITY_DEFS.find(d => d.id === "raiderCapture");
+          if (state._multiSlots && !state._multiIsHost && state._socket) {
+            state._socket.emit("playerAction", { type: "useAbility", abilityId: "raiderCapture", pid: state.myPlayerId, targetCityId });
+          } else {
+            useRaiderCapture(state.myPlayerId, targetCityId);
+            if (def) setAbilityCooldown(state.myPlayerId, "raiderCapture", def.cooldown);
+            pushAbilityAnnouncement(state.myPlayerId, "raiderCapture");
+          }
+          cancelAbilityTargeting();
+        }
+      } else if (state._abilityTargeting === "pirateRaid") {
+        const mt = state._meteorTargeting;
+        if (mt && mt.phase === "point") {
+          mt.x = wx; mt.y = wy; mt.phase = "angle";
+        } else if (mt && mt.phase === "angle") {
+          const def = ABILITY_DEFS.find(d => d.id === "pirateRaid");
+          if (state._multiSlots && !state._multiIsHost && state._socket) {
+            state._socket.emit("playerAction", { type: "useAbility", abilityId: "pirateRaid", pid: state.myPlayerId, x: mt.x, y: mt.y, angle: mt.angle });
+          } else {
+            spawnPirateRaid(mt.x, mt.y, mt.angle);
+            if (def) setAbilityCooldown(state.myPlayerId, "pirateRaid", def.cooldown);
+            pushAbilityAnnouncement(state.myPlayerId, "pirateRaid");
+          }
+          cancelAbilityTargeting();
+        }
+      } else if (state._abilityTargeting === "meteor") {
+        const mt = state._meteorTargeting;
+        if (mt.phase === "point") {
+          mt.x = wx; mt.y = wy;
+          mt.phase = "angle";
+        } else if (mt.phase === "angle") {
+          useMeteor(mt.x, mt.y, mt.angle);
+        }
+      }
+    }
+  }, true);
+
+  app.canvas.addEventListener("mousemove", (e) => {
+    if (state._meteorTargeting && state._meteorTargeting.phase === "angle") {
+      const wx = (e.clientX - cam.x) / cam.zoom;
+      const wy = (e.clientY - cam.y) / cam.zoom;
+      state._meteorTargeting.angle = Math.atan2(wy - state._meteorTargeting.y, wx - state._meteorTargeting.x);
+    }
+  });
+
+  app.canvas.addEventListener("contextmenu", (e) => {
+    if (state._abilityTargeting) {
+      e.preventDefault();
+      cancelAbilityTargeting();
+    }
+  });
 
   // ------------------------------------------------------------
   // Victory Conditions
@@ -5770,6 +9012,9 @@
   const lobbyScreenEl = document.getElementById("lobbyScreen");
   const roomCodeInputEl = document.getElementById("roomCodeInput");
 
+  const SOLO_PALETTE = [0xff8800, 0xcc2222, 0xddcc00, 0x4488ff, 0x22aa44, 0xaa44cc, 0x44cccc];
+  state._soloColorIndex = 0;
+
   function showScreen(visibleId) {
     const ids = ["mainMenu", "nicknameScreen", "multiConnectScreen", "lobbyScreen"];
     for (const id of ids) {
@@ -5777,6 +9022,54 @@
       if (el) el.style.display = id === visibleId ? "flex" : "none";
     }
     if (gameWrapEl) gameWrapEl.style.display = visibleId === "gameWrap" ? "block" : "none";
+    if (visibleId === "nicknameScreen" && state._menuMode === "single") {
+      const row = document.getElementById("soloColorRow");
+      const picker = document.getElementById("soloColorPicker");
+      if (row) row.style.display = "block";
+      if (picker) {
+        picker.innerHTML = "";
+        SOLO_PALETTE.forEach((hex, i) => {
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "color-swatch";
+          btn.style.cssText = "width:32px;height:32px;border-radius:50%;border:2px solid " + (i === (state._soloColorIndex ?? 0) ? "#fff" : "rgba(255,255,255,0.3)") + ";cursor:pointer";
+          btn.style.background = "#" + hex.toString(16).padStart(6, "0");
+          btn.addEventListener("click", () => {
+            state._soloColorIndex = i;
+            picker.querySelectorAll("button").forEach((b, j) => { b.style.borderColor = j === i ? "#fff" : "rgba(255,255,255,0.3)"; });
+          });
+          picker.appendChild(btn);
+        });
+      }
+      const botRow = document.getElementById("soloBotCountRow");
+      const botPicker = document.getElementById("soloBotCountPicker");
+      if (botRow) botRow.style.display = "block";
+      if (botPicker) {
+        botPicker.innerHTML = "";
+        const current = Math.max(1, Math.min(4, state._soloBotCount ?? 2));
+        for (let n = 1; n <= 4; n++) {
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "menu-btn " + (n === current ? "primary" : "secondary");
+          btn.style.minWidth = "44px";
+          btn.textContent = String(n);
+          btn.addEventListener("click", () => {
+            state._soloBotCount = n;
+            botPicker.querySelectorAll("button").forEach((b, j) => {
+              const v = j + 1;
+              b.className = "menu-btn " + (v === n ? "primary" : "secondary");
+              b.style.minWidth = "44px";
+            });
+          });
+          botPicker.appendChild(btn);
+        }
+      }
+    } else {
+      const row = document.getElementById("soloColorRow");
+      if (row) row.style.display = "none";
+      const botRow = document.getElementById("soloBotCountRow");
+      if (botRow) botRow.style.display = "none";
+    }
     if (visibleId === "multiConnectScreen" && typeof refreshLobbyList === "function") refreshLobbyList();
   }
   (function bindMainMenuButtonsEarly() {
@@ -6147,11 +9440,32 @@
 
     if (snap.bullets) state.bullets = snap.bullets;
 
+    if (snap.shieldHitEffects) {
+      if (!state._shieldHitEffects) state._shieldHitEffects = [];
+      for (const e of snap.shieldHitEffects) {
+        const exists = state._shieldHitEffects.some(ex =>
+          Math.abs(ex.t0 - e.t0) < 0.05 && Math.abs(ex.hitX - e.hitX) < 2 && Math.abs(ex.hitY - e.hitY) < 2);
+        if (!exists) state._shieldHitEffects.push({ ...e });
+      }
+    }
+    if (snap.abilityAnnouncements) {
+      if (!state._abilityAnnouncements) state._abilityAnnouncements = [];
+      for (const a of snap.abilityAnnouncements) {
+        const dup = state._abilityAnnouncements.some(ex => ex.text === a.text && (ex.t0 || 0) > state.t - 3);
+        if (!dup) state._abilityAnnouncements.push({ text: a.text, ttl: a.ttlRemaining ?? 4, t0: state.t });
+      }
+      while (state._abilityAnnouncements.length > 8) state._abilityAnnouncements.shift();
+    }
+
     // ── Resources: full sync = spawn/despawn; zone sync = position update ──
     if (snap.resDelta && !snap.resources) {
-      for (const [id, x, y] of snap.resDelta) {
+      for (const entry of snap.resDelta) {
+        const [id, x, y, targetCity] = entry;
         const res = state.res.get(id);
-        if (res) NET.Interp.setResTarget(res, x, y);
+        if (res) {
+          NET.Interp.setResTarget(res, x, y);
+          if (targetCity !== undefined) res._targetCity = targetCity;
+        }
       }
     }
     if (snap.resources) {
@@ -6165,6 +9479,9 @@
         } else {
           NET.Interp.setResTarget(res, r.x, r.y);
           res.xp = r.xp; res.type = r.type; res.color = r.color;
+          if (r.value != null) res.value = r.value;
+          if (r._targetCity !== undefined) res._targetCity = r._targetCity;
+          if (r._interceptProtectUntil !== undefined) res._interceptProtectUntil = r._interceptProtectUntil;
         }
       }
       for (const id of [...state.res.keys()]) {
@@ -6222,10 +9539,93 @@
       }
     }
 
+    // Sync meteors from host
+    if (snap.meteors) {
+      // Clean up old graphics
+      for (const m of state._activeMeteors) removeMeteorGfx(m);
+      state._activeMeteors = snap.meteors.map(m => ({
+        ...m, gfx: null, trajGfx: null
+      }));
+    } else if (snap._fullSync) {
+      for (const m of state._activeMeteors) removeMeteorGfx(m);
+      state._activeMeteors = [];
+    }
+
+    // Sync ability storms from host (visual only on remote)
+    if (snap.abilityStorms && !state._multiIsHost) {
+      // Just update count for visual rendering — remote clients don't sim damage
+      while (state._abilityStorms.length > snap.abilityStorms.length) {
+        const s = state._abilityStorms.pop();
+        if (s.gfx) { s.gfx.parent?.removeChild(s.gfx); s.gfx.destroy(true); }
+        if (s.emojiContainer) { s.emojiContainer.parent?.removeChild(s.emojiContainer); s.emojiContainer.destroy({ children: true }); }
+      }
+    }
+
+    if (snap.abilityCooldownsByPlayer) {
+      state._abilityCooldownsByPlayer = {};
+      for (const pid of Object.keys(snap.abilityCooldownsByPlayer)) {
+        state._abilityCooldownsByPlayer[pid] = { ...snap.abilityCooldownsByPlayer[pid] };
+      }
+    }
+    if (snap.abilityUsedByPlayer) {
+      state._abilityUsedByPlayer = {};
+      for (const pid of Object.keys(snap.abilityUsedByPlayer)) {
+        state._abilityUsedByPlayer[pid] = (snap.abilityUsedByPlayer[pid] || []).slice();
+      }
+    }
+
+    if (snap.mines) {
+      const wantMineIds = new Set(snap.mines.map(m => m.id));
+      for (const m of snap.mines) {
+        let mine = state.mines.get(m.id);
+        if (!mine) {
+          mine = { ...m, gfx: null, yieldAcc: 0 };
+          state.mines.set(mine.id, mine);
+          makeMineVisual(mine);
+        } else {
+          const changed = mine.ownerId !== m.ownerId || mine.captureProgress !== m.captureProgress;
+          mine.ownerId = m.ownerId;
+          mine.captureProgress = m.captureProgress;
+          mine.capturingUnitId = m.capturingUnitId;
+          if (changed) updateMineVisual(mine);
+        }
+      }
+      for (const id of [...state.mines.keys()]) {
+        if (!wantMineIds.has(id)) {
+          const mine = state.mines.get(id);
+          if (mine && mine.gfx) resLayer.removeChild(mine.gfx);
+          state.mines.delete(id);
+        }
+      }
+    }
+
+    if (snap.blackHoles && !state._multiIsHost) {
+      state._blackHoles = snap.blackHoles.map(bh => ({
+        ...bh, gfx: null, phase: 0
+      }));
+    }
+    if (snap.pirateBase) {
+      if (!state.pirateBase) state.pirateBase = { x: 0, y: 0, hp: 4000, maxHp: 4000, gfx: null, _emojiGfx: null, spawnCd: 0, unitLimit: 12 };
+      state.pirateBase.x = snap.pirateBase.x;
+      state.pirateBase.y = snap.pirateBase.y;
+      state.pirateBase.hp = snap.pirateBase.hp;
+      state.pirateBase.maxHp = snap.pirateBase.maxHp;
+      if (snap.pirateBase.orbitCenter) state.pirateBase.orbitCenter = snap.pirateBase.orbitCenter;
+      if (snap.pirateBase.orbitRadius) state.pirateBase.orbitRadius = snap.pirateBase.orbitRadius;
+    } else if (snap.hasOwnProperty("pirateBase")) {
+      if (state.pirateBase && state.pirateBase._emojiGfx) {
+        state.pirateBase._emojiGfx.destroy();
+      }
+      state.pirateBase = null;
+    }
+    if (snap.battleMarchUntil) state._battleMarchUntil = { ...snap.battleMarchUntil };
+    if (snap.hyperFlashes) state._hyperFlashes = snap.hyperFlashes;
+
     if (snap.timeScale != null) {
       document.querySelectorAll(".speed-btn").forEach((b) => {
         const s = parseInt(b.dataset.speed, 10) || 1;
-        b.classList.toggle("active", s === state.timeScale);
+        const ts = s >= 2 ? s / 2 : 0.5;
+        b.classList.toggle("active", ts === state.timeScale);
       });
     }
   }
@@ -6428,8 +9828,11 @@
       if (!state._multiIsHost) return;
       console.log("[MP-ACTION] host received action:", action.type, "pid=", action.pid, "from remote");
       if (action.type === "spawn") {
-        const res = spawnUnits(action.pid, action.count, action.waypoints, { formationType: action.formationType, formationRows: action.formationRows });
+        const res = purchaseUnit(action.pid, action.unitType || "fighter", action.waypoints);
         console.log("[MP-ACTION] spawn result:", JSON.stringify(res));
+      } else if (action.type === "purchase") {
+        const res = purchaseUnit(action.pid, action.unitType || "fighter", action.waypoints);
+        console.log("[MP-ACTION] purchase result:", JSON.stringify(res));
       } else if (action.type === "chase") {
         for (const lid of (action.leaderIds || [])) {
           const u = state.units.get(lid);
@@ -6441,12 +9844,19 @@
           u.straightMode = false;
         }
       } else if (action.type === "chaseCity") {
+        const city = state.players.get(action.targetCityId);
+        const planetR = city ? getPlanetRadius(city) : 40;
+        const minStopR = Math.max(planetR + 22, planetR * CFG.PLANET_ATTACK_R_MUL * 0.95);
         for (const lid of (action.leaderIds || [])) {
           const u = state.units.get(lid);
           if (!u) continue;
           u.chaseTargetCityId = action.targetCityId;
           u.chaseTargetUnitId = undefined;
-          u.waypoints = [{ x: action.x, y: action.y }];
+          const stopR = Math.max(getUnitAtkRange(u), minStopR);
+          const cx = city ? city.x : action.x, cy = city ? city.y : action.y;
+          const dx = u.x - cx, dy = u.y - cy;
+          const dl = Math.hypot(dx, dy) || 1;
+          u.waypoints = [{ x: cx + (dx / dl) * stopR, y: cy + (dy / dl) * stopR }];
           u.waypointIndex = 0;
           u.straightMode = false;
         }
@@ -6491,7 +9901,7 @@
           const dx = waypoints[0].x - leader.x, dy = waypoints[0].y - leader.y;
           const dl = Math.hypot(dx, dy) || 1;
           const vx = dx / dl, vy = dy / dl;
-          const offsets = getFormationOffsets(units.length, formationType, formationRows, vx, vy, pigW);
+          const offsets = getFormationOffsets(units.length, formationType, formationRows, vx, vy, pigW, units);
           const leaderId = leader.id;
           leader.leaderId = null;
           leader.formationType = formationType;
@@ -6527,6 +9937,46 @@
             leader2.leaderId = null;
             applyFormationToSquad(first, leader1.formationType || "pig", leader1.formationRows ?? 1, null, null, leader1.formationPigWidth);
             applyFormationToSquad(second, leader2.formationType || "pig", leader2.formationRows ?? 1, null, null, leader2.formationPigWidth);
+          }
+        }
+      } else if (action.type === "useAbility") {
+        const def = ABILITY_DEFS.find(d => d.id === action.abilityId);
+        if (def && action.pid != null && !def.oneTime) setAbilityCooldown(action.pid, action.abilityId, def.cooldown);
+        pushAbilityAnnouncement(action.pid, action.abilityId);
+        if (action.abilityId === "ionNebula") {
+          _spawnIonNebulaLocal(action.x, action.y);
+        } else if (action.abilityId === "meteor") {
+          _spawnMeteorLocal(action.x, action.y, action.angle, action.pid);
+        } else if (action.abilityId === "blackHole") {
+          spawnBlackHole(action.x, action.y, action.pid);
+          const me = state.players.get(action.pid);
+          if (me && def) {
+            if (!state._abilityCooldownsByPlayer[me.id]) state._abilityCooldownsByPlayer[me.id] = {};
+            state._abilityCooldownsByPlayer[me.id]["blackHole"] = state.t + CFG.BLACKHOLE_COOLDOWN;
+          }
+        } else if (action.abilityId === "activeShield") {
+          useActiveShield(action.pid);
+        } else if (action.abilityId === "pirateRaid") {
+          spawnPirateRaid(action.x, action.y, action.angle ?? 0);
+        } else if (action.abilityId === "gloriousBattleMarch") {
+          useGloriousBattleMarch(action.pid);
+        } else if (action.abilityId === "raiderCapture") {
+          useRaiderCapture(action.pid, action.targetCityId);
+        } else if (action.abilityId === "timeJump") {
+          if (!state._timeSnapshots || state._timeSnapshots.length === 0) { /* no snapshot */ }
+          else {
+            const targetT = Math.max(0, state.t - TIME_JUMP_REWIND_SEC);
+            let snap = null;
+            for (let i = state._timeSnapshots.length - 1; i >= 0; i--) {
+              if (state._timeSnapshots[i].t <= targetT) {
+                snap = state._timeSnapshots[i];
+                break;
+              }
+            }
+            if (snap) {
+              const eliminatedBeforeRewind = [...state.players.values()].filter(p => p.eliminated).map(p => p.id);
+              restoreFromTimeSnapshot(snap, eliminatedBeforeRewind, action.pid);
+            }
           }
         }
       } else if (action.type === "cardChoice") {
@@ -6611,6 +10061,9 @@
       return;
     }
     state.t += dt;
+    state._lastDt = dt;
+
+    if (typeof saveTimeSnapshot === "function") saveTimeSnapshot();
 
     // sim
     state._frameCtr = (state._frameCtr || 0) + 1;
@@ -6637,22 +10090,25 @@
       perfStartStep("mergeBattle");
       mergeBattleSurvivorsIntoOneSquad();
       perfEndStep("mergeBattle");
+      perfStartStep("squadMerge");
+      stepSquadMerge(dt);
+      perfEndStep("squadMerge");
       perfStartStep("stepTurrets");
       stepTurrets(dt);
       perfEndStep("stepTurrets");
       perfStartStep("stepBullets");
       stepBullets(dt);
       perfEndStep("stepBullets");
-      perfStartStep("stepResourceSpawn");
-      stepResourceSpawn(dt);
-      perfEndStep("stepResourceSpawn");
-      perfStartStep("stepResourceMagnet");
+      stepMines(dt);
+      stepMineGems(dt);
       stepResourceMagnet(dt);
-      perfEndStep("stepResourceMagnet");
-      perfStartStep("stepPickups");
       stepPickups(dt);
-      perfEndStep("stepPickups");
+      stepNebulae(dt);
       stepStorm(dt);
+      stepAbilityStorms(dt);
+      stepBlackHoles(dt);
+      stepAbilityCooldowns(dt);
+      stepMeteors(dt);
     } else {
       // ── Remote client: apply pending snapshots, then interpolate ──
       if (state._pendingFullSnap) {
@@ -6669,6 +10125,20 @@
 
       for (const u of state.units.values()) {
         NET.Interp.tickUnit(u, interpMs);
+      }
+      // Smooth formation for other players: followers follow leader's interpolated position
+      const myId = state.myPlayerId;
+      for (const u of state.units.values()) {
+        if (u.owner === myId) continue;
+        const lid = u.leaderId || u.id;
+        if (lid === u.id) continue;
+        const leader = state.units.get(lid);
+        if (!leader || (leader.formationOffsetX == null && leader.formationOffsetY == null)) continue;
+        const ox = u.formationOffsetX ?? 0, oy = u.formationOffsetY ?? 0;
+        const angle = Math.atan2(leader.vy || 0, leader.vx || 0) || 0;
+        const cosA = Math.cos(angle), sinA = Math.sin(angle);
+        u.x = leader.x + (ox * cosA - oy * sinA);
+        u.y = leader.y + (ox * sinA + oy * cosA);
       }
       updateUnitVisualsOnly();
 
@@ -6698,7 +10168,7 @@
       }
 
       for (const r of state.res.values()) {
-        NET.Interp.tickRes(r, NET.ZONE_SYNC_INTERVAL_MS);
+        NET.Interp.tickRes(r, NET.ZONE_SYNC_INTERVAL_MS, state.players);
         if (r.gfx) {
           r.gfx.visible = inView(r.x, r.y);
           if (r.gfx.visible) r.gfx.position.set(r.x, r.y);
@@ -6743,14 +10213,28 @@
 
     perfStartStep("visuals");
     const vfc = state._frameCtr;
-    if (vfc % 3 === 0) updateActivityZones();
-    if (vfc % 2 === 0) drawTurrets();
-    updateCityPopLabels();
-    if (vfc % 2 === 0) updateSquadLabels();
-    if (vfc % 2 === 0) updateCombatUI();
+    if (vfc % 2 === 0) updateShieldVisuals();
+    if (vfc % 3 === 0) updateDischarges(dt);
+    if (vfc % 4 === 0) pulseStars();
+    if (vfc % 4 === 0) updateActivityZones();
+    if (vfc % 3 === 0) drawTurrets();
+    if (vfc % 2 === 0) updateCityPopLabels();
+    if (vfc % 3 === 0) updateSquadLabels();
+    if (vfc % 3 === 0) updateCombatUI();
     updateFloatingDamage(dt);
+    updateAbilityAnnouncements(dt);
     drawBullets();
-    drawStorm();
+    if (vfc % 2 === 0) { drawStorm(); drawNebulae(); }
+    if (vfc % 2 === 0) { drawAbilityStorms(); drawBlackHoles(); drawPirateBase(); }
+    drawHyperFlashes();
+    drawMeteors();
+    if (state._abilityTargeting) drawAbilityTargetPreview();
+    else clearAbilityPreview();
+    if (neonEdgeSprite) {
+      if (neonEdgeSprite.parent) neonEdgeSprite.parent.removeChild(neonEdgeSprite);
+      world.addChild(neonEdgeSprite);
+    }
+    pulseNeonEdge();
     updateSelectionBox();
     updatePathPreview();
     updateMovingPathPreview();
@@ -6778,5 +10262,7 @@
 
     flushDestroyQueue();
   });
+
+  window._gameTest = { state, spawnXPOrb, killUnit, spawnMineGem, stepResourceMagnet, stepPickups, makeGemVisual };
 
 })();

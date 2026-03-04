@@ -26,30 +26,36 @@
   const DESTROYED_SENTINEL     = -1;                             // compact[1] === -1
 
   const PLAYER_LIGHT_KEYS = [
-    "id", "x", "y", "pop", "popFloat", "activeUnits",
+    "id", "x", "y", "pop", "popFloat", "eCredits", "activeUnits",
     "influenceR", "influenceRayDistances"
   ];
   const PLAYER_SYNC_KEYS = [
-    "id", "name", "x", "y", "pop", "popFloat", "level", "xp", "xpNext",
-    "cooldown", "sendDelay", "activeUnits", "deadUnits", "influenceR",
+    "id", "name", "x", "y", "pop", "popFloat", "eCredits",
+    "level", "xp", "xpNext",
+    "activeUnits", "deadUnits", "influenceR",
     "turretIds", "waterBonus", "color",
     "turretDmgMul", "turretHpMul", "turretRangeMul",
     "unitHpMul", "unitDmgMul", "unitSpeedMul",
     "unitAtkRateMul", "unitAtkRangeMul",
-    "growthMul", "influenceSpeedMul", "sendCooldownMul",
+    "growthMul", "influenceSpeedMul", "unitCostMul",
     "pendingCardPicks", "xpZonePct", "xpGainMul",
-    "_levelBonusMul", "rerollCount"
+    "_levelBonusMul", "rerollCount",
+    "shieldHp", "shieldMaxHp", "shieldRegenCd",
+    "mineYieldBonus", "cityTargetBonus", "attackEffect", "attackEffects"
   ];
   const PLAYER_FULL_KEYS = [
     ...PLAYER_SYNC_KEYS, "influencePolygon", "influenceRayDistances"
   ];
   const UNIT_LIGHT_KEYS = ["id", "x", "y", "vx", "vy", "hp"];
   const UNIT_FULL_KEYS = [
-    "id", "owner", "x", "y", "vx", "vy", "hp", "dmg", "atkCd",
+    "id", "owner", "x", "y", "vx", "vy", "hp", "maxHp", "dmg", "atkCd",
+    "unitType", "attackRange", "maxTargets", "speed", "popPenalty",
     "leaderId", "formationOffsetX", "formationOffsetY", "color",
     "chaseTargetUnitId", "chaseTargetCityId",
     "waypoints", "waypointIndex", "formationType", "formationRows",
-    "formationPigWidth", "straightMode"
+    "formationPigWidth", "straightMode",
+    "_cryoSlowUntil", "_cryoSlowAmount", "_fireDotUntil", "_fireDotDps",
+    "regenPerSec", "orbitTarget", "_activeShieldHp", "_hyperArrivalFlash"
   ];
 
   // ─── Utility ─────────────────────────────────────────────────────
@@ -195,10 +201,11 @@
       };
 
       if (isZoneSync && !isFull) {
-        // Zone sync (every ~266 ms): compact resource positions for smooth movement
         const resDelta = [];
         for (const r of state.res.values()) {
-          resDelta.push([r.id, roundN(r.x, 10), roundN(r.y, 10)]);
+          const entry = [r.id, roundN(r.x, 10), roundN(r.y, 10)];
+          if (r._targetCity != null) entry.push(r._targetCity);
+          resDelta.push(entry);
         }
         gs.resDelta = resDelta;
       }
@@ -218,13 +225,113 @@
 
         const resources = [];
         for (const r of state.res.values()) {
-          resources.push({ id: r.id, type: r.type, xp: r.xp,
-                           x: r.x, y: r.y, color: r.color });
+          const ro = { id: r.id, type: r.type, xp: r.xp,
+                       x: r.x, y: r.y, color: r.color };
+          if (r.type === "credit") {
+            ro.value = r.value;
+            if (r._targetCity != null) ro._targetCity = r._targetCity;
+            if (r._interceptProtectUntil != null) ro._interceptProtectUntil = r._interceptProtectUntil;
+            if (r.isCredit) ro.isCredit = true;
+          }
+          if (r.type === "orb" && r._targetCity != null) {
+            ro._targetCity = r._targetCity;
+            if (r._interceptProtectUntil != null) ro._interceptProtectUntil = r._interceptProtectUntil;
+          }
+          resources.push(ro);
         }
         gs.resources = resources;
       }
 
+      if (state._shieldHitEffects && state._shieldHitEffects.length > 0) {
+        gs.shieldHitEffects = state._shieldHitEffects.map(e => ({
+          px: roundN(e.px, 10), py: roundN(e.py, 10),
+          hitX: roundN(e.hitX, 10), hitY: roundN(e.hitY, 10),
+          color: e.color, t0: roundN(e.t0, 100), duration: e.duration
+        }));
+      }
+      if (state._abilityAnnouncements && state._abilityAnnouncements.length > 0) {
+        gs.abilityAnnouncements = state._abilityAnnouncements
+          .filter(a => (a.ttl != null ? a.ttl : 4.5) - (state.t - (a.t0 || state.t)) > 0.5)
+          .map(a => ({
+            text: a.text,
+            ttlRemaining: Math.max(0.5, (a.ttl != null ? a.ttl : 4.5) - (state.t - (a.t0 || state.t)))
+          }))
+          .slice(-5);
+      }
+
       gs.storm = this._serializeStorm(state);
+
+      if (state.mines && state.mines.size > 0) {
+        gs.mines = [];
+        for (const m of state.mines.values()) {
+          gs.mines.push({
+            id: m.id, x: roundN(m.x, 10), y: roundN(m.y, 10),
+            ownerId: m.ownerId, captureProgress: roundN(m.captureProgress, 100),
+            capturingUnitId: m.capturingUnitId, isRich: m.isRich
+          });
+        }
+      }
+
+      if (state._blackHoles && state._blackHoles.length > 0) {
+        gs.blackHoles = state._blackHoles.map(bh => ({
+          x: roundN(bh.x, 10), y: roundN(bh.y, 10),
+          ownerId: bh.ownerId,
+          spawnedAt: roundN(bh.spawnedAt, 100),
+          duration: bh.duration,
+          radius: bh.radius
+        }));
+      }
+      if (state.pirateBase && state.pirateBase.hp > 0) {
+        gs.pirateBase = {
+          x: roundN(state.pirateBase.x, 10), y: roundN(state.pirateBase.y, 10),
+          hp: roundN(state.pirateBase.hp, 10), maxHp: state.pirateBase.maxHp,
+          orbitCenter: state.pirateBase.orbitCenter, orbitRadius: state.pirateBase.orbitRadius
+        };
+      } else {
+        gs.pirateBase = null;
+      }
+      if (state._battleMarchUntil && Object.keys(state._battleMarchUntil).length > 0) {
+        gs.battleMarchUntil = { ...state._battleMarchUntil };
+      }
+
+      if (state._hyperFlashes && state._hyperFlashes.length > 0) {
+        gs.hyperFlashes = state._hyperFlashes.map(f => ({
+          x: roundN(f.x, 10), y: roundN(f.y, 10),
+          t0: roundN(f.t0, 100), duration: f.duration
+        }));
+      }
+
+      if (state._activeMeteors && state._activeMeteors.length > 0) {
+        gs.meteors = state._activeMeteors.map(m => ({
+          x: roundN(m.x, 10), y: roundN(m.y, 10),
+          vx: roundN(m.vx, 100), vy: roundN(m.vy, 100),
+          angle: roundN(m.angle ?? 0, 1000),
+          radius: m.radius, aoeR: m.aoeR,
+          ownerId: m.ownerId, alive: m.alive
+        }));
+      }
+      if (state._abilityStorms && state._abilityStorms.length > 0) {
+        gs.abilityStorms = state._abilityStorms.map(s => ({
+          x: roundN(s.x, 10), y: roundN(s.y, 10),
+          spawnedAt: roundN(s.spawnedAt, 100),
+          duration: s.duration,
+          rotAngle: roundN(s.rotAngle, 100),
+          stretch: roundN(s.stretch, 100)
+        }));
+      }
+      if (state._abilityCooldownsByPlayer && Object.keys(state._abilityCooldownsByPlayer).length > 0) {
+        gs.abilityCooldownsByPlayer = {};
+        for (const pid of Object.keys(state._abilityCooldownsByPlayer)) {
+          gs.abilityCooldownsByPlayer[pid] = { ...state._abilityCooldownsByPlayer[pid] };
+        }
+      }
+      if (state._abilityUsedByPlayer && Object.keys(state._abilityUsedByPlayer).length > 0) {
+        gs.abilityUsedByPlayer = {};
+        for (const pid of Object.keys(state._abilityUsedByPlayer)) {
+          gs.abilityUsedByPlayer[pid] = (state._abilityUsedByPlayer[pid] || []).slice();
+        }
+      }
+
       return gs;
     }
 
@@ -397,9 +504,10 @@
     },
 
     /**
-     * Per-frame resource tick: interpolates position from → to over intervalMs.
+     * Per-frame resource tick: interpolates position from → to over intervalMs,
+     * then extrapolates toward _targetCity if set (for credits / XP orbs).
      */
-    tickRes(res, intervalMs) {
+    tickRes(res, intervalMs, players) {
       if (res._interpStart == null) return;
       const elapsed = performance.now() - res._interpStart;
       const t = clamp(elapsed / Math.max(intervalMs, 1), 0, 1);
@@ -407,6 +515,20 @@
       const fromY = res._interpFromY ?? res._interpToY;
       res.x = lerpVal(fromX, res._interpToX, t);
       res.y = lerpVal(fromY, res._interpToY, t);
+
+      if (t >= 1 && res._targetCity != null && players) {
+        const p = players.get(res._targetCity);
+        if (p) {
+          const dx = p.x - res.x, dy = p.y - res.y;
+          const dl = Math.hypot(dx, dy);
+          if (dl > 5) {
+            const extrapSec = Math.min((elapsed - intervalMs) / 1000, MAX_EXTRAP_SEC);
+            const speed = 90;
+            res.x += (dx / dl) * speed * extrapSec;
+            res.y += (dy / dl) * speed * extrapSec;
+          }
+        }
+      }
     },
 
     tickZoneRays(player, numRays, intervalMs) {
