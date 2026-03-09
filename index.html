@@ -3,19 +3,23 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Territorial Dominion — MVP</title>
+  <title>VoidFront</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
+  <!-- Background music -->
+  <audio id="bgMusic" preload="auto"></audio>
+
   <!-- Главное меню -->
-  <div id="mainMenu" class="menu-overlay menu-screen">
+  <div id="mainMenu" class="menu-overlay menu-screen menu-splash">
     <div class="menu-box">
-      <h1 class="menu-title">Territorial Dominion</h1>
-      <p class="menu-subtitle">Выберите режим</p>
+      <h1 class="menu-title menu-title-vf">VOIDFRONT</h1>
+      <p class="menu-tagline">Claim the void. Break the balance.</p>
       <div class="menu-buttons">
         <button type="button" id="btnSingle" class="menu-btn">Одиночка с ботами</button>
         <button type="button" id="btnMulti" class="menu-btn">Мультиплеер</button>
       </div>
+      <button type="button" id="btnMusicToggle" class="music-toggle" title="Вкл/Выкл музыку">&#9835; Музыка</button>
     </div>
   </div>
 
@@ -36,6 +40,28 @@
       <div class="row" style="margin-top:14px">
         <button type="button" id="nicknameBack" class="menu-btn secondary">Назад</button>
         <button type="button" id="nicknameOk" class="menu-btn">Продолжить</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Одиночка: лобби без чата, выбор точки спавна -->
+  <div id="soloLobbyScreen" class="menu-overlay menu-screen" style="display:none">
+    <div class="menu-box" style="max-width:420px">
+      <p class="menu-subtitle">Одиночка — настройки</p>
+      <p class="muted" style="margin-bottom:10px">Выберите точку спавна на карте (1–6). Боты займут остальные.</p>
+      <div id="soloSpawnPicker" class="row" style="gap:8px; flex-wrap:wrap; margin-bottom:14px"></div>
+      <p class="muted" style="margin-bottom:6px">Тип карты:</p>
+      <div id="soloMapVariationPicker" class="row" style="gap:8px; flex-wrap:wrap; margin-bottom:14px"></div>
+      <p class="muted" style="margin-bottom:6px">Seed карты (число или пусто для случайной):</p>
+      <div class="row" style="gap:8px; margin-bottom:14px">
+        <input type="text" id="soloMapSeedInput" placeholder="случайный" style="width:120px;padding:6px 10px;border-radius:6px;border:1px solid #445;background:#181a3a;color:#ddd;font-size:13px">
+        <button type="button" id="soloMapReroll" class="menu-btn secondary" style="min-width:40px">🎲</button>
+      </div>
+      <p class="muted" style="margin-bottom:6px">Режим:</p>
+      <div id="soloModePicker" class="row" style="gap:8px; flex-wrap:wrap; margin-bottom:14px"></div>
+      <div class="row" style="margin-top:14px">
+        <button type="button" id="soloLobbyBack" class="menu-btn secondary">Назад</button>
+        <button type="button" id="soloLobbyStart" class="menu-btn primary">Начать игру</button>
       </div>
     </div>
   </div>
@@ -100,6 +126,7 @@
 
   <div id="gameWrap" style="display:none">
   <div id="gameTopCenter" class="game-top-center">
+    <div id="survivalHud" style="display:none;color:#b8d4ff;font-size:14px;"></div>
     <div id="dominationTimer" style="display:none"></div>
     <div id="lvlUpWrap" class="lvlup-wrap">
       <div class="lvlup-progress-wrap"><div id="lvlUpProgress" class="lvlup-progress"></div></div>
@@ -112,7 +139,7 @@
   </div>
 
   <!-- Ability picker overlay -->
-  <div id="abilityOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9999;display:none;align-items:center;justify-content:center;">
+  <div id="abilityOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9999;align-items:center;justify-content:center;">
     <div id="abilityPanel" style="background:linear-gradient(135deg,#0d0f2a 0%,#161844 100%);border:2px solid #44aaff;border-radius:16px;padding:28px 32px;min-width:220px;box-shadow:0 0 40px #2266ff55;position:relative;">
       <button id="abilityClose" style="position:absolute;top:8px;right:12px;background:none;border:none;color:#aaa;font-size:22px;cursor:pointer;">&times;</button>
       <div style="color:#ddeeff;font-size:18px;font-weight:700;text-align:center;margin-bottom:18px;">Способности</div>
@@ -120,15 +147,31 @@
     </div>
   </div>
   <!-- Test panel (solo only) -->
-  <div id="testPanel" style="display:none;position:fixed;top:10px;right:10px;z-index:9998;background:rgba(10,12,30,0.85);border:1px solid #44aaff;border-radius:10px;padding:10px 14px;display:none;flex-direction:column;gap:6px;box-shadow:0 0 20px #2266ff44;">
+  <div id="testPanel" style="display:none;position:fixed;top:10px;right:10px;z-index:9998;background:rgba(10,12,30,0.85);border:1px solid #44aaff;border-radius:10px;padding:10px 14px;flex-direction:column;gap:6px;box-shadow:0 0 20px #2266ff44;">
     <div style="color:#88bbff;font-size:12px;font-weight:700;text-align:center;margin-bottom:4px;">Тест-панель</div>
     <button id="testAddPop" style="background:#1a1d55;color:#ddeeff;border:1px solid #44aaff;border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12px;">+1000 население</button>
     <button id="testAddLevel" style="background:#1a1d55;color:#ddeeff;border:1px solid #44aaff;border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12px;">+100 уровень</button>
     <button id="testNoCooldowns" style="background:#1a1d55;color:#ddeeff;border:1px solid #44aaff;border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12px;">Без перезарядок</button>
   </div>
 
+  <!-- Music Player — top right under test panel -->
+  <div id="musicPlayer" class="music-player-bar music-player-topright">
+    <div class="mp-controls">
+      <button type="button" id="mpPrev" class="mp-btn" title="Пред. трек">&#9664;&#9664;</button>
+      <button type="button" id="mpPlay" class="mp-btn" title="Играть/Пауза">&#9654;</button>
+      <button type="button" id="mpNext" class="mp-btn" title="След. трек">&#9654;&#9654;</button>
+      <span id="mpTrackName" class="mp-track">—</span>
+      <input type="range" id="mpVolume" class="mp-vol" min="0" max="100" value="35" title="Громкость">
+    </div>
+    <div class="mp-progress-row">
+      <span id="mpTimeNow" class="mp-time">0:00</span>
+      <input type="range" id="mpProgress" class="mp-progress" min="0" max="1000" value="0" title="Перемотка">
+      <span id="mpTimeDur" class="mp-time">0:00</span>
+    </div>
+  </div>
+
   <div id="hud">
-    <div class="title">Territorial Dominion <span id="gameVersionBadge" style="font-size:11px;font-weight:600;opacity:0.55;letter-spacing:0.3px;">v0.6 COSMIC</span></div>
+    <div class="title">VoidFront <span id="gameVersionBadge" style="font-size:11px;font-weight:600;opacity:0.55;letter-spacing:0.3px;cursor:help;" title="">BUILD 1.2a</span></div>
 
     <div id="squadStrip" class="squad-strip"></div>
 
@@ -167,33 +210,66 @@
     <div class="box">
       <div class="subtitle">Верфь — покупка кораблей</div>
       <div id="unitShop" class="unit-shop">
-        <button type="button" class="unit-buy-btn" data-type="fighter" title="Корвет — быстрый разведчик">
-          <span class="unit-buy-icon">▲<sup>·</sup></span>
-          <span class="unit-buy-name">Корвет</span>
-          <span class="unit-buy-cost">40 ⚡€</span>
-        </button>
-        <button type="button" class="unit-buy-btn" data-type="destroyer" title="Эсминец">
-          <span class="unit-buy-icon">▲<sup>··</sup></span>
-          <span class="unit-buy-name">Эсминец</span>
-          <span class="unit-buy-cost">500 ⚡€</span>
-        </button>
-        <button type="button" class="unit-buy-btn" data-type="cruiser" title="Крейсер">
-          <span class="unit-buy-icon">▲<sup>···</sup></span>
-          <span class="unit-buy-name">Крейсер</span>
-          <span class="unit-buy-cost">2000 ⚡€</span>
-        </button>
-        <button type="button" class="unit-buy-btn" data-type="battleship" title="Линкор">
-          <span class="unit-buy-icon">▲<sup>····</sup></span>
-          <span class="unit-buy-name">Линкор</span>
-          <span class="unit-buy-cost">6000 ⚡€</span>
-        </button>
-        <button type="button" class="unit-buy-btn" data-type="hyperDestroyer" title="ГиперЛинкор">
-          <span class="unit-buy-icon">▲<sup>······</sup></span>
-          <span class="unit-buy-name">ГиперЛинкор</span>
-          <span class="unit-buy-cost">15000 ⚡€</span>
-        </button>
+        <div class="unit-buy-col" data-type="fighter">
+          <button type="button" class="unit-buy-btn" data-type="fighter" title="Корвет — быстрый разведчик">
+            <span class="unit-buy-icon">▲<sup>·</sup></span>
+            <span class="unit-buy-name">Корвет</span>
+            <span class="unit-buy-cost">40 ⚡€</span>
+            <span class="unit-count-badge" style="font-size:9px;opacity:0.5;display:block;">0/300</span>
+          </button>
+          <div class="unit-batch-row">
+            <button type="button" class="unit-batch-btn" data-type="fighter" data-count="10">×10</button>
+            <button type="button" class="unit-batch-btn" data-type="fighter" data-count="100">×100</button>
+          </div>
+        </div>
+        <div class="unit-buy-col" data-type="destroyer">
+          <button type="button" class="unit-buy-btn" data-type="destroyer" title="Эсминец">
+            <span class="unit-buy-icon">▲<sup>··</sup></span>
+            <span class="unit-buy-name">Эсминец</span>
+            <span class="unit-buy-cost">450 ⚡€</span>
+            <span class="unit-count-badge" style="font-size:9px;opacity:0.5;display:block;">0/100</span>
+          </button>
+          <div class="unit-batch-row">
+            <button type="button" class="unit-batch-btn" data-type="destroyer" data-count="10">×10</button>
+            <button type="button" class="unit-batch-btn" data-type="destroyer" data-count="100">×100</button>
+          </div>
+        </div>
+        <div class="unit-buy-col" data-type="cruiser">
+          <button type="button" class="unit-buy-btn" data-type="cruiser" title="Крейсер">
+            <span class="unit-buy-icon">▲<sup>···</sup></span>
+            <span class="unit-buy-name">Крейсер</span>
+            <span class="unit-buy-cost">1800 ⚡€</span>
+            <span class="unit-count-badge" style="font-size:9px;opacity:0.5;display:block;">0/50</span>
+          </button>
+          <div class="unit-batch-row">
+            <button type="button" class="unit-batch-btn" data-type="cruiser" data-count="10">×10</button>
+            <button type="button" class="unit-batch-btn" data-type="cruiser" data-count="100">×100</button>
+          </div>
+        </div>
+        <div class="unit-buy-col" data-type="battleship">
+          <button type="button" class="unit-buy-btn" data-type="battleship" title="Линкор">
+            <span class="unit-buy-icon">▲<sup>····</sup></span>
+            <span class="unit-buy-name">Линкор</span>
+            <span class="unit-buy-cost">5000 ⚡€</span>
+            <span class="unit-count-badge" style="font-size:9px;opacity:0.5;display:block;">0/10</span>
+          </button>
+          <div class="unit-batch-row">
+            <button type="button" class="unit-batch-btn" data-type="battleship" data-count="10">×10</button>
+          </div>
+        </div>
+        <div class="unit-buy-col" data-type="hyperDestroyer">
+          <button type="button" class="unit-buy-btn" data-type="hyperDestroyer" title="ГиперЛинкор">
+            <span class="unit-buy-icon">▲<sup>······</sup></span>
+            <span class="unit-buy-name">ГиперЛинкор</span>
+            <span class="unit-buy-cost">12000 ⚡€</span>
+            <span class="unit-count-badge" style="font-size:9px;opacity:0.5;display:block;">0/10</span>
+          </button>
+          <div class="unit-batch-row">
+            <button type="button" class="unit-batch-btn" data-type="hyperDestroyer" data-count="10">×10</button>
+          </div>
+        </div>
       </div>
-      <div class="muted">Клик по типу — спавн у планеты. ЛКМ по карте — точки маршрута. Горячие клавиши: 1–5.</div>
+      <div class="muted">Клик по типу — спавн у планеты. ЛКМ по карте — точки маршрута.</div>
       <div class="row">
         <button id="rallyPointBtn">Точка сбора</button>
         <button id="resetCamBtn">Камера</button>
@@ -207,6 +283,7 @@
       <div id="squadControlOne" style="display:none">
         <div class="row">
           <button type="button" id="splitSquadBtnOne">Разделить</button>
+          <button type="button" id="splitByTypeBtnOne">Разделить по типу</button>
         </div>
         <div class="row">
           <label>Строй</label>
@@ -238,6 +315,7 @@
         <div class="row">
           <button id="mergeSquadBtn">Объединить в отряд</button>
           <button id="splitSquadBtn">Разделить</button>
+          <button id="splitByTypeBtn">Разделить по типу</button>
         </div>
         <div class="row">
           <label>Строй</label>
@@ -351,7 +429,7 @@
   <script>
   (function() {
     function showScreen(id) {
-      ["mainMenu", "nicknameScreen", "multiConnectScreen", "lobbyScreen"].forEach(function(s) {
+      ["mainMenu", "nicknameScreen", "soloLobbyScreen", "multiConnectScreen", "lobbyScreen"].forEach(function(s) {
         var el = document.getElementById(s);
         if (el) el.style.display = (s === id) ? "flex" : "none";
       });
@@ -373,13 +451,7 @@
       if (window._menuMode === "multi") {
         showScreen("multiConnectScreen");
       } else if (window._menuMode === "single") {
-        window._pendingSingleStart = nick;
-        showScreen("mainMenu");
-        var msg = document.createElement("p");
-        msg.id = "menuLoadingMsg";
-        msg.style.cssText = "position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,0.9);color:#fff;padding:20px 40px;border-radius:12px;z-index:10001;";
-        msg.textContent = "Загрузка игры...";
-        document.body.appendChild(msg);
+        showScreen("soloLobbyScreen");
       }
     });
     var multiConnectBack = document.getElementById("multiConnectBack");
@@ -391,8 +463,11 @@
   <script src="https://cdn.jsdelivr.net/npm/pixi-filters@6.1.1/dist/pixi-filters.min.js"></script>
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
   <script src="net.js?v=4"></script>
-  <script src="client.js?v=28"></script>
-  <script src="test-mechanics.js?v=1"></script>
+  <script src="formations.js?v=14"></script>
+  <script src="combat.js?v=14"></script>
+  <script src="squad-logic.js?v=14"></script>
+  <script src="client.js?v=14"></script>
+  <script src="test-mechanics.js?v=14"></script>
   <script>
   (function(){
     var b = document.getElementById("btnCreateRoom");

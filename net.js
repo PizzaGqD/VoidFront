@@ -40,7 +40,7 @@
     "growthMul", "influenceSpeedMul", "unitCostMul",
     "pendingCardPicks", "xpZonePct", "xpGainMul",
     "_levelBonusMul", "rerollCount",
-    "shieldHp", "shieldMaxHp", "shieldRegenCd",
+    "shieldHp", "shieldMaxHp", "shieldRegenCd", "shieldRegenBonus", "_cardPicksCount",
     "mineYieldBonus", "cityTargetBonus", "attackEffect", "attackEffects"
   ];
   const PLAYER_FULL_KEYS = [
@@ -55,7 +55,7 @@
     "waypoints", "waypointIndex", "formationType", "formationRows",
     "formationPigWidth", "straightMode",
     "_cryoSlowUntil", "_cryoSlowAmount", "_fireDotUntil", "_fireDotDps",
-    "regenPerSec", "orbitTarget", "_activeShieldHp", "_hyperArrivalFlash"
+    "regenPerSec", "orbitTarget", "_activeShieldHp", "_hyperArrivalFlash", "_pirateHyperUntil"
   ];
 
   // ─── Utility ─────────────────────────────────────────────────────

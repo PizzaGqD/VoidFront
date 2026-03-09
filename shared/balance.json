@@ -1,18 +1,18 @@
 {
   "world": {
-    "width": 5000,
-    "height": 3000,
+    "width": 6000,
+    "height": 3600,
     "maxPlayers": 6,
-    "comment": "World size in units. Map generation uses FBM noise."
+    "comment": "World size in px. 6000x3600 gives ~16:9 aspect."
   },
   "camera": {
     "startZoom": 0.22,
-    "comment": "Initial camera zoom (Pixi scale)."
+    "comment": "Initial camera zoom (Pixi scale). Lower = see more map."
   },
   "bots": {
     "count": 5,
     "thinkIntervalSeconds": 0.8,
-    "comment": "Max bot players in solo. Bots decide actions every thinkIntervalSeconds."
+    "comment": "Max AI players in solo. Bots re-evaluate every thinkIntervalSeconds."
   },
   "city": {
     "startPopulation": 150,
@@ -25,86 +25,86 @@
     "damageRadius": 25,
     "damagePerUnitPerSecond": 1.5,
     "planetAttackRadiusMul": 2.5,
-    "cityAttackTargets": 1,
-    "cityAttackRate": 0.38,
-    "cityAttackDamage": 4,
-    "comment": "population = city HP. planetAttackRadiusMul = ships must be within planetRadius*mul to fire at planet. cityAttackTargets = base number of targets (upgradeable via cards). No send cooldown."
+    "cityAttackTargets": 2,
+    "cityAttackRate": 0.4,
+    "cityAttackDamage": 5,
+    "comment": "population = city HP. At 150 pop, growth ~3.5/min. cityAttackTargets=2 so base defends itself vs small raids. cityAttackDamage=5 punishes unprotected scouts."
   },
   "unitTypes": {
     "fighter": {
       "name": "Корвет",
       "squadSize": 1,
       "cost": 40,
-      "hp": 50,
+      "hp": 45,
       "damage": 3,
       "attackRate": 0.8,
-      "speed": 32,
+      "speed": 34,
       "attackRange": 60,
       "maxTargets": 1,
       "popPenaltyPerUnit": 1,
       "sizeMultiplier": 1.0,
       "orbitTarget": false,
-      "comment": "Single cheap corvette, fast scout/harasser"
+      "comment": "EARLY. Fastest unit. Cheap scout/harasser. DPS=2.4, cost/DPS=16.7. Fragile (45 hp). Mass effectively early, but melts vs AoE/cruisers."
     },
     "destroyer": {
       "name": "Эсминец",
       "squadSize": 1,
-      "cost": 500,
-      "hp": 750,
-      "damage": 12,
-      "attackRate": 0.4,
-      "speed": 36,
+      "cost": 450,
+      "hp": 700,
+      "damage": 14,
+      "attackRate": 0.42,
+      "speed": 28,
       "attackRange": 120,
       "maxTargets": 2,
       "popPenaltyPerUnit": 10,
       "sizeMultiplier": 2.5,
       "orbitTarget": false,
-      "comment": "Single powerful unit, attacks 2 targets, cannot hit same target twice"
+      "comment": "MID. Workhorse. 2x range of fighter. DPS=11.76, cost/DPS=38.3. Available ~2-3 min. Slower than fighters, so doesn't chase scouts."
     },
     "cruiser": {
       "name": "Крейсер",
       "squadSize": 1,
-      "cost": 2000,
-      "hp": 2500,
-      "damage": 30,
-      "attackRate": 0.286,
-      "speed": 24,
-      "attackRange": 192,
+      "cost": 1800,
+      "hp": 2200,
+      "damage": 28,
+      "attackRate": 0.3,
+      "speed": 20,
+      "attackRange": 180,
       "maxTargets": 3,
       "popPenaltyPerUnit": 30,
       "sizeMultiplier": 4.0,
       "orbitTarget": false,
-      "comment": "Heavy cruiser, attacks 3 targets simultaneously"
+      "comment": "MID-LATE. Area denial. 3x range of fighter. DPS=25.2, cost/DPS=71.4. Kills fighter groups. Available ~8-10 min."
     },
     "battleship": {
       "name": "Линкор",
       "squadSize": 1,
-      "cost": 6000,
-      "hp": 7000,
-      "damage": 60,
-      "attackRate": 0.2,
-      "speed": 18,
-      "attackRange": 240,
+      "cost": 5000,
+      "hp": 5500,
+      "damage": 55,
+      "attackRate": 0.22,
+      "speed": 15,
+      "attackRange": 220,
       "maxTargets": 4,
       "popPenaltyPerUnit": 60,
       "sizeMultiplier": 6.0,
       "orbitTarget": false,
-      "comment": "Massive battleship, attacks 4 targets, slow but devastating"
+      "comment": "LATE. Siege breaker. 4 targets at long range. DPS=48.4, cost/DPS=103.3. Available ~15 min. Needs escort (slow)."
     },
     "hyperDestroyer": {
       "name": "ГиперЛинкор",
       "squadSize": 1,
-      "cost": 15000,
-      "hp": 16000,
-      "damage": 100,
-      "attackRate": 0.167,
-      "speed": 14.4,
-      "attackRange": 288,
+      "cost": 12000,
+      "hp": 12000,
+      "damage": 90,
+      "attackRate": 0.18,
+      "speed": 12,
+      "attackRange": 260,
       "maxTargets": 6,
       "popPenaltyPerUnit": 100,
       "sizeMultiplier": 8.0,
       "orbitTarget": false,
-      "comment": "Ultimate capital ship, attacks 6 targets, glowing core"
+      "comment": "ENDGAME. Game-ender. 6 targets, massive range. DPS=97.2, cost/DPS=123.5. Available ~25 min. Very slow, high pop penalty."
     }
   },
   "mines": {
@@ -120,11 +120,11 @@
     "startingMinesPerPlayer": 2,
     "neutralMinesPerPlayer": 2,
     "totalMines": 25,
-    "comment": "Mines replace scattered resources. Each captured mine produces gems (eCredits + XP). Center mine is rich (x2.5)."
+    "comment": "1 mine ≈ 60 eCredits/min. 2 starting mines = 120/min. Rich mine = 150/min. Control mines = faster tech-up."
   },
   "eCredits": {
     "startingAmount": 200,
-    "comment": "Players start with some eCredits. No cap, can accumulate infinitely."
+    "comment": "200 = 5 fighters or save for destroyer in ~2 min. Economy is mine-driven."
   },
   "turret": {
     "spacing": 55,
@@ -132,17 +132,17 @@
     "attackRate": 1.2,
     "attackDamage": 3,
     "hpRatio": 0.1,
-    "comment": "Border turrets placed every 'spacing' px along influence border."
+    "comment": "Border turrets. spacing=px between them. They slow attackers but won't stop a real army."
   },
   "formation": {
     "horizontalSpacing": 14,
     "verticalSpacing": 18,
-    "comment": "Formation spacing. Mixed formations sort by type: fighters front, then destroyers, cruisers, battleships, hyperDestroyers rear."
+    "comment": "Visual formation grid. Mixed types: fighters front, destroyers mid, capitals rear."
   },
   "terrain": {
     "influenceNumRays": 96,
     "influenceStepSize": 2,
-    "comment": "Zone polygon: 96 directions, step until budget runs out.",
+    "comment": "Zone shape: 96 rays, each stepped by 2px until influence budget depleted.",
     "types": {
       "deepWater": {
         "speedMultiplier": 0.3,
@@ -179,19 +179,19 @@
     "dischargeLifetime": 0.3,
     "dischargeSegments": 5,
     "parallaxLayers": 4,
-    "comment": "Center nebula mandatory. Slows units 50%, +25% damage taken, +10% attack rate/range/damage."
+    "comment": "Center nebula = contested zone. -50% speed, +25% dmg taken, +10% atk rate/range/dmg. High risk high reward."
   },
   "waterBonus": {
     "waterRatioThreshold": 0.4,
     "growthBonus": 0.5,
     "penaltyReduction": 0.15,
-    "comment": "If terrain around city has >= waterRatioThreshold water: +growthBonus to growth."
+    "comment": "Cities near water grow faster. Threshold: 40% water tiles in zone."
   },
   "xp": {
     "baseNextLevel": 160,
     "perLevelFactor": 16,
     "levelMultiplier": 1.05,
-    "comment": "xpNext = baseNextLevel + perLevelFactor * level * levelMultiplier."
+    "comment": "xpNext = 160 + 16 * level * 1.05. Level 5 needs ~244 XP. Level 10 needs ~328 XP."
   },
   "map": {
     "textureWidth": 1600,
@@ -199,22 +199,22 @@
     "landThreshold": 0.08,
     "falloffStrength": 1.15,
     "falloffAmount": 0.65,
-    "comment": "FBM noise map generation."
+    "comment": "FBM noise map generation. landThreshold controls land/water ratio."
   },
   "fog": {
     "enabled": true,
     "unseenAlpha": 0.92,
     "seenAlpha": 0.55,
-    "comment": "Three states: unseen (black), seen (dark), visible (clear)."
+    "comment": "Three fog states: unseen (near-black), seen (dim), visible (clear)."
   },
   "zones": {
     "enabled": true,
-    "comment": "Show influence polygons."
+    "comment": "Show influence polygons around cities."
   },
   "grid": {
     "enabled": false,
     "step": 100,
-    "comment": "Debug grid overlay."
+    "comment": "Debug grid overlay. Toggle in dev."
   },
   "blackHole": {
     "cooldown": 180,
@@ -226,22 +226,65 @@
     "minDamagePerSec": 1,
     "maxDamagePerSec": 10,
     "gravityStrength": 70,
-    "comment": "Black hole ability. Grows over growthTime, holds for holdTime, fades over fadeTime. Damage scales inversely with distance."
+    "comment": "3 min cooldown. 17s total (3s grow + 10s hold + 4s fade). R=400px. Pulls and damages units."
   },
   "chainLightning": {
     "bounceRadius": 60,
     "damageDecay": 0.25,
     "maxBounces": 3,
-    "comment": "Mythic card effect: laser bounces to nearby enemies, losing 25% damage each bounce."
+    "comment": "Laser bounces to nearby enemies within 60px, losing 25% per bounce."
   },
   "cryoEffect": {
     "slowPercent": 0.4,
     "duration": 2,
-    "comment": "Mythic card: hit units are slowed by 40% for 2 seconds."
+    "comment": "Slows target 40% for 2s. Stacks with nebula slow."
   },
   "fireEffect": {
     "dotDamagePerSec": 3,
     "duration": 3,
-    "comment": "Mythic card: hit units take 3 dmg/sec for 3 seconds."
+    "comment": "3 dmg/sec for 3s = 9 total bonus damage per hit."
+  },
+  "combat": {
+    "detectRangeMul": 1.5,
+    "engageRangeFactor": 0.95,
+    "zoneJoinRadiusFactor": 1.35,
+    "zoneJoinRadiusPadding": 80,
+    "disengageDelay": 1.0,
+    "retargetCooldownSec": 3.0,
+    "chaseHysteresis": 1.2,
+    "combatDeadZone": 15,
+    "siegeDistanceMul": 0.85,
+    "regroupTimeout": 2.5,
+    "regroupDuration": 2.5,
+    "zoneLockRangeFactor": 3.0,
+    "threatMemoryDuration": 5.0,
+    "comment": "Squad-first combat. engageRangeFactor controls start-of-fight contact, zoneJoinRadius expands nearby squads into the same battle, and disengage/regroup keeps post-battle recovery stable without auto-resuming generic move orders."
+  },
+  "movement": {
+    "waypointRadius": 28,
+    "waypointStopDist": 35,
+    "formationDeadZone": 14,
+    "minPersonalDist": 16,
+    "separationPush": 0.5,
+    "formationCooldown": 0.5,
+    "formationTargetThreshold": 25,
+    "maxFormationForce": 0.3,
+    "comment": "Movement/collision constants. minPersonalDist=16: units push apart if closer. separationPush=0.5: gentle repulsion."
+  },
+  "formations": {
+    "moveDeadZone": 12,
+    "combatDeadZone": 20,
+    "regroupDeadZone": 8,
+    "formationCooldown": 2.0,
+    "regroupTimeout": 3.0,
+    "maxCorrectionForce": 0.4,
+    "slotStickiness": 0.95,
+    "separationInFormation": 0.2,
+    "followLag": 0.15,
+    "combatBreakDistance": 150,
+    "facingLerpSpeed": 3.0,
+    "steeringPush": 0.6,
+    "steeringRadius": 40,
+    "comment": "Squad-first formations. formationCooldown=2.0 enforces max full-recalc frequency. facingLerpSpeed=3.0 rad/s for smooth rotation. steeringRadius=40 for enemy avoidance."
   }
 }
