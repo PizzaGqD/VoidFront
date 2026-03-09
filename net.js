@@ -17,7 +17,7 @@
 
   const SEND_RATE_HZ           = 30;
   const SEND_INTERVAL_MS       = 1000 / SEND_RATE_HZ;           // ~33.3 ms
-  const FULL_SYNC_EVERY        = 30;                             // every 30 ticks ≈ 1 s
+  const FULL_SYNC_EVERY        = 15;                             // every 15 ticks ≈ 0.5 s
   const ZONE_SYNC_EVERY        = 8;                              // zone rays every 8 ticks
   const ZONE_SYNC_INTERVAL_MS  = ZONE_SYNC_EVERY * SEND_INTERVAL_MS; // ~266 ms
   const TELEPORT_DIST          = 400;                            // snap instead of lerp
@@ -55,7 +55,8 @@
     "waypoints", "waypointIndex", "formationType", "formationRows",
     "formationPigWidth", "straightMode",
     "_cryoSlowUntil", "_cryoSlowAmount", "_fireDotUntil", "_fireDotDps",
-    "regenPerSec", "orbitTarget", "_activeShieldHp", "_hyperArrivalFlash", "_pirateHyperUntil"
+    "regenPerSec", "orbitTarget", "_activeShieldHp", "_hyperArrivalFlash", "_pirateHyperUntil",
+    "squadId", "_combatState", "_orderType", "_formationAngle", "_lastFacingAngle"
   ];
 
   // ─── Utility ─────────────────────────────────────────────────────
@@ -213,6 +214,7 @@
       if (isFull) {
         gs.timeScale = state.timeScale ?? 1;
         gs.nextResId = state.nextResId;
+        gs.nextEngagementZoneId = state.nextEngagementZoneId;
 
         const turrets = [];
         for (const t of state.turrets.values()) {
@@ -240,6 +242,50 @@
           resources.push(ro);
         }
         gs.resources = resources;
+
+        if (state.squads && state.squads.size > 0) {
+          gs.squads = [];
+          for (const sq of state.squads.values()) {
+            gs.squads.push({
+              id: sq.id, leaderUnitId: sq.leaderUnitId,
+              unitIds: sq.unitIds ? sq.unitIds.slice() : [],
+              ownerId: sq.ownerId,
+              formation: {
+                type: sq.formation?.type || "line",
+                rows: sq.formation?.rows || 3,
+                facing: roundN(sq.formation?.facing || 0, 1000),
+                targetFacing: sq.formation?.targetFacing != null ? roundN(sq.formation.targetFacing, 1000) : undefined,
+                pigWidth: sq.formation?.pigWidth,
+                dirty: sq.formation?.dirty
+              },
+              combat: { mode: sq.combat?.mode || "idle", zoneId: sq.combat?.zoneId },
+              anchor: sq.anchor ? { x: roundN(sq.anchor.x, 10), y: roundN(sq.anchor.y, 10) } : null,
+              order: sq.order ? {
+                type: sq.order.type || "idle",
+                waypoints: (sq.order.waypoints || []).map(w => ({ x: roundN(w.x, 10), y: roundN(w.y, 10) })),
+                holdPoint: sq.order.holdPoint ? { x: roundN(sq.order.holdPoint.x, 10), y: roundN(sq.order.holdPoint.y, 10) } : null,
+                targetUnitId: sq.order.targetUnitId,
+                targetCityId: sq.order.targetCityId,
+                mineId: sq.order.mineId
+              } : null
+            });
+          }
+        }
+
+        if (state.engagementZones && state.engagementZones.size > 0) {
+          gs.engagementZones = [];
+          for (const z of state.engagementZones.values()) {
+            gs.engagementZones.push({
+              id: z.id, squadIds: z.squadIds ? z.squadIds.slice() : [],
+              anchorX: z.anchorX != null ? roundN(z.anchorX, 10) : null,
+              anchorY: z.anchorY != null ? roundN(z.anchorY, 10) : null,
+              radius: roundN(z.radius || 0, 10),
+              displayRadius: roundN(z.displayRadius || 0, 10),
+              createdAt: z.createdAt, owners: z.owners || [],
+              balanceSegments: z.balanceSegments || []
+            });
+          }
+        }
       }
 
       if (state._shieldHitEffects && state._shieldHitEffects.length > 0) {

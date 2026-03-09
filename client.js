@@ -11740,6 +11740,91 @@
     }
     if (snap.battleMarchUntil) state._battleMarchUntil = { ...snap.battleMarchUntil };
     if (snap.hyperFlashes) state._hyperFlashes = snap.hyperFlashes;
+    if (snap.nextEngagementZoneId != null) state.nextEngagementZoneId = snap.nextEngagementZoneId;
+
+    // ── Squads sync ──
+    if (snap.squads && typeof SQUADLOGIC !== "undefined") {
+      if (!state.squads) state.squads = new Map();
+      const wantSquadIds = new Set(snap.squads.map(s => s.id));
+      for (const sq of snap.squads) {
+        let existing = state.squads.get(sq.id);
+        if (!existing) {
+          existing = {
+            id: sq.id, leaderUnitId: sq.leaderUnitId,
+            unitIds: sq.unitIds || [],
+            ownerId: sq.ownerId,
+            formation: { type: "line", rows: 3, facing: 0, dirty: false, dirtyAt: 0 },
+            combat: { mode: "idle", zoneId: null, _disengageTimer: null, queuedOrder: null, resumeOrder: null },
+            anchor: { x: 0, y: 0 },
+            order: { type: "idle", waypoints: [], holdPoint: null }
+          };
+          state.squads.set(sq.id, existing);
+        }
+        existing.leaderUnitId = sq.leaderUnitId;
+        existing.unitIds = sq.unitIds || [];
+        existing.ownerId = sq.ownerId;
+        if (sq.formation) {
+          existing.formation.type = sq.formation.type || "line";
+          existing.formation.rows = sq.formation.rows || 3;
+          existing.formation.facing = sq.formation.facing || 0;
+          if (sq.formation.targetFacing != null) existing.formation.targetFacing = sq.formation.targetFacing;
+          if (sq.formation.pigWidth != null) existing.formation.pigWidth = sq.formation.pigWidth;
+        }
+        if (sq.combat) {
+          existing.combat.mode = sq.combat.mode || "idle";
+          existing.combat.zoneId = sq.combat.zoneId;
+        }
+        if (sq.anchor) {
+          existing.anchor.x = sq.anchor.x;
+          existing.anchor.y = sq.anchor.y;
+        }
+        if (sq.order) {
+          existing.order.type = sq.order.type || "idle";
+          existing.order.waypoints = sq.order.waypoints || [];
+          existing.order.holdPoint = sq.order.holdPoint || null;
+          existing.order.targetUnitId = sq.order.targetUnitId;
+          existing.order.targetCityId = sq.order.targetCityId;
+          existing.order.mineId = sq.order.mineId;
+        }
+        for (const uid of existing.unitIds) {
+          const u = state.units.get(uid);
+          if (u) {
+            u.squadId = sq.id;
+            u.leaderId = uid === sq.leaderUnitId ? null : sq.leaderUnitId;
+          }
+        }
+      }
+      for (const id of [...state.squads.keys()]) {
+        if (!wantSquadIds.has(id)) state.squads.delete(id);
+      }
+      if (state.nextSquadId == null || state.nextSquadId <= Math.max(...wantSquadIds, 0)) {
+        state.nextSquadId = Math.max(...wantSquadIds, 0) + 1;
+      }
+    }
+
+    // ── Engagement zones sync ──
+    if (snap.engagementZones) {
+      if (!state.engagementZones) state.engagementZones = new Map();
+      const wantZoneIds = new Set(snap.engagementZones.map(z => z.id));
+      for (const z of snap.engagementZones) {
+        let existing = state.engagementZones.get(z.id);
+        if (!existing) {
+          existing = { id: z.id, squadIds: [], anchorX: null, anchorY: null, radius: 0, displayRadius: 0, createdAt: state.t };
+          state.engagementZones.set(z.id, existing);
+        }
+        existing.squadIds = z.squadIds || [];
+        existing.anchorX = z.anchorX;
+        existing.anchorY = z.anchorY;
+        existing.radius = z.radius;
+        existing.displayRadius = z.displayRadius;
+        existing.createdAt = z.createdAt;
+        existing.owners = z.owners || [];
+        existing.balanceSegments = z.balanceSegments || [];
+      }
+      for (const id of [...state.engagementZones.keys()]) {
+        if (!wantZoneIds.has(id)) state.engagementZones.delete(id);
+      }
+    }
 
     if (snap.timeScale != null) {
       document.querySelectorAll(".speed-btn").forEach((b) => {
@@ -12477,19 +12562,22 @@
       const myId = state.myPlayerId;
       for (const u of state.units.values()) {
         if (u.owner === myId) continue;
-        const lid = u.leaderId || u.id;
-        if (lid === u.id) continue;
-        const leader = state.units.get(lid);
+        if (!u.leaderId) continue;
+        const leader = state.units.get(u.leaderId);
         if (!leader) continue;
         const fox = u.formationOffsetX ?? 0, foy = u.formationOffsetY ?? 0;
         const lox = leader.formationOffsetX ?? 0, loy = leader.formationOffsetY ?? 0;
         const relX = fox - lox, relY = foy - loy;
         if (relX === 0 && relY === 0) continue;
+
+        let formFacing = leader._formationAngle ?? 0;
+        const sq = u.squadId != null ? state.squads?.get(u.squadId) : null;
+        if (sq && sq.formation) formFacing = sq.formation.facing ?? formFacing;
+
         const spd = Math.hypot(leader.vx || 0, leader.vy || 0);
-        if (spd > 0.05) leader._lastFacingAngle = Math.atan2(leader.vy, leader.vx);
-        const currentAngle = leader._lastFacingAngle ?? 0;
-        const offsetAngle = leader._formationAngle ?? 0;
-        const delta = currentAngle - offsetAngle;
+        if (spd > 0.3) leader._lastFacingAngle = Math.atan2(leader.vy, leader.vx);
+        const currentAngle = leader._lastFacingAngle ?? formFacing;
+        const delta = currentAngle - formFacing;
         if (Math.abs(delta) < 0.01) {
           u.x = leader.x + relX;
           u.y = leader.y + relY;
