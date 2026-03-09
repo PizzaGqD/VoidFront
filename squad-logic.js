@@ -122,12 +122,7 @@
   }
 
   function getZoneJoinRadius(state, zone, helpers) {
-    let maxR = 0;
-    for (const sid of zone.squadIds) {
-      const sq = state.squads.get(sid);
-      if (sq) maxR = Math.max(maxR, getSquadEngagementRadius(state, sq, helpers));
-    }
-    return Math.max((zone.radius || 70) + config.zoneJoinPadding, maxR * 1.35);
+    return (zone.displayRadius || zone.radius || 70) + 20;
   }
 
   // ─── Squad CRUD ───────────────────────────────────────────────────
@@ -466,7 +461,7 @@
     let offsets;
     if (typeof FORMATIONS !== "undefined" && FORMATIONS.getFormationOffsets) {
       const unitTypes = orderedUnits.map((u) => u.unitType || "fighter");
-      offsets = FORMATIONS.getFormationOffsets(unitTypes, sq.formation.type, sq.formation.rows, facing);
+      offsets = FORMATIONS.getFormationOffsets(unitTypes, sq.formation.type, sq.formation.rows, facing, sq.formation.width);
     } else if (helpers && helpers.getFormationOffsets) {
       const dirX = Math.cos(facing), dirY = Math.sin(facing);
       offsets = helpers.getFormationOffsets(orderedUnits.length, sq.formation.type, sq.formation.rows, dirX, dirY, sq.formation.width, orderedUnits);
@@ -564,7 +559,10 @@
     const squadToZone = new Map();
 
     for (const zone of state.engagementZones.values()) {
-      const alive = (zone.squadIds || []).filter((sid) => state.squads.has(sid));
+      const alive = (zone.squadIds || []).filter((sid) => {
+        const s = state.squads.get(sid);
+        return s && getSquadUnits(state, s).length > 0;
+      });
       let hasConflict = false;
       const owners = new Set();
       for (const sid of alive) {
@@ -574,6 +572,10 @@
       if (owners.size >= 2) hasConflict = true;
 
       if (!hasConflict) {
+        for (const sid of alive) {
+          const sq = state.squads.get(sid);
+          if (sq && sq.combat.mode !== "idle") exitCombat(state, sq);
+        }
         state.engagementZones.delete(zone.id);
         continue;
       }
@@ -614,7 +616,7 @@
       }
 
       const zoneId = state.nextEngagementZoneId++;
-      const zone = { id: zoneId, squadIds: [aId, bId], anchorX: 0, anchorY: 0, radius: 70, lastActiveAt: state.t };
+      const zone = { id: zoneId, squadIds: [aId, bId], anchorX: null, anchorY: null, radius: 0, displayRadius: 0, lastActiveAt: state.t, createdAt: state.t };
       state.engagementZones.set(zoneId, zone);
       squadToZone.set(aId, zoneId);
       squadToZone.set(bId, zoneId);
@@ -622,25 +624,37 @@
 
     for (const sq of squads) {
       if (squadToZone.has(sq.id)) continue;
+      if (sq._zoneImmunityUntil && state.t < sq._zoneImmunityUntil) continue;
       for (const zone of state.engagementZones.values()) {
         if (zone.squadIds.includes(sq.id)) continue;
         const zoneOwners = new Set(zone.squadIds.map((sid) => state.squads.get(sid)?.ownerId));
         if (zoneOwners.has(sq.ownerId) && zoneOwners.size < 2) continue;
 
-        const zUnits = [];
-        for (const sid of zone.squadIds) {
-          const s = state.squads.get(sid);
-          if (s && s.ownerId !== sq.ownerId) zUnits.push(...getSquadUnits(state, s));
-        }
         const sqUnits = getSquadUnits(state, sq);
         let touching = false;
-        for (const a of sqUnits) {
-          const aR = (helpers.getUnitAtkRange ? helpers.getUnitAtkRange(a) : 60) * config.engageRangeFactor;
-          for (const b of zUnits) {
-            if (d(a.x, a.y, b.x, b.y) <= aR) { touching = true; break; }
+        const joinR = (zone.displayRadius || zone.radius || 70) + 20;
+
+        for (const u of sqUnits) {
+          if (zone.anchorX != null && d(u.x, u.y, zone.anchorX, zone.anchorY) <= joinR) {
+            touching = true; break;
           }
-          if (touching) break;
         }
+
+        if (!touching) {
+          const zUnits = [];
+          for (const sid of zone.squadIds) {
+            const s = state.squads.get(sid);
+            if (s && s.ownerId !== sq.ownerId) zUnits.push(...getSquadUnits(state, s));
+          }
+          for (const a of sqUnits) {
+            const aR = (helpers.getUnitAtkRange ? helpers.getUnitAtkRange(a) : 60) * config.engageRangeFactor;
+            for (const b of zUnits) {
+              if (d(a.x, a.y, b.x, b.y) <= aR) { touching = true; break; }
+            }
+            if (touching) break;
+          }
+        }
+
         if (touching) {
           zone.squadIds.push(sq.id);
           squadToZone.set(sq.id, zone.id);
@@ -665,6 +679,9 @@
     return false;
   }
 
+  const ZONE_MIN_R = 168;
+  const ZONE_RADIUS_UPDATE_INTERVAL = 1.0;
+
   function updateZoneGeometry(state, zone) {
     let sx = 0, sy = 0, cnt = 0, rad = 0;
     for (const sid of zone.squadIds) {
@@ -678,15 +695,30 @@
     zone.anchorX = zone.anchorX != null ? zone.anchorX + (targetX - zone.anchorX) * 0.05 : targetX;
     zone.anchorY = zone.anchorY != null ? zone.anchorY + (targetY - zone.anchorY) * 0.05 : targetY;
 
-    for (const sid of zone.squadIds) {
-      for (const u of getSquadUnits(state, state.squads.get(sid))) {
-        rad = Math.max(rad, d(zone.anchorX, zone.anchorY, u.x, u.y));
+    if (zone._lastRadiusUpdate == null) zone._lastRadiusUpdate = 0;
+    const elapsed = state.t - zone._lastRadiusUpdate;
+    const needsRadiusUpdate = zone.radius === 0 || elapsed >= ZONE_RADIUS_UPDATE_INTERVAL;
+
+    if (needsRadiusUpdate) {
+      zone._lastRadiusUpdate = state.t;
+      for (const sid of zone.squadIds) {
+        for (const u of getSquadUnits(state, state.squads.get(sid))) {
+          rad = Math.max(rad, d(zone.anchorX, zone.anchorY, u.x, u.y));
+        }
       }
+      const zoneMaxR = ZONE_MIN_R * 2;
+      const shipScale = Math.min(1, cnt / 30);
+      const dynamicMax = ZONE_MIN_R + (zoneMaxR - ZONE_MIN_R) * shipScale;
+      const desiredRadius = Math.min(dynamicMax, Math.max(ZONE_MIN_R, rad + 30));
+      zone.radius = desiredRadius;
     }
-    const desiredRadius = Math.max(70, rad + 40);
-    if (zone.initialRadius == null) zone.initialRadius = desiredRadius;
-    const maxR = zone.initialRadius * 2;
-    zone.radius = Math.min(maxR, desiredRadius);
+
+    const age = state.t - (zone.createdAt || 0);
+    if (age < 1.0) {
+      zone.displayRadius = zone.radius * Math.min(1, age);
+    } else {
+      zone.displayRadius = zone.radius;
+    }
     zone.lastActiveAt = state.t;
 
     const owners = new Set();
@@ -761,6 +793,7 @@
     squad.combat.mode = "idle";
     squad.combat.zoneId = null;
     squad.combat._disengageTimer = null;
+    squad._zoneImmunityUntil = state.t + 3;
 
     if (squad.combat.queuedOrder) {
       squad.order = cloneOrder(squad.combat.queuedOrder);
@@ -872,6 +905,28 @@
 
   // ─── Movement Target per Unit ─────────────────────────────────────
 
+  function clampToZone(tx, ty, zone) {
+    if (!zone || zone.anchorX == null) return { x: tx, y: ty };
+    const r = zone.radius || 120;
+    const dx = tx - zone.anchorX, dy = ty - zone.anchorY;
+    const dist = Math.hypot(dx, dy);
+    const margin = r * 0.85;
+    if (dist <= margin) return { x: tx, y: ty };
+    const scale = margin / Math.max(1, dist);
+    return { x: zone.anchorX + dx * scale, y: zone.anchorY + dy * scale };
+  }
+
+  function getZoneBoundarySteer(ux, uy, zone) {
+    if (!zone || zone.anchorX == null) return null;
+    const r = zone.radius || 120;
+    const dx = ux - zone.anchorX, dy = uy - zone.anchorY;
+    const dist = Math.hypot(dx, dy);
+    if (dist < r * 0.75) return null;
+    const strength = Math.min(1, (dist - r * 0.75) / (r * 0.25));
+    const nx = dx / Math.max(1, dist), ny = dy / Math.max(1, dist);
+    return { sx: -nx * strength, sy: -ny * strength, strength };
+  }
+
   function getUnitMovementTarget(u, state, helpers) {
     ensureRuntime(state);
     const sq = u.squadId != null ? state.squads.get(u.squadId) : null;
@@ -884,9 +939,10 @@
       const zone = sq.combat.zoneId != null ? state.engagementZones.get(sq.combat.zoneId) : null;
       const enemies = getEnemiesInZone(state, sq, zone);
 
+      let targetPos = null;
       if (typeof COMBAT !== "undefined" && COMBAT.pickTarget) {
         const target = COMBAT.pickTarget(u, enemies, state);
-        if (target) return { tx: target.x, ty: target.y, moveMode: "free_chase" };
+        if (target) targetPos = { x: target.x, y: target.y };
       } else {
         let best = null, bestD = Infinity;
         for (const e of enemies) {
@@ -895,9 +951,15 @@
         }
         if (best) {
           u._currentTargetId = best.id;
-          return { tx: best.x, ty: best.y, moveMode: "free_chase" };
+          targetPos = { x: best.x, y: best.y };
         }
       }
+
+      if (targetPos && zone) {
+        const clamped = clampToZone(targetPos.x, targetPos.y, zone);
+        return { tx: clamped.x, ty: clamped.y, moveMode: "free_chase" };
+      }
+      if (targetPos) return { tx: targetPos.x, ty: targetPos.y, moveMode: "free_chase" };
 
       return { tx: u.x, ty: u.y, moveMode: "stop" };
     }
@@ -1170,6 +1232,7 @@
     getZoneJoinRadius,
     getUnitMovementTarget,
     getUnitFirePlan,
+    getZoneBoundarySteer,
     recordDamageSource,
     cloneOrder,
     getSquadSpeed,

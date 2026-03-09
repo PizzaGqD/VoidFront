@@ -21,7 +21,7 @@
   const ZONE_SYNC_EVERY        = 8;                              // zone rays every 8 ticks
   const ZONE_SYNC_INTERVAL_MS  = ZONE_SYNC_EVERY * SEND_INTERVAL_MS; // ~266 ms
   const TELEPORT_DIST          = 400;                            // snap instead of lerp
-  const MAX_EXTRAP_SEC         = 0.20;                           // clamp extrapolation
+  const MAX_EXTRAP_SEC         = 0.30;                           // clamp extrapolation
   const PING_INTERVAL_MS       = 2000;                           // how often to ping
   const DESTROYED_SENTINEL     = -1;                             // compact[1] === -1
 

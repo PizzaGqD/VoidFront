@@ -199,8 +199,8 @@
     const audio = document.getElementById("bgMusic");
     if (!audio) return null;
     const tracks = [
-      { file: "assets/music.mp3", name: "Gravitational Hush" },
       { file: "assets/Celestial%20Archive%20of%20the%20First%20Dawn.mp3", name: "Celestial Archive of the First Dawn" },
+      { file: "assets/Celestial%20Archive%20of%20the%20First%20Dawn%20(1).mp3", name: "Celestial Archive II" },
       { file: "assets/Gravitational%20Echoes.mp3", name: "Gravitational Echoes" },
       { file: "assets/Gravitational%20Hush.mp3", name: "Gravitational Hush" }
     ];
@@ -281,13 +281,30 @@
     function next() { pendingPlay = true; loadTrack(idx + 1); attemptPlay(); }
     function prev() { pendingPlay = true; loadTrack(idx - 1); attemptPlay(); }
 
-    audio.addEventListener("ended", () => next());
-    audio.addEventListener("canplay", () => attemptPlay());
-    audio.addEventListener("error", () => {
-      if (trackErrorRecovering || tracks.length <= 1) return;
-      trackErrorRecovering = true;
+    let lastEndedAt = 0;
+    audio.addEventListener("ended", () => {
+      const dur = audio.duration || 0;
+      const cur = audio.currentTime || 0;
+      const now = performance.now();
+      if (dur > 0 && cur < dur * 0.95) return;
+      if (now - lastEndedAt < 500) return;
+      lastEndedAt = now;
       next();
-      trackErrorRecovering = false;
+    });
+    audio.addEventListener("canplay", () => { errorCount = 0; attemptPlay(); });
+    let errorCount = 0;
+    audio.addEventListener("error", () => {
+      if (trackErrorRecovering) return;
+      errorCount++;
+      if (errorCount >= tracks.length) {
+        console.warn("[Music] All tracks failed to load, stopping.");
+        return;
+      }
+      trackErrorRecovering = true;
+      setTimeout(() => {
+        next();
+        trackErrorRecovering = false;
+      }, 1000);
     });
     audio.addEventListener("timeupdate", () => {
       if (seeking) return;
@@ -453,7 +470,7 @@
   }
 
   const CFG = {
-    GAME_SPEED: 1,
+    GAME_SPEED: 2.5,
     WORLD_W: w.width ?? 5000,
     WORLD_H: w.height ?? 3000,
     MAX_PLAYERS: w.maxPlayers ?? 6,
@@ -602,7 +619,7 @@
   const squadControlBox = document.getElementById("squadControlBox");
   const squadControlOne = document.getElementById("squadControlOne");
   const squadControlMulti = document.getElementById("squadControlMulti");
-  const squadStripEl = document.getElementById("squadStrip");
+  const squadStripEl = document.getElementById("squadStripRight") || document.getElementById("squadStrip");
   const rallyPointBtn = document.getElementById("rallyPointBtn");
   const rallyPointHintEl = document.getElementById("rallyPointHint");
 
@@ -2375,7 +2392,7 @@
     return { x: poly[0].x, y: poly[0].y };
   }
 
-  const PATROL_LIGHT_SPEED = 0.08;
+  const PATROL_LIGHT_SPEED = 0.027;
   const PATROL_ATTACK_R = 85;
   const PATROL_ATTACK_RATE = 1.2;
   const PATROL_DMG = 3;
@@ -2420,6 +2437,11 @@
           light.endFill();
         }
         const head = getPolyPerimeterPoint(poly, segs, totalLen, t);
+        const rangeMul = p.turretRangeMul != null ? p.turretRangeMul : 1;
+        const patrolR = PATROL_ATTACK_R * rangeMul;
+        light.lineStyle(1, p.color, 0.12);
+        light.drawCircle(head.x, head.y, patrolR);
+        light.lineStyle(0);
         light.beginFill(p.color, 0.45);
         light.drawCircle(head.x, head.y, 10);
         light.endFill();
@@ -3008,12 +3030,6 @@
   function updateActivityZones() {
     destroyChildren(activityZoneLayer);
     const g = new PIXI.Graphics();
-    const R = CFG.ACTIVITY_RADIUS;
-    for (const u of state.units.values()) {
-      g.beginFill(u.color, 0.12);
-      g.drawCircle(u.x, u.y, R);
-      g.endFill();
-    }
     for (const p of state.players.values()) {
       const cityR = CFG.CITY_ATTACK_RADIUS * (p.waterBonus ? 1.25 : 1);
       g.beginFill(p.color, 0.18);
@@ -3342,45 +3358,98 @@
 
       const zones = SQUADLOGIC.getZoneList(state);
       const zoneArr = [...zones];
-      const merged = new Set();
+      const mergedPairs = [];
       for (let i = 0; i < zoneArr.length; i++) {
         for (let j = i + 1; j < zoneArr.length; j++) {
           const za = zoneArr[i], zb = zoneArr[j];
           const dist = Math.hypot(za.anchorX - zb.anchorX, za.anchorY - zb.anchorY);
-          if (dist < (za.radius || 70) + (zb.radius || 70)) {
-            merged.add(i); merged.add(j);
-            const connGfx = new PIXI.Graphics();
-            const pulse2 = 0.2 + 0.1 * Math.sin(state.t * 2.5);
-            const mx = (za.anchorX + zb.anchorX) / 2, my = (za.anchorY + zb.anchorY) / 2;
-            connGfx.moveTo(za.anchorX, za.anchorY);
-            connGfx.lineTo(zb.anchorX, zb.anchorY);
-            connGfx.stroke({ color: 0xff2222, width: 4, alpha: pulse2 * 0.5 });
-            combatLayer.addChild(connGfx);
+          if (dist < (za.displayRadius || za.radius || 70) + (zb.displayRadius || zb.radius || 70)) {
+            mergedPairs.push([i, j]);
           }
         }
       }
+
+      const mergedIndices = new Set();
+      for (const [i, j] of mergedPairs) { mergedIndices.add(i); mergedIndices.add(j); }
+
+      const pulse = 0.25 + 0.15 * Math.sin(state.t * 2.5);
+      const dashPhase = (state.t * 40) % 24;
+
+      function drawZoneDashedCircle(gfx, cx, cy, r, otherZones) {
+        const steps = 96;
+        let inSeg = false;
+        let sx = 0, sy = 0;
+        for (let i = 0; i <= steps; i++) {
+          const a = (i / steps) * Math.PI * 2;
+          const px = cx + Math.cos(a) * r;
+          const py = cy + Math.sin(a) * r;
+          let inside = false;
+          for (const oz of otherZones) {
+            const or = oz.displayRadius || oz.radius || 70;
+            if (Math.hypot(px - oz.anchorX, py - oz.anchorY) < or - 2) { inside = true; break; }
+          }
+          if (!inside) {
+            if (!inSeg) { sx = px; sy = py; inSeg = true; gfx.moveTo(px, py); }
+            else gfx.lineTo(px, py);
+          } else {
+            inSeg = false;
+          }
+        }
+      }
+
+      for (let zi = 0; zi < zoneArr.length; zi++) {
+        const zone = zoneArr[zi];
+        const cx = zone.anchorX;
+        const cy = zone.anchorY;
+        const r = zone.displayRadius || zone.radius || 70;
+
+        const others = [];
+        if (mergedIndices.has(zi)) {
+          for (const [a, b] of mergedPairs) {
+            if (a === zi) others.push(zoneArr[b]);
+            if (b === zi) others.push(zoneArr[a]);
+          }
+        }
+
+        const ring = new PIXI.Graphics();
+        if (others.length > 0) {
+          drawZoneDashedCircle(ring, cx, cy, r, others);
+        } else {
+          const segments = 48;
+          for (let i = 0; i < segments; i++) {
+            const a0 = (i / segments) * Math.PI * 2;
+            const a1 = ((i + 0.5) / segments) * Math.PI * 2;
+            ring.moveTo(cx + Math.cos(a0) * r, cy + Math.sin(a0) * r);
+            ring.lineTo(cx + Math.cos(a1) * r, cy + Math.sin(a1) * r);
+          }
+        }
+        ring.stroke({ color: 0xff2222, width: 2.5, alpha: pulse });
+
+        const glow = new PIXI.Graphics();
+        if (others.length > 0) {
+          drawZoneDashedCircle(glow, cx, cy, r, others);
+        } else {
+          glow.circle(cx, cy, r);
+        }
+        glow.stroke({ color: 0xff0000, width: 6, alpha: pulse * 0.3 });
+        combatLayer.addChild(glow);
+        combatLayer.addChild(ring);
+
+        const zoneAge = state.t - (zone.createdAt || 0);
+        if (zoneAge < 1.0) {
+          const flashAlpha = (1.0 - zoneAge) * 0.35;
+          const flash = new PIXI.Graphics();
+          flash.circle(cx, cy, r * 1.1);
+          flash.fill({ color: 0xff4400, alpha: flashAlpha });
+          combatLayer.addChild(flash);
+        }
+      }
+
       for (const zone of zones) {
         const factions = (zone.balanceSegments || []).filter(seg => seg.power > 0);
         const cx = zone.anchorX;
         const cy = zone.anchorY;
-        const r = zone.radius || 70;
-        const pulse = 0.25 + 0.15 * Math.sin(state.t * 2.5);
-
-        const ring = new PIXI.Graphics();
-        const segments = 48;
-        const dashLen = (2 * Math.PI * r) / (segments * 2);
-        for (let i = 0; i < segments; i++) {
-          const a0 = (i / segments) * Math.PI * 2;
-          const a1 = ((i + 0.5) / segments) * Math.PI * 2;
-          ring.moveTo(cx + Math.cos(a0) * r, cy + Math.sin(a0) * r);
-          ring.lineTo(cx + Math.cos(a1) * r, cy + Math.sin(a1) * r);
-        }
-        ring.stroke({ color: 0xff2222, width: 2.5, alpha: pulse });
-        const glow = new PIXI.Graphics();
-        glow.circle(cx, cy, r);
-        glow.stroke({ color: 0xff0000, width: 6, alpha: pulse * 0.3 });
-        combatLayer.addChild(glow);
-        combatLayer.addChild(ring);
+        const r = zone.displayRadius || zone.radius || 70;
 
         if (!factions.length) continue;
         const totalPower = factions.reduce((sum, seg) => sum + seg.power, 0) || 1;
@@ -3752,7 +3821,7 @@
     }
     const attackTargets = new Set();
     for (const sq of squads) {
-      const leader = sq.find(v => (v.leaderId || v.id) === (sq[0].leaderId || sq[0].id)) || sq[0];
+      const leader = sq.find(v => !v.leaderId) || sq[0];
       if (leader.chaseTargetUnitId != null) attackTargets.add("u:" + leader.chaseTargetUnitId);
       if (leader.chaseTargetCityId != null) attackTargets.add("c:" + leader.chaseTargetCityId);
     }
@@ -3797,7 +3866,23 @@
         const formationType = leader.formationType || "line";
         const formationRows = fp.dragRows != null ? fp.dragRows : (leader.formationRows || 3);
         const pigW = fp.dragWidth != null ? fp.dragWidth : (leader.formationPigWidth ?? 1);
-        const offsets = getFormationOffsets(squad.length, formationType, formationRows, cosA, sinA, pigW, squad);
+
+        let offsets;
+        if (typeof FORMATIONS !== "undefined" && FORMATIONS.getFormationOffsets) {
+          const unitTypes = squad.map(u => u.unitType || "fighter");
+          offsets = FORMATIONS.getFormationOffsets(unitTypes, formationType, formationRows, fp.angle, pigW);
+        } else {
+          offsets = getFormationOffsets(squad.length, formationType, formationRows, cosA, sinA, pigW, squad);
+        }
+
+        let sqcx = 0, sqcy = 0;
+        for (const u of squad) { sqcx += u.x; sqcy += u.y; }
+        sqcx /= squad.length; sqcy /= squad.length;
+        const dashLine = new PIXI.Graphics();
+        dashLine.lineStyle(2.5, 0x66aaff, 0.45);
+        drawDashedSegment(dashLine, sqcx, sqcy, fp.x, fp.y, 10, 7);
+        pathPreviewLayer.addChild(dashLine);
+
         for (let i = 0; i < offsets.length; i++) {
           const o = offsets[i] || { x: 0, y: 0 };
           const u = squad[i] || squad[0];
@@ -3813,38 +3898,39 @@
           pathPreviewLayer.addChild(ghostG);
         }
       }
-    } else if (order && order.type === "attackUnit") {
-      const target = state.units.get(order.targetUnitId);
-      if (target) {
-        const g = new PIXI.Graphics();
-        const pulse = 0.8 + Math.sin(performance.now() * 0.006) * 0.2;
-        g.circle(target.x, target.y, (getUnitHitRadius(target) + 8) * pulse);
-        g.stroke({ color: 0xff3333, width: 2, alpha: 0.7 });
-        g.circle(target.x, target.y, 4);
-        g.fill({ color: 0xff3333, alpha: 0.6 });
-        pathPreviewLayer.addChild(g);
-      }
-    } else if (order && order.type === "attackCity") {
-      const city = state.players.get(order.targetCityId);
-      if (city) {
-        const g = new PIXI.Graphics();
-        const pulse = 0.85 + Math.sin(performance.now() * 0.005) * 0.15;
-        const r = (shieldRadius(city) + 12) * pulse;
-        g.circle(city.x, city.y, r);
-        g.stroke({ color: 0xff4444, width: 2.5, alpha: 0.6 });
-        pathPreviewLayer.addChild(g);
-      }
-    } else if (order && order.type === "capture") {
+    } else if (order && (order.type === "attackUnit" || order.type === "attackCity" || order.type === "attackPirateBase" || order.type === "capture")) {
       const squads = getSelectedSquads();
-      let cx = 0, cy = 0, cnt = 0;
-      for (const sq of squads) for (const u of sq) { cx += u.x; cy += u.y; cnt++; }
-      if (cnt) { cx /= cnt; cy /= cnt; }
+      let scx = 0, scy = 0, scnt = 0;
+      for (const sq of squads) for (const u of sq) { scx += u.x; scy += u.y; scnt++; }
+      if (scnt) { scx /= scnt; scy /= scnt; }
+
+      let tx = order.x, ty = order.y;
+      let highlightColor = 0xff3333;
+      let highlightR = 20;
+
+      if (order.type === "attackUnit") {
+        const target = state.units.get(order.targetUnitId);
+        if (target) { tx = target.x; ty = target.y; highlightR = getUnitHitRadius(target) + 8; }
+      } else if (order.type === "attackCity") {
+        const city = state.players.get(order.targetCityId);
+        if (city) { tx = city.x; ty = city.y; highlightR = shieldRadius(city) + 12; }
+      } else if (order.type === "attackPirateBase" && state.pirateBase) {
+        tx = state.pirateBase.x; ty = state.pirateBase.y; highlightR = 40;
+      } else if (order.type === "capture") {
+        highlightColor = 0x33aaff; highlightR = 28;
+      }
+
+      const dashG = new PIXI.Graphics();
+      dashG.lineStyle(3, highlightColor, 0.65);
+      drawDashedSegment(dashG, scx, scy, tx, ty, 12, 8);
+      pathPreviewLayer.addChild(dashG);
+
       const g = new PIXI.Graphics();
-      g.moveTo(cx, cy); g.lineTo(order.x, order.y);
-      g.stroke({ color: 0x33aaff, width: 2, alpha: 0.5 });
-      const pulse = 0.8 + Math.sin(performance.now() * 0.005) * 0.2;
-      g.circle(order.x, order.y, 28 * pulse);
-      g.stroke({ color: 0x33aaff, width: 2, alpha: 0.6 });
+      const pulse = 0.8 + Math.sin(performance.now() * 0.006) * 0.2;
+      g.circle(tx, ty, highlightR * pulse);
+      g.stroke({ color: highlightColor, width: 2.5, alpha: 0.7 });
+      g.circle(tx, ty, 4);
+      g.fill({ color: highlightColor, alpha: 0.6 });
       pathPreviewLayer.addChild(g);
     }
     if (!me || !state.targetPoints || state.targetPoints.length === 0) return;
@@ -3892,22 +3978,64 @@
 
     for (const squad of allSquads) {
       if (squad.length === 0 || squad[0].owner !== state.myPlayerId) continue;
-      const leader = squad.find(u => (u.leaderId || u.id) === (squad[0].leaderId || squad[0].id)) || squad[0];
+      const leader = squad.find(u => !u.leaderId) || squad[0];
+      const isAttack = leader.chaseTargetUnitId != null || leader.chaseTargetCityId != null || leader._orderType === "attackUnit" || leader._orderType === "siege";
+
+      if (isAttack) {
+        let targetPos = null;
+        if (leader.chaseTargetUnitId != null) {
+          let tu = state.units.get(leader.chaseTargetUnitId);
+          if (!tu || tu.hp <= 0) {
+            tu = null;
+            const deadTarget = state.units.get(leader.chaseTargetUnitId);
+            const targetSquadId = deadTarget ? deadTarget.squadId : null;
+            if (targetSquadId != null) {
+              const tSq = state.squads.get(targetSquadId);
+              if (tSq) {
+                for (const uid of tSq.unitIds) {
+                  const su = state.units.get(uid);
+                  if (su && su.hp > 0) { tu = su; break; }
+                }
+              }
+            }
+          }
+          if (tu) targetPos = { x: tu.x, y: tu.y };
+        } else if (leader.chaseTargetCityId != null) {
+          const city = state.players.get(leader.chaseTargetCityId);
+          if (city) targetPos = { x: city.x, y: city.y };
+          if (!targetPos && state.pirateBase && state.pirateBase.hp > 0) targetPos = { x: state.pirateBase.x, y: state.pirateBase.y };
+        }
+        if (targetPos) {
+          const atkPts = [{ x: leader.x, y: leader.y }, targetPos];
+          const ag = new PIXI.Graphics();
+          for (let seg = 0; seg < atkPts.length - 1; seg++) {
+            ag.lineStyle(7, 0x000000, 0.65);
+            ag.moveTo(atkPts[seg].x, atkPts[seg].y);
+            ag.lineTo(atkPts[seg + 1].x, atkPts[seg + 1].y);
+            ag.lineStyle(5, 0xff3333, 0.95);
+            ag.moveTo(atkPts[seg].x, atkPts[seg].y);
+            ag.lineTo(atkPts[seg + 1].x, atkPts[seg + 1].y);
+          }
+          drawAnimatedDash(ag, atkPts, 14, 6, 2.5, 0xffaaaa, 0.85, t);
+          ag.lineStyle(3, 0xff3333, 1);
+          ag.beginFill(0xff3333, 0.5);
+          ag.drawCircle(targetPos.x, targetPos.y, 14);
+          ag.endFill();
+          pathPreviewLayer.addChild(ag);
+        }
+        continue;
+      }
+
       const wp = leader.waypoints;
       const idx = leader.waypointIndex ?? 0;
       if (!wp || idx >= wp.length) continue;
 
-      const isAttack = leader.chaseTargetUnitId != null || leader.chaseTargetCityId != null || leader._orderType === "attackUnit" || leader._orderType === "siege";
       const isCapture = leader._captureTarget === true;
       const ownerP = state.players.get(leader.owner);
-      const color = isAttack ? 0xff3333 : isCapture ? 0x33aaff : (ownerP ? ownerP.color : 0xffffff);
-      const alpha = 1.0;
-      const lineW = 6;
+      const color = isCapture ? 0x33aaff : (ownerP ? ownerP.color : 0xffffff);
 
       const points = [{ x: leader.x, y: leader.y }];
       for (let i = idx; i < wp.length; i++) points.push(wp[i]);
-
-      if (isAttack) continue;
 
       const g = new PIXI.Graphics();
       for (let seg = 0; seg < points.length - 1; seg++) {
@@ -3922,12 +4050,7 @@
 
       const lastPt = points[points.length - 1];
       g.lineStyle(0);
-      if (isAttack) {
-        g.lineStyle(4, 0xff3333, 1);
-        g.drawCircle(lastPt.x, lastPt.y, 14);
-        g.moveTo(lastPt.x - 10, lastPt.y - 10); g.lineTo(lastPt.x + 10, lastPt.y + 10);
-        g.moveTo(lastPt.x + 10, lastPt.y - 10); g.lineTo(lastPt.x - 10, lastPt.y + 10);
-      } else if (isCapture) {
+      if (isCapture) {
         g.lineStyle(3, 0x33aaff, 1);
         g.beginFill(0x33aaff, 0.35);
         g.drawCircle(lastPt.x, lastPt.y, 18);
@@ -4052,16 +4175,21 @@
 
   function updateLeaderboard() {
     if (!leaderboardBody) return;
+    leaderboardBody.onclick = (e) => {
+      const tr = e.target.closest("tr");
+      if (!tr || !tr.dataset.pid) return;
+      showEnemyCompare(tr.dataset.pid);
+    };
     const totalArea = CFG.WORLD_W * CFG.WORLD_H;
     const rows = [];
     for (const p of state.players.values()) {
       const area = polygonArea(p.influencePolygon);
       const pct = totalArea > 0 ? (area / totalArea * 100) : 0;
-      rows.push({ name: p.name, pop: p.pop, pct });
+      rows.push({ id: p.id, name: p.name, pop: p.pop, pct });
     }
     rows.sort((a, b) => b.pop - a.pop);
     leaderboardBody.innerHTML = rows.map((r, i) =>
-      `<tr><td>${i + 1}</td><td>${r.name}</td><td>${r.pop}</td><td>${r.pct.toFixed(2)}%</td></tr>`
+      `<tr data-pid="${r.id}" style="cursor:pointer"><td>${i + 1}</td><td>${r.name}</td><td>${r.pop}</td><td>${r.pct.toFixed(2)}%</td></tr>`
     ).join("");
   }
 
@@ -4288,11 +4416,12 @@
     state.pirateBase = {
       x: cx + pirateBaseOffset, y: cy, hp: 4000, maxHp: 4000, lastDamagedBy: null,
       gfx: null, _emojiGfx: null, spawnCd: 0, unitLimit: 12,
-      orbitCenter: { x: cx, y: cy }, orbitRadius: pirateBaseOffset + 40
+      orbitCenter: { x: cx, y: cy }, orbitRadius: pirateBaseOffset + 40,
+      _respawnTimer: 0, _initialSpawned: false
     };
     centerMine.ownerId = PIRATE_OWNER_ID;
     centerMine.captureProgress = 1;
-    centerMine._captureProtectedUntil = Infinity;
+    centerMine._captureProtectedUntil = 0;
     updateMineVisual(centerMine);
 
     const inflR = CFG.INFLUENCE_R(CFG.POP_START);
@@ -4448,7 +4577,7 @@
           if (gm.alive && gm._mineId === mine.id) activeGems++;
         }
 
-        const totalVal = (CFG.MINE_BASE_YIELD_VALUE + (owner.mineYieldBonus || 0)) * (mine.isRich ? CFG.MINE_RICH_MULTIPLIER : 1);
+        const totalVal = (CFG.MINE_BASE_YIELD_VALUE * 0.7 + (owner.mineYieldBonus || 0)) * (mine.isRich ? CFG.MINE_RICH_MULTIPLIER : 1);
         const spawnInterval = Math.max(0.5, 2.5 - totalVal * 0.15);
         mine.yieldAcc += dt;
         while (mine.yieldAcc >= spawnInterval) {
@@ -4470,15 +4599,29 @@
     }
 
     if (state.pirateBase && state.pirateBase.hp > 0) {
-      state.pirateBase.spawnCd = (state.pirateBase.spawnCd || 0) - dt;
+      const PIRATE_RESPAWN_CD = 180;
       let pirateCount = 0;
       for (const u of state.units.values()) if (u.owner === PIRATE_OWNER_ID && !(u._pirateHyperUntil && state.t < u._pirateHyperUntil)) pirateCount++;
-      if (pirateCount < (state.pirateBase.unitLimit || 12) && state.pirateBase.spawnCd <= 0) {
-        state.pirateBase.spawnCd = 6;
-        const oc = state.pirateBase.orbitCenter || { x: state.pirateBase.x, y: state.pirateBase.y };
-        const oR = state.pirateBase.orbitRadius || 200;
-        const batchTag = `pirate-base-${Math.floor(state.t)}`;
-        if (pirateCount <= (state.pirateBase.unitLimit || 12) - PIRATE_FULL_SQUAD.length) {
+
+      if (state.pirateBase._respawnTimer == null) state.pirateBase._respawnTimer = 0;
+
+      const needsInitialSpawn = !state.pirateBase._initialSpawned && pirateCount === 0;
+
+      if (pirateCount === 0) {
+        if (needsInitialSpawn) {
+          state.pirateBase._respawnTimer = 0;
+        } else if (state.pirateBase._respawnTimer <= 0) {
+          state.pirateBase._respawnTimer = PIRATE_RESPAWN_CD;
+        }
+
+        if (!needsInitialSpawn) state.pirateBase._respawnTimer -= dt;
+
+        if (needsInitialSpawn || state.pirateBase._respawnTimer <= 0) {
+          state.pirateBase._respawnTimer = 0;
+          state.pirateBase._initialSpawned = true;
+          const oc = state.pirateBase.orbitCenter || { x: state.pirateBase.x, y: state.pirateBase.y };
+          const oR = state.pirateBase.orbitRadius || 200;
+          const batchTag = `pirate-base-${Math.floor(state.t)}`;
           for (let i = 0; i < PIRATE_FULL_SQUAD.length; i++) {
             const t = PIRATE_FULL_SQUAD[i];
             const a = (Math.PI * 2 * i) / PIRATE_FULL_SQUAD.length + Math.random() * 0.2;
@@ -4493,6 +4636,9 @@
             if (spawnU) spawnU._piratePatrol = true;
           }
         }
+      } else {
+        state.pirateBase._respawnTimer = 0;
+        state.pirateBase._initialSpawned = true;
       }
       const oc = state.pirateBase.orbitCenter || { x: state.pirateBase.x, y: state.pirateBase.y };
       const oR = state.pirateBase.orbitRadius || 200;
@@ -4659,6 +4805,40 @@
     if (g.gfx) { resLayer.removeChild(g.gfx); g.gfx.destroy(true); g.gfx = null; }
   }
 
+  function stepMineGemsRemote(dt) {
+    for (const mine of state.mines.values()) {
+      if (!mine.ownerId || mine.captureProgress < 1) continue;
+      const owner = state.players.get(mine.ownerId);
+      if (!owner || owner.pop <= 0) continue;
+
+      if (!mine._remoteGemAcc) mine._remoteGemAcc = Math.random() * 2;
+      mine._remoteGemAcc += dt;
+      const totalVal = (CFG.MINE_BASE_YIELD_VALUE * 0.7 + (owner.mineYieldBonus || 0)) * (mine.isRich ? CFG.MINE_RICH_MULTIPLIER : 1);
+      const spawnInterval = Math.max(0.5, 2.5 - totalVal * 0.15);
+      if (mine._remoteGemAcc >= spawnInterval) {
+        mine._remoteGemAcc -= spawnInterval;
+        const batchVal = totalVal * spawnInterval;
+        const isCredit = Math.random() < 0.45;
+        const variedVal = batchVal * (0.6 + Math.random() * 0.8);
+        const gem = {
+          id: state.nextResId++,
+          x: mine.x, y: mine.y,
+          targetPlayerId: owner.id,
+          _mineId: mine.id,
+          value: variedVal,
+          isCredit: !!isCredit,
+          speed: CFG.MINE_GEM_SPEED * (0.7 + variedVal * 0.15) * (0.95 + Math.random() * 0.1),
+          drift: (Math.random() - 0.5) * 12,
+          alive: true,
+          _visualOnly: true,
+          gfx: null
+        };
+        makeGemVisual(gem);
+        state.mineGems.push(gem);
+      }
+    }
+  }
+
   function stepMineGems(dt) {
     for (let i = state.mineGems.length - 1; i >= 0; i--) {
       const g = state.mineGems[i];
@@ -4669,8 +4849,10 @@
       const dx = target.x - g.x, dy = target.y - g.y;
       const dist = Math.hypot(dx, dy);
       if (dist < 15) {
-        target.eCredits = (target.eCredits || 0) + g.value;
-        if (!g.isCredit) gainXP(target, g.value);
+        if (!g._visualOnly) {
+          target.eCredits = (target.eCredits || 0) + g.value;
+          if (!g.isCredit) gainXP(target, g.value);
+        }
         if (target.id === state.myPlayerId) tickSound(1480, 0.03, 0.04);
         g.alive = false;
         removeGemVisual(g);
@@ -5545,11 +5727,16 @@
     u.lastDamagedBy = sourceOwnerId;
   }
 
+  function getRangeLevelMul(p) {
+    return p ? (1 + (p.level || 1) * 0.005) : 1;
+  }
+
   function getUnitAtkRange(u) {
     const p = state.players.get(u.owner);
     const baseMul = p && p.unitAtkRangeMul != null ? p.unitAtkRangeMul : 1;
     const nebMul = isInNebula(u.x, u.y) ? (1 + CFG.NEBULA_ATK_RANGE_BONUS) : 1;
-    return (u.attackRange || 40) * Math.min(UNIT_ATK_RANGE_MAX_MUL, baseMul) * nebMul;
+    const lvlMul = getRangeLevelMul(p);
+    return (u.attackRange || 40) * Math.min(UNIT_ATK_RANGE_MAX_MUL, baseMul) * nebMul * lvlMul;
   }
 
   const ENGAGEMENT_GROWTH_COEFF = 0.9;
@@ -6339,9 +6526,20 @@
       }
 
       // ── 3. MOVE TOWARD TARGET (with ship turning) ─────────────────
-      const dx = tx - u.x, dy = ty - u.y;
-      const dist = Math.hypot(dx, dy);
-      const TURN_RATE = 4.5; // rad/s — how fast ships rotate
+      let dx = tx - u.x, dy = ty - u.y;
+      let dist = Math.hypot(dx, dy);
+      const TURN_RATE = 4.5;
+
+      if (moveMode === "free_chase" && dist > 1) {
+        const atkR = getUnitAtkRange(u) * 0.85;
+        if (dist <= atkR) {
+          moveMode = "stop";
+          const faceAngle = Math.atan2(dy, dx);
+          u._lastFacingAngle = faceAngle;
+          u.vx = Math.cos(faceAngle);
+          u.vy = Math.sin(faceAngle);
+        }
+      }
 
       if (dist < 2 && moveMode !== "stop") {
         u.vx = leader?.vx || 0;
@@ -6375,32 +6573,50 @@
           u.x += Math.cos(curFacing) * moveDist;
           u.y += Math.sin(curFacing) * moveDist;
         }
+        const spd = dt > 0 ? moveDist / dt : 0;
+        u.vx = dirX * spd;
+        u.vy = dirY * spd;
       }
 
-      // ── 4. STEERING (avoid enemies while moving) ──────────────────
-      // Friendly units pass through each other freely.
-      // Enemy units produce a steering push to navigate around them.
+      // ── 4. SEPARATION (size-aware, prevents small ships falling under big ones)
       {
-        const isMoving = moveMode !== "stop";
-        if (isMoving) {
-          const steerR = 40;
-          const neighbors = queryHash(u.x, u.y, steerR);
-          let sx = 0, sy = 0;
-          for (let ni = 0; ni < neighbors.length; ni++) {
-            const v = neighbors[ni];
-            if (v.id === u.id || v.owner === u.owner) continue;
-            const sdx = u.x - v.x, sdy = u.y - v.y;
-            const sDist = Math.hypot(sdx, sdy);
-            if (sDist < steerR && sDist > 0.1) {
-              const push = ((steerR - sDist) / steerR) * 0.6;
-              sx += (sdx / sDist) * push;
-              sy += (sdy / sDist) * push;
-            }
+        const uType = UNIT_TYPES[u.unitType] || UNIT_TYPES.fighter;
+        const uSize = (uType.sizeMultiplier || 1) * 6 + 8;
+        const searchR = uSize + 40;
+        const neighbors = queryHash(u.x, u.y, searchR);
+        let sx = 0, sy = 0;
+        for (let ni = 0; ni < neighbors.length; ni++) {
+          const v = neighbors[ni];
+          if (v.id === u.id) continue;
+          const vType = UNIT_TYPES[v.unitType] || UNIT_TYPES.fighter;
+          const vSize = (vType.sizeMultiplier || 1) * 6 + 8;
+          const minDist = (uSize + vSize) * 0.7;
+          const sdx = u.x - v.x, sdy = u.y - v.y;
+          const sDist = Math.hypot(sdx, sdy);
+          if (sDist < minDist && sDist > 0.1) {
+            const isEnemy = v.owner !== u.owner;
+            const push = ((minDist - sDist) / minDist) * (isEnemy ? 1.2 : 0.5);
+            sx += (sdx / sDist) * push;
+            sy += (sdy / sDist) * push;
           }
-          const sl = Math.hypot(sx, sy);
-          if (sl > 1.5) { sx *= 1.5 / sl; sy *= 1.5 / sl; }
-          u.x += sx;
-          u.y += sy;
+        }
+        const sl = Math.hypot(sx, sy);
+        if (sl > 2.0) { sx *= 2.0 / sl; sy *= 2.0 / sl; }
+        u.x += sx;
+        u.y += sy;
+      }
+
+      // ── 4b. ZONE BOUNDARY CONTAINMENT ──
+      if (useSquadLogic && u.squadId != null && u._combatState && u._combatState !== "idle") {
+        const sq = state.squads.get(u.squadId);
+        if (sq && sq.combat.zoneId != null) {
+          const zone = state.engagementZones.get(sq.combat.zoneId);
+          const steer = SQUADLOGIC.getZoneBoundarySteer(u.x, u.y, zone);
+          if (steer) {
+            const push = steer.strength * maxMove * 0.8;
+            u.x += steer.sx * push;
+            u.y += steer.sy * push;
+          }
         }
       }
 
@@ -6902,6 +7118,11 @@
 
       p.popFloat = Math.max(0, p.popFloat + perSec * dt);
       p.pop = Math.floor(p.popFloat);
+
+      const popCreditPerSec = Math.floor(p.pop / 50);
+      if (popCreditPerSec > 0) {
+        p.eCredits = (p.eCredits || 0) + popCreditPerSec * dt;
+      }
 
       const numRays = CFG.TERRAIN_RAYS ?? 96;
       const popBucket = Math.floor(p.popFloat / 5);
@@ -7513,6 +7734,14 @@
           state.formationPreview = null;
           return;
         }
+        if (state.pirateBase && state.pirateBase.hp > 0) {
+          const pbd = Math.hypot(pt.x - state.pirateBase.x, pt.y - state.pirateBase.y);
+          if (pbd < 50) {
+            state.orderPreview = { type: "attackPirateBase", x: state.pirateBase.x, y: state.pirateBase.y };
+            state.formationPreview = null;
+            return;
+          }
+        }
         const clickedMine = mineAtWorld(pt.x, pt.y);
         if (clickedMine) {
           state.orderPreview = { type: "capture", mineId: clickedMine.id, x: clickedMine.x, y: clickedMine.y };
@@ -7524,15 +7753,9 @@
         for (const squad of squads) for (const u of squad) { cx += u.x; cy += u.y; n++; }
         if (n) { cx /= n; cy /= n; }
         state.orderPreview = { type: "move", x: pt.x, y: pt.y };
-        state.formationPreview = {
-          x: pt.x,
-          y: pt.y,
-          angle: Math.atan2(pt.y - cy, pt.x - cx),
-          startX: e.clientX,
-          startY: e.clientY,
-          dragRows: null,
-          dragWidth: null
-        };
+        state._rmbHoldStart = performance.now();
+        state._rmbHoldPt = { x: pt.x, y: pt.y, cx, cy, screenX: e.clientX, screenY: e.clientY };
+        state.formationPreview = null;
         return;
       }
       isPanning = true;
@@ -7574,8 +7797,7 @@
       if (state.selectedUnitIds.size === 0) {
         const city = cityAtWorld(pt.x, pt.y);
         if (city && city.id !== state.myPlayerId) {
-          showEnemyCityPanel(city);
-          state._enemyCityPanelPinned = true;
+          showEnemyCompare(city.id);
           return;
         }
       }
@@ -7613,6 +7835,10 @@
       state.boxStart = null;
       state.boxEnd = null;
     }
+    if (e.button === 2) {
+      state._rmbHoldStart = null;
+      state._rmbHoldPt = null;
+    }
     if (e.button === 2 && state.orderPreview) {
       const order = state.orderPreview;
       const squads = getSelectedSquads();
@@ -7642,6 +7868,20 @@
           }
           if (state._multiSlots && !state._multiIsHost && state._socket) {
             state._socket.emit("playerAction", { type: "move", leaderIds, waypoints: [{ x: fp.x, y: fp.y }], x: fp.x, y: fp.y, angle: fp.angle });
+          }
+        } else if (order.type === "move" && !state.formationPreview) {
+          const addWaypoint = e.shiftKey;
+          for (const squad of squads) {
+            const squadState = getSquadStateFromUnits(squad);
+            if (!squadState) continue;
+            const leader = squad.find(u => (u.leaderId || u.id) === (squad[0].leaderId || squad[0].id)) || squad[0];
+            const baseWaypoints = addWaypoint ? cloneWaypointsSafe(squadState.order?.waypoints) : [];
+            baseWaypoints.push({ x: order.x, y: order.y });
+            SQUADLOGIC.issueMoveOrder(state, squadState.id, baseWaypoints, Math.atan2(order.y - leader.y, order.x - leader.x));
+            leaderIds.push(leader.id);
+          }
+          if (state._multiSlots && !state._multiIsHost && state._socket) {
+            state._socket.emit("playerAction", { type: "move", leaderIds, waypoints: [{ x: order.x, y: order.y }], x: order.x, y: order.y });
           }
         } else if (order.type === "attackUnit") {
           const target = state.units.get(order.targetUnitId);
@@ -7676,6 +7916,17 @@
             if (state._multiSlots && !state._multiIsHost && state._socket) {
               state._socket.emit("playerAction", { type: "chaseCity", leaderIds, targetCityId: city.id, x: city.x, y: city.y });
             }
+          }
+        } else if (order.type === "attackPirateBase" && state.pirateBase) {
+          const addWaypoint = e.shiftKey;
+          for (const squad of squads) {
+            const squadState = getSquadStateFromUnits(squad);
+            if (!squadState) continue;
+            const leader = squad.find(u => (u.leaderId || u.id) === (squad[0].leaderId || squad[0].id)) || squad[0];
+            const baseWaypoints = addWaypoint ? cloneWaypointsSafe(squadState.order?.waypoints) : [];
+            baseWaypoints.push({ x: state.pirateBase.x, y: state.pirateBase.y });
+            SQUADLOGIC.issueMoveOrder(state, squadState.id, baseWaypoints, Math.atan2(state.pirateBase.y - leader.y, state.pirateBase.x - leader.x));
+            leaderIds.push(leader.id);
           }
         } else if (order.type === "capture") {
           const addWaypoint = e.shiftKey;
@@ -7729,6 +7980,34 @@
           const firstLeader = state.units.get(leaderIds[0]);
           const waypoints = firstLeader ? firstLeader.waypoints : [{ x: fp.x, y: fp.y }];
           state._socket.emit("playerAction", { type: "move", leaderIds, waypoints, x: fp.x, y: fp.y, angle: fp.angle });
+        }
+      } else if (order.type === "move" && !state.formationPreview) {
+        const addWaypoint = e.shiftKey;
+        const wp = { x: order.x, y: order.y };
+        for (const squad of squads) {
+          clearSquadCombat(squad);
+          const leader = squad.find(u => (u.leaderId || u.id) === (squad[0].leaderId || squad[0].id)) || squad[0];
+          leader.chaseTargetUnitId = undefined;
+          leader.chaseTargetCityId = undefined;
+          leader._captureTarget = undefined;
+          if (addWaypoint) {
+            leader.waypoints = [...(leader.waypoints || []), wp];
+          } else {
+            leader.waypoints = [wp];
+            leader.waypointIndex = 0;
+          }
+          leader.straightMode = false;
+          for (const u of squad) {
+            u.waypoints = leader.waypoints.map(w => ({ x: w.x, y: w.y }));
+            u.waypointIndex = addWaypoint ? (u.waypointIndex ?? 0) : 0;
+            u.straightMode = false;
+            u.chaseTargetUnitId = undefined;
+            u.chaseTargetCityId = undefined;
+          }
+          leaderIds.push(leader.id);
+        }
+        if (state._multiSlots && !state._multiIsHost && state._socket) {
+          state._socket.emit("playerAction", { type: "move", leaderIds, waypoints: [wp], x: order.x, y: order.y });
         }
       } else if (order.type === "attackUnit") {
         const target = state.units.get(order.targetUnitId);
@@ -7829,6 +8108,20 @@
     if (state.boxStart && e.buttons === 1 && !state._abilityTargeting) {
       state.boxEnd = screenToWorld(e.clientX, e.clientY);
     }
+    if (state._rmbHoldStart && (e.buttons & 2) && !state.formationPreview) {
+      const held = performance.now() - state._rmbHoldStart;
+      if (held >= 150) {
+        const hp = state._rmbHoldPt;
+        state.formationPreview = {
+          x: hp.x, y: hp.y,
+          angle: Math.atan2(hp.y - hp.cy, hp.x - hp.cx),
+          startX: hp.screenX, startY: hp.screenY,
+          dragRows: null, dragWidth: null
+        };
+        state._rmbHoldStart = null;
+        state._rmbHoldPt = null;
+      }
+    }
     if (state.formationPreview && (e.buttons & 2)) {
       const w = screenToWorld(e.clientX, e.clientY);
       const fp = state.formationPreview;
@@ -7865,13 +8158,6 @@
     }
     state._hoverTarget = isEnemyUnit ? enemyU : (isEnemyCity ? enemyC : null);
     state._hoverWorld = pt;
-    // Auto-show enemy city stats panel on hover
-    if (isEnemyCity) {
-      showEnemyCityPanel(enemyC);
-    } else if (!state._enemyCityPanelPinned) {
-      const el = document.getElementById("enemyCityPanel");
-      if (el && el.style.display === "block") el.style.display = "none";
-    }
     let attackCursorEl = document.getElementById("attackCursorEmoji");
     if (!attackCursorEl) {
       attackCursorEl = document.createElement("div");
@@ -7891,6 +8177,8 @@
 
   app.canvas.addEventListener("pointerleave", () => {
     if (state.boxStart) { state.boxStart = null; state.boxEnd = null; }
+    state._rmbHoldStart = null;
+    state._rmbHoldPt = null;
     if (state.formationPreview) state.formationPreview = null;
     if (state.orderPreview) state.orderPreview = null;
     const attackCursorEl = document.getElementById("attackCursorEmoji");
@@ -8029,13 +8317,13 @@
     btn.addEventListener("click", () => {
       if (state._multiSlots && !state._multiIsHost) return;
       const speed = parseInt(btn.dataset.speed, 10) || 1;
-      state.timeScale = speed >= 2 ? speed / 2 : 0.5;
+      state.timeScale = speed;
       document.querySelectorAll(".speed-btn").forEach(b => b.classList.remove("active"));
       btn.classList.add("active");
     });
   });
   state.timeScale = 1;
-  const defaultSpeedBtn = document.querySelector(".speed-btn[data-speed='2']");
+  const defaultSpeedBtn = document.querySelector(".speed-btn[data-speed='1']");
   if (defaultSpeedBtn) defaultSpeedBtn.classList.add("active");
   else document.querySelector(".speed-btn[data-speed='1']")?.classList.add("active");
 
@@ -8289,9 +8577,6 @@
     renderPick();
   }
 
-  const cityStatsEl = document.getElementById("cityStats");
-  const armyStatsEl = document.getElementById("armyStats");
-
   function updateHUD() {
     const me = state.players.get(state.myPlayerId);
     if (!me) return;
@@ -8320,12 +8605,23 @@
     const perMin = (base * (1 - pen) + killBonus + cityDestroyBonusHUD) * growthMulHUD;
 
     const turretCount = (me.turretIds || []).filter(tid => { const t = state.turrets.get(tid); return t && t.hp > 0; }).length;
-    const cityDmgMul = me.turretDmgMul != null ? me.turretDmgMul : 1;
-    const cityDmg = Math.max(1, Math.round(CFG.CITY_ATTACK_DMG * cityDmgMul));
+    const cityDmgMulHud = (me.turretDmgMul != null ? me.turretDmgMul : 1) * getLevelBonusMul(me);
+    const cityDmg = Math.max(1, Math.round(CFG.CITY_ATTACK_DMG * cityDmgMulHud));
+    const turretHpMulHud = (me.turretHpMul != null ? me.turretHpMul : 1) * getLevelBonusMul(me);
+    const turretHp = Math.max(1, Math.round(me.pop * (CFG.TURRET_HP_RATIO ?? 0.1) * turretHpMulHud));
+    const turretDmgMulHud2 = (me.turretDmgMul != null ? me.turretDmgMul : 1) * getLevelBonusMul(me);
+    const turretDmg = ((CFG.TURRET_ATTACK_DMG ?? 3) * (CFG.TURRET_ATTACK_RATE ?? 1.2) * turretDmgMulHud2).toFixed(1);
 
     const infSpdMul = me.influenceSpeedMul != null ? me.influenceSpeedMul : 1;
     const myMineCount = [...state.mines.values()].filter(m => m.ownerId === me.id).length;
+    const mineYieldPerSec = ((CFG.MINE_BASE_YIELD_VALUE * 0.7) + (me.mineYieldBonus || 0)) / Math.max(0.5, 2.5);
+    const popCreditPerSecHud = Math.floor(me.pop / 50);
     const shieldPct = me.shieldMaxHp > 0 ? Math.round((me.shieldHp / me.shieldMaxHp) * 100) : 0;
+    const totalArea = CFG.WORLD_W * CFG.WORLD_H;
+    const myArea = polygonArea(me.influencePolygon);
+    const zonePct = totalArea > 0 ? Math.min(100, (myArea / totalArea * 100)) : 0;
+
+    const patrolCount = me._patrolUnitIds ? me._patrolUnitIds.length : 0;
 
     if (state._enemyCityPanelPlayerId) {
       const ep = state.players.get(state._enemyCityPanelPlayerId);
@@ -8335,50 +8631,53 @@
         if (content) content.innerHTML = getEnemyCityStatsHTML(ep);
       }
     }
-    if (cityStatsEl) cityStatsEl.innerHTML =
-      "<div class='stat-line'><span class='stat-label'>Население</span><span class='stat-val'>" + me.pop + "</span></div>" +
-      "<div class='stat-line'><span class='stat-label'>Уровень</span><span class='stat-val'>" + me.level + "</span></div>" +
-      "<div class='stat-line'><span class='stat-label'>Опыт</span><span class='stat-val'>" + Math.floor(me.xp || 0) + "/" + Math.floor(me.xpNext || 0) + "</span></div>" +
-      "<div class='stat-line'><span class='stat-label'>Щит</span><span class='stat-val'>" + Math.round(me.shieldHp || 0) + " (" + shieldPct + "%)</span></div>" +
-      "<div class='stat-line'><span class='stat-label'>Рост</span><span class='stat-val'>" + perMin.toFixed(1) + "/мин</span></div>" +
-      "<div class='stat-line'><span class='stat-label'>Урон планеты</span><span class='stat-val'>" + cityDmg + " ×" + (CFG.CITY_BASE_TARGETS + (me.cityTargetBonus || 0)) + " цели</span></div>" +
-      "<div class='stat-line'><span class='stat-label'>Шахты</span><span class='stat-val'>" + myMineCount + "</span></div>" +
-      "<div class='stat-line'><span class='stat-label'>Зона</span><span class='stat-val'>R " + me.influenceR.toFixed(0) + "</span></div>" +
-      "<div class='stat-line'><span class='stat-label'>Скор. зоны</span><span class='stat-val'>×" + infSpdMul.toFixed(2) + "</span></div>" +
-      "<div class='stat-line'><span class='stat-label'>Турели</span><span class='stat-val'>" + turretCount + "</span></div>";
 
-    const unitCountByType = {};
-    for (const u of state.units.values()) {
-      if (u.owner !== me.id) continue;
-      const t = u.unitType || "fighter";
-      unitCountByType[t] = (unitCountByType[t] || 0) + 1;
-    }
+    const el = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
+    el("hudPop", me.pop + " (+" + popCreditPerSecHud + "€/с)");
+    el("hudGrowth", perMin.toFixed(1));
+    el("hudMining", mineYieldPerSec.toFixed(1) + "/с × " + myMineCount);
+    el("hudShield", Math.round(me.shieldHp || 0) + " (" + shieldPct + "%)");
+    el("hudZone", zonePct.toFixed(1) + "%");
+    el("hudZoneSpeed", "×" + infSpdMul.toFixed(2));
+    const zoneFill = document.getElementById("hudZoneFill");
+    if (zoneFill) zoneFill.style.width = zonePct + "%";
+    el("hudTurretHp", turretHp + " hp");
+    el("hudTurretDmg", turretDmg + " dps");
+    el("hudCityDmg", cityDmg + " ×" + (CFG.CITY_BASE_TARGETS + (me.cityTargetBonus || 0)));
+    el("hudPatrols", patrolCount);
+
     const lb = getLevelBonusMul(me);
-    const myHpMul = (me.unitHpMul != null ? me.unitHpMul : 1) * lb;
     const myDmgMul = (me.unitDmgMul != null ? me.unitDmgMul : 1) * lb;
-    const mySpdMul = (me.unitSpeedMul != null ? me.unitSpeedMul : 1) * lb;
     const myAtkRMul = (me.unitAtkRateMul != null ? me.unitAtkRateMul : 1) * lb;
-    const fmtMul = (v) => v === 1 ? "" : " <span style='color:" + (v > 1 ? "#4f4" : "#f44") + ";font-size:9px'>×" + v.toFixed(2) + "</span>";
-    let fleetHtml = "<div class='stat-line'><span class='stat-label'>В поле</span><span class='stat-val'>" + me.activeUnits + "</span></div>";
-    fleetHtml += "<div class='stat-line'><span class='stat-label'>ХП</span><span class='stat-val'>" + fmtMul(myHpMul) + "</span></div>";
-    fleetHtml += "<div class='stat-line'><span class='stat-label'>Урон</span><span class='stat-val'>" + fmtMul(myDmgMul) + "</span></div>";
-    fleetHtml += "<div class='stat-line'><span class='stat-label'>Скорость</span><span class='stat-val'>" + fmtMul(mySpdMul) + "</span></div>";
-    fleetHtml += "<div class='stat-line'><span class='stat-label'>Атак/с</span><span class='stat-val'>" + fmtMul(myAtkRMul) + "</span></div>";
-    for (const key of UNIT_TYPE_ORDER) {
-      const count = unitCountByType[key] || 0;
-      if (count > 0) {
-        fleetHtml += "<div class='stat-line'><span class='stat-label'>" + (UNIT_TYPES[key]?.name || key) + "</span><span class='stat-val'>" + count + "</span></div>";
-      }
-    }
-    if (me.attackEffects) {
-      const effectNames = { chain: "⚡ Цепная", cryo: "❄️ Крио", fire: "🔥 Огонь" };
-      for (const [eff, lv] of Object.entries(me.attackEffects)) {
-        if (lv > 0) {
-          fleetHtml += "<div class='stat-line'><span class='stat-label'>" + (effectNames[eff] || eff) + "</span><span class='stat-val'>Ур." + lv + "/3</span></div>";
+    const mySpdMul = (me.unitSpeedMul != null ? me.unitSpeedMul : 1) * lb;
+    const myAtkRangeMul = (me.unitAtkRangeMul != null ? me.unitAtkRangeMul : 1) * getRangeLevelMul(me);
+    const fmtM = (v) => "×" + v.toFixed(2);
+    el("hudDmgMul", fmtM(myDmgMul));
+    el("hudRateMul", fmtM(myAtkRMul));
+    el("hudRangeMul", fmtM(myAtkRangeMul));
+    el("hudSpeedMul", fmtM(mySpdMul));
+
+    const dmgMulEl = document.getElementById("hudDmgMul");
+    const rateMulEl = document.getElementById("hudRateMul");
+    const rangeMulEl = document.getElementById("hudRangeMul");
+    const speedMulEl = document.getElementById("hudSpeedMul");
+    const colorMul = (e, v) => { if (e) e.style.color = v > 1 ? "#66dd88" : v < 1 ? "#ff5555" : "#aabbcc"; };
+    colorMul(dmgMulEl, myDmgMul);
+    colorMul(rateMulEl, myAtkRMul);
+    colorMul(rangeMulEl, myAtkRangeMul);
+    colorMul(speedMulEl, mySpdMul);
+
+    const legendaryEl = document.getElementById("hudLegendary");
+    if (legendaryEl) {
+      const effects = [];
+      if (me.attackEffects) {
+        const effectNames = { chain: "⚡Цепная", cryo: "❄️Крио", fire: "🔥Огонь" };
+        for (const [eff, lv] of Object.entries(me.attackEffects)) {
+          if (lv > 0) effects.push(effectNames[eff] + " " + lv);
         }
       }
+      legendaryEl.textContent = effects.length ? effects.join(", ") : "—";
     }
-    if (armyStatsEl) armyStatsEl.innerHTML = fleetHtml;
 
     // Update buy/batch button enabled/disabled state (credits + unit cap)
     const costMul = me.unitCostMul != null ? me.unitCostMul : 1;
@@ -8413,6 +8712,104 @@
       if (countSpan) countSpan.textContent = cur + "/" + cap;
     });
   }
+
+  // ─── Tooltip for HUD stat rows ───────────────────────────────
+  {
+    const tooltipEl = document.getElementById("hudTooltip");
+    document.addEventListener("pointerover", (e) => {
+      const row = e.target.closest("[data-tooltip]");
+      if (!row || !tooltipEl) return;
+      tooltipEl.textContent = row.dataset.tooltip;
+      tooltipEl.style.display = "block";
+    });
+    document.addEventListener("pointermove", (e) => {
+      if (tooltipEl && tooltipEl.style.display === "block") {
+        tooltipEl.style.left = Math.min(e.clientX + 12, window.innerWidth - 280) + "px";
+        tooltipEl.style.top = (e.clientY + 14) + "px";
+      }
+    });
+    document.addEventListener("pointerout", (e) => {
+      const row = e.target.closest("[data-tooltip]");
+      if (row && tooltipEl) tooltipEl.style.display = "none";
+    });
+  }
+
+  // ─── Enemy comparison panel ─────────────────────────────────
+  function showEnemyCompare(enemyId) {
+    const me = state.players.get(state.myPlayerId);
+    const enemy = state.players.get(enemyId);
+    if (!me || !enemy) return;
+    const panel = document.getElementById("enemyComparePanel");
+    const nameEl = document.getElementById("compareEnemyName");
+    const rowsEl = document.getElementById("compareRows");
+    if (!panel || !rowsEl) return;
+
+    nameEl.textContent = enemy.name || ("Игрок " + enemyId);
+    const lb = getLevelBonusMul(me);
+    const elb = getLevelBonusMul(enemy);
+    const totalArea = CFG.WORLD_W * CFG.WORLD_H;
+    const myZonePct = totalArea > 0 ? (polygonArea(me.influencePolygon) / totalArea * 100) : 0;
+    const eZonePct = totalArea > 0 ? (polygonArea(enemy.influencePolygon) / totalArea * 100) : 0;
+    const eTurretCount = (enemy.turretIds || []).filter(tid => { const t = state.turrets.get(tid); return t && t.hp > 0; }).length;
+    const myTurretCount = (me.turretIds || []).filter(tid => { const t = state.turrets.get(tid); return t && t.hp > 0; }).length;
+    const eMyMines = [...state.mines.values()].filter(m => m.ownerId === me.id).length;
+    const eEnemyMines = [...state.mines.values()].filter(m => m.ownerId === enemy.id).length;
+
+    const sections = [
+      { title: "🌍 Планета", stats: [
+        { label: "Население", my: me.pop, his: enemy.pop },
+        { label: "Уровень", my: me.level, his: enemy.level },
+        { label: "Щит", my: Math.round(me.shieldHp || 0), his: Math.round(enemy.shieldHp || 0) },
+        { label: "Зона %", my: myZonePct.toFixed(1), his: eZonePct.toFixed(1) },
+        { label: "Шахты", my: eMyMines, his: eEnemyMines }
+      ]},
+      { title: "🏰 Оборона", stats: [
+        { label: "Турели", my: myTurretCount, his: eTurretCount },
+        { label: "Юниты", my: me.activeUnits || 0, his: enemy.activeUnits || 0 }
+      ]},
+      { title: "🚀 Флот", stats: [
+        { label: "Урон ×", my: ((me.unitDmgMul || 1) * lb).toFixed(2), his: ((enemy.unitDmgMul || 1) * elb).toFixed(2) },
+        { label: "Скоростр. ×", my: ((me.unitAtkRateMul || 1) * lb).toFixed(2), his: ((enemy.unitAtkRateMul || 1) * elb).toFixed(2) },
+        { label: "Скорость ×", my: ((me.unitSpeedMul || 1) * lb).toFixed(2), his: ((enemy.unitSpeedMul || 1) * elb).toFixed(2) },
+        { label: "Дальность ×", my: ((me.unitAtkRangeMul || 1) * getRangeLevelMul(me)).toFixed(2), his: ((enemy.unitAtkRangeMul || 1) * getRangeLevelMul(enemy)).toFixed(2) }
+      ]}
+    ];
+
+    let html = "";
+    for (const sec of sections) {
+      html += "<div class='compare-section-title'>" + sec.title + "</div>";
+      html += sec.stats.map(s => {
+        const myV = parseFloat(s.my), hisV = parseFloat(s.his);
+        const diff = myV - hisV;
+        const cls = diff > 0 ? "positive" : diff < 0 ? "negative" : "neutral";
+        const sign = diff > 0 ? "+" : "";
+        return "<div class='compare-row'><span class='compare-label'>" + s.label +
+          "</span><span class='compare-val'>" + s.my +
+          "</span><span class='compare-vs'>vs</span><span class='compare-val'>" + s.his +
+          "</span><span class='compare-diff " + cls + "'>" + sign + diff.toFixed(1) + "</span></div>";
+      }).join("");
+    }
+    rowsEl.innerHTML = html;
+
+    const topPanel = document.getElementById("topRightPanel");
+    panel.style.top = (topPanel ? topPanel.offsetTop + topPanel.offsetHeight + 8 : 200) + "px";
+    panel.style.display = "block";
+    panel._openedAt = performance.now();
+  }
+
+  document.getElementById("compareClose")?.addEventListener("click", () => {
+    const panel = document.getElementById("enemyComparePanel");
+    if (panel) panel.style.display = "none";
+  });
+
+  document.addEventListener("pointerdown", (e) => {
+    const panel = document.getElementById("enemyComparePanel");
+    if (!panel || panel.style.display !== "block") return;
+    if (panel._openedAt && (performance.now() - panel._openedAt) < 200) return;
+    if (!panel.contains(e.target) && !e.target.closest("#topRightPanel") && !e.target.closest(".topright-leaderboard")) {
+      panel.style.display = "none";
+    }
+  });
 
   // ------------------------------------------------------------
   // Storm Front
@@ -9838,6 +10235,22 @@
     g.fill({ color: 0x331111, alpha: 0.8 });
     g.rect(-hpBarW / 2, -R - 16, hpBarW * hpPct, hpBarH);
     g.fill({ color: 0xcc4422, alpha: 0.9 });
+
+    if (pb._respawnTimer > 0) {
+      if (!pb._timerTxt || pb._timerTxt.destroyed) {
+        pb._timerTxt = new PIXI.Text({ text: "", style: { fontSize: 14, fill: 0xffcc44, fontFamily: "monospace", fontWeight: "bold", stroke: { color: 0x000000, width: 3 } } });
+        pb._timerTxt.anchor.set(0.5, 1);
+        resLayer.addChild(pb._timerTxt);
+      }
+      const secs = Math.ceil(pb._respawnTimer);
+      const min = Math.floor(secs / 60);
+      const sec = secs % 60;
+      pb._timerTxt.text = "⏱ " + min + ":" + (sec < 10 ? "0" : "") + sec;
+      pb._timerTxt.position.set(pb.x, pb.y - R - 22);
+      pb._timerTxt.visible = true;
+    } else if (pb._timerTxt) {
+      pb._timerTxt.visible = false;
+    }
   }
 
   function drawHyperFlashes() {
@@ -11331,8 +11744,7 @@
     if (snap.timeScale != null) {
       document.querySelectorAll(".speed-btn").forEach((b) => {
         const s = parseInt(b.dataset.speed, 10) || 1;
-        const ts = s >= 2 ? s / 2 : 0.5;
-        b.classList.toggle("active", ts === state.timeScale);
+        b.classList.toggle("active", s === state.timeScale);
       });
     }
   }
@@ -12091,6 +12503,9 @@
 
       // Simulate bullets visually — smooth movement between zone syncs (266 ms)
       stepBulletsVisual(dt);
+
+      stepMineGemsRemote(dt);
+      stepMineGems(dt);
 
       NET.Interp.tickStorm(state.storm, interpMs);
 

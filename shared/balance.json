@@ -39,7 +39,7 @@
       "damage": 3,
       "attackRate": 0.8,
       "speed": 34,
-      "attackRange": 60,
+      "attackRange": 84,
       "maxTargets": 1,
       "popPenaltyPerUnit": 1,
       "sizeMultiplier": 1.0,

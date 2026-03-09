@@ -34,16 +34,26 @@ const MIME = {
   ".html": "text/html",
   ".js":   "application/javascript",
   ".css":  "text/css",
-  ".json": "application/json"
+  ".json": "application/json",
+  ".mp3":  "audio/mpeg",
+  ".ogg":  "audio/ogg",
+  ".wav":  "audio/wav",
+  ".png":  "image/png",
+  ".jpg":  "image/jpeg",
+  ".gif":  "image/gif",
+  ".svg":  "image/svg+xml",
+  ".woff": "font/woff",
+  ".woff2":"font/woff2"
 };
 
 const httpServer = http.createServer((req, res) => {
   const clientIp = req.socket.remoteAddress || "?";
   console.log("[HTTP]", req.method, req.url, "from", clientIp);
 
-  const file = (req.url === "/" || req.url === "")
+  const raw = (req.url === "/" || req.url === "")
     ? "index.html"
     : req.url.replace(/^\//, "").replace(/[?].*$/, "");
+  const file = decodeURIComponent(raw);
 
   const filePath = path.join(__dirname, file);
   const ext = path.extname(filePath);

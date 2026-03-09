@@ -1,12 +1,34 @@
-client.js?v=8:103 [Меню] Сокет готов, __createRoom задан (кнопки через onclick в HTML).
-:3040/favicon.ico:1  Failed to load resource: the server responded with a status of 404 (Not Found)
-client.js?v=8:6072 [Лобби] Подключение к серверу: http://localhost:3040 OK
-:3040/favicon.ico:1  Failed to load resource: the server responded with a status of 404 (Not Found)
-client.js?v=8:5612 [Лобби] Список комнат: 0 Array(0)
-client.js?v=8:6077 [Лобби] Socket отключён, причина: transport close
-websocket.js:43 WebSocket connection to 'ws://localhost:3040/socket.io/?EIO=4&transport=websocket' failed: 
-value @ websocket.js:43
-client.js?v=8:6076 [Лобби] Ошибка подключения: websocket error
-(anonymous) @ client.js?v=8:6076
-client.js?v=8:6075 [Лобби] Socket подключён, id: vcyG7GVjZKyAMsFMAAAB
-client.js?v=8:6078 [Лобби] Адрес сервера для сети: http://26.22.34.223:3040
+Пофикси:
+
+1) Дальность атаки кораблей тоже растет с уровнем
+2) В бою юниты не должны стоять "впритык" к друг другу а атаковать в радиусе своей атаки
+3) Музыка, сейчас вижу что у меня будто все 4 трека переключаются 30 раз в секунду, и не стартуют даже (пофикси)
+
+В консоли вот:
+
+[HTTP] GET /assets/Gravitational%20Hush.mp3 from 127.0.0.1
+[HTTP] 404 C:\Users\7StepToHell\Desktop\DTF\public\Hoi2D\assets\Gravitational%20Hush.mp3
+[HTTP] GET /assets/Gravitational%20Hush.mp3 from 127.0.0.1
+[HTTP] 404 C:\Users\7StepToHell\Desktop\DTF\public\Hoi2D\assets\Gravitational%20Hush.mp3
+[HTTP] GET /assets/Celestial%20Archive%20of%20the%20First%20Dawn.mp3 from 127.0.0.1
+[HTTP] 404 C:\Users\7StepToHell\Desktop\DTF\public\Hoi2D\assets\Celestial%20Archive%20of%20the%20First%20Dawn.mp3
+[HTTP] GET /assets/Celestial%20Archive%20of%20the%20First%20Dawn.mp3 from 127.0.0.1
+[HTTP] 404 C:\Users\7StepToHell\Desktop\DTF\public\Hoi2D\assets\Celestial%20Archive%20of%20the%20First%20Dawn.mp3
+[HTTP] GET /assets/Celestial%20Archive%20of%20the%20First%20Dawn%20(1).mp3 from 127.0.0.1
+[HTTP] 404 C:\Users\7StepToHell\Desktop\DTF\public\Hoi2D\assets\Celestial%20Archive%20of%20the%20First%20Dawn%20(1).mp3
+[HTTP] GET /assets/Celestial%20Archive%20of%20the%20First%20Dawn%20(1).mp3 from 127.0.0.1
+[HTTP] 404 C:\Users\7StepToHell\Desktop\DTF\public\Hoi2D\assets\Celestial%20Archive%20of%20the%20First%20Dawn%20(1).mp3
+[HTTP] GET /assets/Gravitational%20Echoes.mp3 from 127.0.0.1
+[HTTP] 404 C:\Users\7StepToHell\Desktop\DTF\public\Hoi2D\assets\Gravitational%20Echoes.mp3
+[HTTP] GET /assets/Gravitational%20Echoes.mp3 from 127.0.0.1
+[HTTP] 404 C:\Users\7StepToHell\Desktop\DTF\public\Hoi2D\assets\Gravitational%20Echoes.mp3
+[HTTP] GET /assets/Gravitational%20Hush.mp3 from 127.0.0.1
+
+4) "Тест панель сделай частью панели HUD справа, и расположи что бы не перекрывалос оастально
+5)  блок со скрина вообще в нижний правый угол: 
+6) размер кнопок по управлению отрядом увеличь, и в целом весь блок прцоентов на 30
+7) В HUD где данные о мей планете, показываем в Зона "% от общей карты" а то щас не понятно что показывает
+8) При нажатии сравнения показывай аналогичный HUD - Планета, Оборона, Флот
+9) Пофикси что зона сражения почему то в какой то момент может быть на пол карты и сужается до действительного, пускай она стартует с радиуса 10% от текущего и сужается до него, иначе иногда цепляет корабли в бой
+
+Если надо задай вопросы

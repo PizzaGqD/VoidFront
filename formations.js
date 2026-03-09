@@ -10,11 +10,11 @@
   "use strict";
 
   const SPACING = {
-    fighter: 24,
-    destroyer: 32,
-    cruiser: 48,
-    battleship: 64,
-    hyperDestroyer: 80
+    fighter: 32,
+    destroyer: 44,
+    cruiser: 60,
+    battleship: 80,
+    hyperDestroyer: 100
   };
 
   function spacingFor(typeA, typeB) {
@@ -28,10 +28,11 @@
   }
 
   // --- Line formation (rows x cols grid) ---
-  function getLineOffsets(unitTypes, rows, facing) {
+  function getLineOffsets(unitTypes, rows, facing, widthScale) {
     const n = unitTypes.length;
     if (n === 0) return [];
     if (n === 1) return [{ x: 0, y: 0 }];
+    const ws = widthScale || 1;
 
     rows = Math.max(1, Math.min(rows, n));
     const cols = Math.ceil(n / rows);
@@ -46,7 +47,7 @@
 
       let rowSpacings = [];
       for (let c = 0; c < inRow; c++) {
-        const left = c > 0 ? spacingFor(rowTypes[c], rowTypes[c - 1]) : 0;
+        const left = c > 0 ? spacingFor(rowTypes[c], rowTypes[c - 1]) * ws : 0;
         rowSpacings.push(left);
       }
 
@@ -120,14 +121,14 @@
   }
 
   // --- Unified entry point ---
-  function getFormationOffsets(unitTypes, formationType, rows, facing) {
+  function getFormationOffsets(unitTypes, formationType, rows, facing, widthScale) {
     if (!unitTypes || unitTypes.length === 0) return [];
     switch (formationType) {
       case "wedge": return getWedgeOffsets(unitTypes, facing);
       case "circle": return getCircleOffsets(unitTypes, facing);
       case "line":
       default:
-        return getLineOffsets(unitTypes, rows || 3, facing);
+        return getLineOffsets(unitTypes, rows || 3, facing, widthScale);
     }
   }
 
