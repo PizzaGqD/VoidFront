@@ -41,7 +41,8 @@
     "pendingCardPicks", "xpZonePct", "xpGainMul",
     "_levelBonusMul", "rerollCount",
     "shieldHp", "shieldMaxHp", "shieldRegenCd", "shieldRegenBonus", "_cardPicksCount",
-    "mineYieldBonus", "cityTargetBonus", "attackEffect", "attackEffects"
+    "mineYieldBonus", "cityTargetBonus", "attackEffect", "attackEffects",
+    "_patrolCount", "_patrols"
   ];
   const PLAYER_FULL_KEYS = [
     ...PLAYER_SYNC_KEYS, "influencePolygon", "influenceRayDistances"
@@ -243,8 +244,8 @@
         }
         gs.resources = resources;
 
+        gs.squads = [];
         if (state.squads && state.squads.size > 0) {
-          gs.squads = [];
           for (const sq of state.squads.values()) {
             gs.squads.push({
               id: sq.id, leaderUnitId: sq.leaderUnitId,
@@ -272,8 +273,8 @@
           }
         }
 
+        gs.engagementZones = [];
         if (state.engagementZones && state.engagementZones.size > 0) {
-          gs.engagementZones = [];
           for (const z of state.engagementZones.values()) {
             gs.engagementZones.push({
               id: z.id, squadIds: z.squadIds ? z.squadIds.slice() : [],

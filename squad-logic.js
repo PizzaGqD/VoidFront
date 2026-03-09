@@ -964,6 +964,22 @@
       return { tx: u.x, ty: u.y, moveMode: "stop" };
     }
 
+    // ── Siege circle formation around target ──
+    if (sq.order.type === "siege" && sq.order.waypoints && sq.order.waypoints.length === 0) {
+      const city = sq.order.targetCityId != null ? state.players.get(sq.order.targetCityId) : null;
+      if (city && !city.eliminated) {
+        const units = getSquadUnits(state, sq);
+        const avgR = getAvgAttackRange(units, helpers);
+        const shR = helpers.shieldRadius ? helpers.shieldRadius(city) : 0;
+        const circleR = Math.max(shR + 8, avgR * 0.85);
+        const idx = units.indexOf(u);
+        const angle = (idx / units.length) * Math.PI * 2;
+        const tx = city.x + Math.cos(angle) * circleR;
+        const ty = city.y + Math.sin(angle) * circleR;
+        return { tx, ty, moveMode: "squad_anchor" };
+      }
+    }
+
     // ── Approach / Move / Idle: formation-based ──
     const facing = sq.formation.targetFacing ?? sq.formation.facing ?? leader._lastFacingAngle ?? 0;
     const anchorX = sq.anchor.x ?? leader.x;
@@ -1060,6 +1076,9 @@
 
     if (chosen.length) {
       u._currentTargetId = chosen[0].id;
+      while (chosen.length < maxTargets) {
+        chosen.push(chosen[0]);
+      }
       return { type: "units", targets: chosen };
     }
 

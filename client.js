@@ -1157,8 +1157,11 @@
 
     const rng = mulberry32(seed + 0x57AE5 + layerIndex * 7919);
     const count = STARS_COUNT[layerIndex] || 120;
-    const sizeBase  = 0.25 + layerIndex * 0.3;
-    const sizeRange = 0.6 + layerIndex * 0.5;
+    const isFront = layerIndex >= 7;
+    const globalShrink = 0.9;
+    const frontShrink = isFront ? 0.7 : 1.0;
+    const sizeBase  = (0.2 + layerIndex * 0.25) * globalShrink * frontShrink;
+    const sizeRange = (0.5 + layerIndex * 0.6) * globalShrink * frontShrink;
     const stars = [];
     for (let i = 0; i < count; i++) {
       const x = rng() * TW, y = rng() * TH;
@@ -1975,6 +1978,9 @@
       xpZonePct: 0,
       xpGainMul: 1,
 
+      _patrolCount: 1,
+      _patrols: [{ t: 0, atkCd: 0 }],
+
       cityGfx: null,
       zoneGfx: null,
       zoneGlow: null,
@@ -2106,26 +2112,53 @@
   function getRandomCards(count, player) {
     const picks = (player && player._cardPicksCount) || {};
     const allowed = c => !c.maxPicks || (picks[c.id] || 0) < c.maxPicks;
-    const byRarity = { common: [], uncommon: [], rare: [], epic: [], legendary: [], mythic: [] };
-    for (const c of CARD_DEFS) { if (allowed(c)) (byRarity[c.rarity] || []).push(c); }
+    const level = player ? (player.level || 1) : 1;
+    const guaranteeLegendary = (level % 5 === 0);
     const out = [];
-    const usedIds = new Set();
-    const usedTypes = new Set();
+    const usedBuffIds = new Set();
     for (let i = 0; i < count; i++) {
-      const rarity = rollCardRarity();
-      let arr = (byRarity[rarity] || []).filter(c => !usedIds.has(c.id) && !usedTypes.has(getCardType(c)));
-      if (!arr.length) arr = CARD_DEFS.filter(c => allowed(c) && !usedIds.has(c.id) && !usedTypes.has(getCardType(c)));
-      if (!arr.length) arr = CARD_DEFS.filter(c => allowed(c) && !usedIds.has(c.id));
-      if (!arr.length) arr = CARD_DEFS.filter(c => allowed(c));
-      const pick = arr[Math.floor(Math.random() * arr.length)];
-      usedIds.add(pick.id);
-      usedTypes.add(getCardType(pick));
-      out.push(pick);
+      let rarity = (i === 0 && guaranteeLegendary) ? "legendary" : rollCardRarity();
+      const pool = CARD_DEFS.filter(c => c.rarity === rarity && allowed(c) && !usedBuffIds.has(c.id) && !c.patrolBonus);
+      if (pool.length < 2) {
+        const fallback = CARD_DEFS.filter(c => allowed(c) && !usedBuffIds.has(c.id) && !c.patrolBonus);
+        if (fallback.length >= 2) {
+          rarity = fallback[0].rarity;
+        }
+      }
+      const available = CARD_DEFS.filter(c => c.rarity === rarity && allowed(c) && !usedBuffIds.has(c.id) && !c.patrolBonus);
+      if (available.length < 2) {
+        const any = CARD_DEFS.filter(c => allowed(c) && !usedBuffIds.has(c.id) && !c.patrolBonus);
+        if (any.length >= 2) {
+          const a = any.splice(Math.floor(Math.random() * any.length), 1)[0];
+          const bPool = any.filter(c => getCardType(c) !== getCardType(a));
+          const b = bPool.length ? bPool[Math.floor(Math.random() * bPool.length)] : any[Math.floor(Math.random() * any.length)];
+          usedBuffIds.add(a.id); usedBuffIds.add(b.id);
+          const maxRarity = RARITY_ORDER.indexOf(a.rarity) > RARITY_ORDER.indexOf(b.rarity) ? a.rarity : b.rarity;
+          out.push({ dual: true, rarity: maxRarity, buffs: [a, b] });
+          continue;
+        }
+        if (any.length === 1) { usedBuffIds.add(any[0].id); out.push({ dual: true, rarity: any[0].rarity, buffs: [any[0], any[0]] }); continue; }
+        continue;
+      }
+      const a = available.splice(Math.floor(Math.random() * available.length), 1)[0];
+      const bPool = available.filter(c => getCardType(c) !== getCardType(a));
+      const b = bPool.length ? bPool[Math.floor(Math.random() * bPool.length)] : available[Math.floor(Math.random() * available.length)];
+      usedBuffIds.add(a.id); usedBuffIds.add(b.id);
+      out.push({ dual: true, rarity, buffs: [a, b] });
     }
     return out;
   }
+  const RARITY_ORDER = ["common", "uncommon", "rare", "epic", "legendary", "mythic"];
 
   function applyCard(p, card) {
+    if (card.dual && card.buffs) {
+      for (const buff of card.buffs) applySingleBuff(p, buff);
+      return;
+    }
+    applySingleBuff(p, card);
+  }
+
+  function applySingleBuff(p, card) {
     if (card.maxPicks != null) {
       p._cardPicksCount = p._cardPicksCount || {};
       p._cardPicksCount[card.id] = (p._cardPicksCount[card.id] || 0) + 1;
@@ -2167,7 +2200,7 @@
       return;
     }
     for (const key of Object.keys(card)) {
-      if (["id","name","desc","rarity","emoji"].includes(key)) continue;
+      if (["id","name","desc","rarity","emoji","maxPicks"].includes(key)) continue;
       const val = card[key];
       if (typeof val === "number") {
         const prev = p[key] != null ? p[key] : 1;
@@ -2392,7 +2425,7 @@
     return { x: poly[0].x, y: poly[0].y };
   }
 
-  const PATROL_LIGHT_SPEED = 0.027;
+  const PATROL_LIGHT_SPEED = 0.009;
   const PATROL_ATTACK_R = 85;
   const PATROL_ATTACK_RATE = 1.2;
   const PATROL_DMG = 3;
@@ -2895,13 +2928,15 @@
       const dmgMul = (p.turretDmgMul != null ? p.turretDmgMul : 1) * getLevelBonusMul(p);
       const dmg = Math.max(1, Math.round(PATROL_DMG * dmgMul));
       for (const patrol of p._patrols) {
-        patrol.t = ((patrol.t || 0) + dt * PATROL_LIGHT_SPEED) % 1;
-        patrol.atkCd = (patrol.atkCd || 0) - dt;
-        if (patrol.atkCd > 0) continue;
-        const pos = getPolyPerimeterPoint(poly, segs, totalLen, patrol.t);
+        const pos = getPolyPerimeterPoint(poly, segs, totalLen, patrol.t || 0);
         const nearby = queryHash(pos.x, pos.y, range);
         const enemies = nearby.filter(u => u.owner !== p.id);
-        if (enemies.length === 0) continue;
+        const hasEnemies = enemies.length > 0;
+        if (!hasEnemies) {
+          patrol.t = ((patrol.t || 0) + dt * PATROL_LIGHT_SPEED) % 1;
+        }
+        patrol.atkCd = (patrol.atkCd || 0) - dt;
+        if (patrol.atkCd > 0 || !hasEnemies) continue;
         enemies.sort((a, b) => (a.x - pos.x) ** 2 + (a.y - pos.y) ** 2 - ((b.x - pos.x) ** 2 + (b.y - pos.y) ** 2));
         const targets = enemies.slice(0, 3);
         patrol.atkCd = 1 / rate;
@@ -4643,6 +4678,7 @@
       const oc = state.pirateBase.orbitCenter || { x: state.pirateBase.x, y: state.pirateBase.y };
       const oR = state.pirateBase.orbitRadius || 200;
       const patrolHalf = (CFG.MINE_CAPTURE_RADIUS || 140) * 2;
+      const baseUnderAttack = state.pirateBase._lastAttackedAt && (state.t - state.pirateBase._lastAttackedAt) < 5;
       if (typeof SQUADLOGIC !== "undefined") {
         const pirateSquads = [...state.squads.values()].filter((sq) => sq.ownerId === PIRATE_OWNER_ID && SQUADLOGIC.getSquadUnits(state, sq).length > 0);
         for (const squadState of pirateSquads) {
@@ -4650,6 +4686,14 @@
           if (!leader) continue;
           if ((leader._hyperArrivalFlash && state.t < leader._hyperArrivalFlash) || (leader._pirateHyperUntil && state.t < leader._pirateHyperUntil)) continue;
           if (squadState.combat.mode === "approach" || squadState.combat.mode === "engaged") continue;
+
+          if (baseUnderAttack) {
+            const defX = state.pirateBase._attackerX ?? state.pirateBase.x;
+            const defY = state.pirateBase._attackerY ?? state.pirateBase.y;
+            SQUADLOGIC.issueMoveOrder(state, squadState.id, [{ x: defX, y: defY }], Math.atan2(defY - leader.y, defX - leader.x));
+            continue;
+          }
+
           if (squadState._piratePatrolIdx == null) squadState._piratePatrolIdx = squadState.id % 4;
           const corners = [
             { x: oc.x - patrolHalf, y: oc.y - patrolHalf },
@@ -5814,12 +5858,19 @@
       const hitTargets = new Set();
       if (firePlan && firePlan.type === "units" && Array.isArray(firePlan.targets) && firePlan.targets.length > 0) {
         u.atkCd = 1 / getUnitAtkRate(u);
-        for (const tgt of firePlan.targets) {
+        const hitR = getUnitHitRadius(u) * 0.6;
+        const facing = u._lastFacingAngle ?? 0;
+        const hpAngles = [0, Math.PI * 0.5, Math.PI, Math.PI * 1.5, Math.PI * 0.25, Math.PI * 0.75, Math.PI * 1.25, Math.PI * 1.75];
+        for (let ti = 0; ti < firePlan.targets.length; ti++) {
+          const tgt = firePlan.targets[ti];
           hitTargets.add(tgt.id);
           const nebDmgTaken = isInNebula(tgt.x, tgt.y) ? (1 + CFG.NEBULA_DMG_TAKEN_BONUS) : 1;
           const dmg = Math.max(1, Math.round(getUnitDmg(u) * nebDmgTaken));
+          const hpA = facing + hpAngles[ti % hpAngles.length];
+          const fromX = firePlan.targets.length > 1 ? u.x + Math.cos(hpA) * hitR : u.x;
+          const fromY = firePlan.targets.length > 1 ? u.y + Math.sin(hpA) * hitR : u.y;
           state.bullets.push({
-            type: "laser", fromX: u.x, fromY: u.y,
+            type: "laser", fromX, fromY,
             toX: tgt.x, toY: tgt.y,
             color: p ? p.color : 0xaa44ff,
             ownerId: u.owner, dmg,
@@ -6069,6 +6120,9 @@
             if (state.pirateBase && state.pirateBase.hp > 0) {
               state.pirateBase.hp = Math.max(0, state.pirateBase.hp - b.dmg);
               state.pirateBase.lastDamagedBy = b.ownerId;
+              state.pirateBase._lastAttackedAt = state.t;
+              state.pirateBase._attackerX = b.fromX ?? state.pirateBase.x;
+              state.pirateBase._attackerY = b.fromY ?? state.pirateBase.y;
               state.floatingDamage.push({ x: state.pirateBase.x, y: state.pirateBase.y - 30, text: "-" + b.dmg, color: b.color ?? 0xaa44ff, ttl: 0.9 });
               if (state.pirateBase.hp <= 0) {
                 const killerId = state.pirateBase.lastDamagedBy;
@@ -6420,7 +6474,6 @@
       } else {
         baseSpeed = individualSpeed;
       }
-      const nebulaSpd = isInNebula(u.x, u.y) ? (1 - CFG.NEBULA_SPEED_PENALTY) : 1;
       const cryoSpd = (u._cryoSlowUntil && state.t < u._cryoSlowUntil) ? (1 - (u._cryoSlowAmount || CFG.CRYO_SLOW)) : 1;
       let hyperMul = 1;
       if (u._pirateHyperUntil && state.t < u._pirateHyperUntil) {
@@ -6428,11 +6481,8 @@
         const tgtH = wpH && wpH.length ? wpH[0] : null;
         hyperMul = tgtH && Math.hypot(tgtH.x - u.x, tgtH.y - u.y) > PIRATE_RAID_HYPER_DIST ? PIRATE_RAID_HYPER_SPEED_MUL : 1;
       }
-      const hpPct = (u.maxHp > 0) ? u.hp / u.maxHp : 1;
-      const isFighter = (u.unitType || "fighter") === "fighter";
-      const hpSpeedMul = (isFighter ? 0.6 : 0.1) + (1 - (isFighter ? 0.6 : 0.1)) * hpPct;
       const fleetBoostMul = (state._fleetBoostUntil && state._fleetBoostUntil[u.owner] && state.t < state._fleetBoostUntil[u.owner]) ? 1.5 : 1;
-      const speedMuls = terrainSpd * unitSpeedMul * (u._territoryMul ?? 1) * nebulaSpd * cryoSpd * hpSpeedMul * hyperMul * fleetBoostMul;
+      const speedMuls = terrainSpd * unitSpeedMul * (u._territoryMul ?? 1) * cryoSpd * hyperMul * fleetBoostMul;
       const speed = baseSpeed * speedMuls;
       const maxMove = speed * dt;
       const maxMoveIndividual = individualSpeed * speedMuls * dt;
@@ -6454,6 +6504,24 @@
           tx = movement.tx;
           ty = movement.ty;
           moveMode = movement.moveMode || "formation_move";
+        }
+        if (state.pirateBase && state.pirateBase.hp > 0 && u.owner !== PIRATE_OWNER_ID) {
+          const pb = state.pirateBase;
+          const pbDist = Math.hypot(u.x - pb.x, u.y - pb.y);
+          const atkR = getUnitAtkRange(u);
+          if (pbDist < atkR * 1.5 && moveMode !== "stop") {
+            const sq = u.squadId != null ? state.squads?.get(u.squadId) : null;
+            if (sq) {
+              const sqUnits = SQUADLOGIC.getSquadUnits(state, sq);
+              const ui = sqUnits.indexOf(u);
+              if (ui >= 0) {
+                const angle = (ui / Math.max(1, sqUnits.length)) * Math.PI * 2;
+                tx = pb.x + Math.cos(angle) * atkR * 0.85;
+                ty = pb.y + Math.sin(angle) * atkR * 0.85;
+                moveMode = "squad_anchor";
+              }
+            }
+          }
         }
       }
 
@@ -7119,7 +7187,7 @@
       p.popFloat = Math.max(0, p.popFloat + perSec * dt);
       p.pop = Math.floor(p.popFloat);
 
-      const popCreditPerSec = Math.floor(p.pop / 50);
+      const popCreditPerSec = Math.floor(p.pop / 100);
       if (popCreditPerSec > 0) {
         p.eCredits = (p.eCredits || 0) + popCreditPerSec * dt;
       }
@@ -7644,11 +7712,20 @@
     const myUnitDmg = me ? (ft.damage * (me.unitDmgMul != null ? me.unitDmgMul : 1) * getLevelBonusMul(me)) : 0;
     const myUnitSpd = me ? (ft.speed * (me.unitSpeedMul != null ? me.unitSpeedMul : 1) * getLevelBonusMul(me)) : 0;
     const myUnitAtkR = me ? (ft.attackRate * (me.unitAtkRateMul != null ? me.unitAtkRateMul : 1) * getLevelBonusMul(me)) : 0;
+    const eMineCount = [...state.mines.values()].filter(m => m.ownerId === p.id).length;
+    const eMineIncPerMin = eMineCount * ((CFG.MINE_BASE_YIELD_VALUE * 0.7) + (p.mineYieldBonus || 0)) / Math.max(0.5, 2.5) * 60;
+    const ePopIncPerMin = Math.floor(p.pop / 100) * 60;
+    const eTotalIncPerMin = Math.round(eMineIncPerMin + ePopIncPerMin);
+    const myMineCountC = [...state.mines.values()].filter(m => m.ownerId === (me ? me.id : -1)).length;
+    const myMineIncPerMin = me ? myMineCountC * ((CFG.MINE_BASE_YIELD_VALUE * 0.7) + (me.mineYieldBonus || 0)) / Math.max(0.5, 2.5) * 60 : 0;
+    const myPopIncPerMin = me ? Math.floor(me.pop / 100) * 60 : 0;
+    const myTotalIncPerMin = Math.round(myMineIncPerMin + myPopIncPerMin);
     const cityPart =
       "<div class='stat-line'><span class='stat-label'>Население</span><span class='stat-val'>" + p.pop + statDiffHTML(p.pop, myPop) + "</span></div>" +
       "<div class='stat-line'><span class='stat-label'>Уровень</span><span class='stat-val'>" + p.level + statDiffHTML(p.level, myLevel) + "</span></div>" +
       "<div class='stat-line'><span class='stat-label'>Опыт</span><span class='stat-val'>" + Math.floor(p.xp || 0) + "/" + Math.floor(p.xpNext || 0) + "</span></div>" +
       "<div class='stat-line'><span class='stat-label'>Рост</span><span class='stat-val'>" + perMin.toFixed(1) + "/мин" + statDiffHTML(perMin, myPerMin) + "</span></div>" +
+      "<div class='stat-line'><span class='stat-label'>Доход</span><span class='stat-val'>" + eTotalIncPerMin + "/мин" + statDiffHTML(eTotalIncPerMin, myTotalIncPerMin) + "</span></div>" +
       "<div class='stat-line'><span class='stat-label'>Урон города</span><span class='stat-val'>" + cityDmg + statDiffHTML(cityDmg, myCityDmg) + "</span></div>" +
       "<div class='stat-line'><span class='stat-label'>Зона</span><span class='stat-val'>R " + (p.influenceR || 0).toFixed(0) + statDiffHTML(p.influenceR || 0, myInfR) + "</span></div>" +
       "<div class='stat-line'><span class='stat-label'>Скор. зоны</span><span class='stat-val'>×" + infSpdMul.toFixed(2) + statDiffHTML(infSpdMul, myInfSpd) + "</span></div>" +
@@ -8523,21 +8600,35 @@
       choicesEl.innerHTML = "";
       let cardTooltipEl = null;
       for (const card of cards) {
-        const emoji = getCardEmoji(card);
-        const paramHint = getCardParamTooltip(card);
-        const currentText = getCardCurrentParamText(me, card);
         const div = document.createElement("div");
         const flashClass = (card.rarity === "legendary" || card.rarity === "mythic") ? " flash" : "";
         div.className = "card-option " + card.rarity + flashClass;
         div.dataset.rarity = card.rarity;
         const rarityLabel = CARD_RARITY_LABELS[card.rarity] || card.rarity;
-        const cardEmoji = card.emoji || emoji;
-        div.innerHTML =
-          "<div class='card-rarity-label card-rarity-" + card.rarity + "'>" + rarityLabel + "</div>" +
-          "<div class='card-emoji'>" + cardEmoji + "</div>" +
-          "<div class='card-name'>" + (card.name || "").replace(/</g, "&lt;") + "</div>" +
-          "<div class='card-desc'>" + (card.desc || "").replace(/</g, "&lt;") + "</div>" +
-          (currentText ? "<div class='card-param-now'>" + currentText.replace(/</g, "&lt;") + "</div>" : "");
+
+        let cardHTML = "<div class='card-rarity-label card-rarity-" + card.rarity + "'>" + rarityLabel + "</div>";
+        if (card.dual && card.buffs) {
+          const emojis = card.buffs.map(b => b.emoji || getCardEmoji(b)).join("");
+          cardHTML += "<div class='card-emoji'>" + emojis + "</div>";
+          for (const buff of card.buffs) {
+            const currText = getCardCurrentParamText(me, buff);
+            cardHTML += "<div class='card-dual-buff'>" +
+              "<div class='card-name'>" + (buff.name || "").replace(/</g, "&lt;") + "</div>" +
+              "<div class='card-desc'>" + (buff.desc || "").replace(/</g, "&lt;") + "</div>" +
+              (currText ? "<div class='card-param-now'>" + currText.replace(/</g, "&lt;") + "</div>" : "") +
+              "</div>";
+          }
+        } else {
+          const emoji = getCardEmoji(card);
+          const currentText = getCardCurrentParamText(me, card);
+          const cardEmoji = card.emoji || emoji;
+          cardHTML += "<div class='card-emoji'>" + cardEmoji + "</div>" +
+            "<div class='card-name'>" + (card.name || "").replace(/</g, "&lt;") + "</div>" +
+            "<div class='card-desc'>" + (card.desc || "").replace(/</g, "&lt;") + "</div>" +
+            (currentText ? "<div class='card-param-now'>" + currentText.replace(/</g, "&lt;") + "</div>" : "");
+        }
+        div.innerHTML = cardHTML;
+        const paramHint = card.dual ? card.buffs.map(b => getCardParamTooltip(b)).filter(Boolean).join("\n") : getCardParamTooltip(card);
         if (paramHint) {
           div.title = paramHint;
           div.addEventListener("mouseenter", (e) => {
@@ -8584,7 +8675,13 @@
     updateLvlUpButton();
 
     const eCreditsEl = document.getElementById("eCreditsValue");
-    if (eCreditsEl) eCreditsEl.textContent = Math.floor(me.eCredits || 0);
+    if (eCreditsEl) {
+      const myMineCountForInc = [...state.mines.values()].filter(m => m.ownerId === me.id).length;
+      const mineIncPerMin = myMineCountForInc * ((CFG.MINE_BASE_YIELD_VALUE * 0.7) + (me.mineYieldBonus || 0)) / Math.max(0.5, 2.5) * 60;
+      const popIncPerMin = Math.floor(me.pop / 100) * 60;
+      const totalIncPerMin = Math.round(mineIncPerMin + popIncPerMin);
+      eCreditsEl.textContent = Math.floor(me.eCredits || 0) + "  (+" + totalIncPerMin + "/мин)";
+    }
 
     document.querySelectorAll(".unit-buy-btn").forEach(btn => {
       const typeKey = btn.dataset.type;
@@ -8615,13 +8712,13 @@
     const infSpdMul = me.influenceSpeedMul != null ? me.influenceSpeedMul : 1;
     const myMineCount = [...state.mines.values()].filter(m => m.ownerId === me.id).length;
     const mineYieldPerSec = ((CFG.MINE_BASE_YIELD_VALUE * 0.7) + (me.mineYieldBonus || 0)) / Math.max(0.5, 2.5);
-    const popCreditPerSecHud = Math.floor(me.pop / 50);
+    const popCreditPerSecHud = Math.floor(me.pop / 100);
     const shieldPct = me.shieldMaxHp > 0 ? Math.round((me.shieldHp / me.shieldMaxHp) * 100) : 0;
     const totalArea = CFG.WORLD_W * CFG.WORLD_H;
     const myArea = polygonArea(me.influencePolygon);
     const zonePct = totalArea > 0 ? Math.min(100, (myArea / totalArea * 100)) : 0;
 
-    const patrolCount = me._patrolUnitIds ? me._patrolUnitIds.length : 0;
+    const patrolCount = me._patrolCount || 0;
 
     if (state._enemyCityPanelPlayerId) {
       const ep = state.players.get(state._enemyCityPanelPlayerId);
@@ -12570,14 +12667,9 @@
         const relX = fox - lox, relY = foy - loy;
         if (relX === 0 && relY === 0) continue;
 
-        let formFacing = leader._formationAngle ?? 0;
-        const sq = u.squadId != null ? state.squads?.get(u.squadId) : null;
-        if (sq && sq.formation) formFacing = sq.formation.facing ?? formFacing;
-
-        const spd = Math.hypot(leader.vx || 0, leader.vy || 0);
-        if (spd > 0.3) leader._lastFacingAngle = Math.atan2(leader.vy, leader.vx);
-        const currentAngle = leader._lastFacingAngle ?? formFacing;
-        const delta = currentAngle - formFacing;
+        const formAngle = leader._formationAngle ?? 0;
+        const lastAngle = leader._lastFacingAngle ?? formAngle;
+        const delta = lastAngle - formAngle;
         if (Math.abs(delta) < 0.01) {
           u.x = leader.x + relX;
           u.y = leader.y + relY;
