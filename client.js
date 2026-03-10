@@ -2224,15 +2224,37 @@
       city.endFill();
     }
 
+    // Bright center core
+    const palette = FACTION_VIS.getFactionPalette(p.color);
+    city.beginFill(palette.core, 0.55);
+    city.drawCircle(0, 0, R * 0.35);
+    city.endFill();
+    city.beginFill(0xffffff, 0.18);
+    city.drawCircle(0, 0, R * 0.18);
+    city.endFill();
+
     // Crisp edge
     city.lineStyle(2.5, p.color, 0.95);
     city.drawCircle(0, 0, R);
-    city.lineStyle(8, p.color, 0.12);
+    city.lineStyle(8, palette.glow || p.color, 0.12);
     city.drawCircle(0, 0, R + 3);
 
-    const glow = makeGlow(p.color, 45, 3);
+    const glow = makeGlow(palette.core, 50, 3.5);
     if (glow) city.filters = [glow];
     city.position.set(p.x, p.y);
+
+    // Orbital rings container (rotated each frame)
+    const orbitalRings = new PIXI.Graphics();
+    const orbitDetail = LOD.getDetail("base", cam.zoom);
+    const ringCount = orbitDetail.rings || 2;
+    const ringRadii = [R * 1.25, R * 1.55];
+    orbitalRings.lineStyle(1.0, palette.edge, 0.28);
+    for (let ri = 0; ri < Math.min(ringCount, ringRadii.length); ri++) {
+      orbitalRings.drawEllipse(0, 0, ringRadii[ri], ringRadii[ri] * 0.35);
+    }
+    orbitalRings.position.set(p.x, p.y);
+    p._orbitalRings = orbitalRings;
+    p._orbitalRingPhase = Math.random() * Math.PI * 2;
 
     const label = new PIXI.Text(p.name, {
       fontFamily: "ui-sans-serif, system-ui, Segoe UI, Roboto, Arial",
@@ -2259,7 +2281,7 @@
     const shieldGfx = new PIXI.Graphics();
     shieldGfx.position.set(p.x, p.y);
 
-    cityLayer.addChild(city, label, popLabel, shieldGfx);
+    cityLayer.addChild(orbitalRings, city, label, popLabel, shieldGfx);
     p.cityGfx = city;
     p.label = label;
     p.popLabel = popLabel;
@@ -2681,11 +2703,7 @@
         turretLayer.addChild(t.radiusGfx);
       }
       t.radiusGfx.clear();
-      t.radiusGfx.beginFill(color, 0.14);
-      t.radiusGfx.drawCircle(t.x, t.y, radius);
-      t.radiusGfx.endFill();
-      t.radiusGfx.lineStyle(2, color, 0.45);
-      t.radiusGfx.drawCircle(t.x, t.y, radius);
+      DefenseRenderer.drawTurretRadius(t.radiusGfx, t.x, t.y, radius, color, cam.zoom);
 
       if (!t.gfx) {
         t.gfx = new PIXI.Graphics();
@@ -2693,16 +2711,7 @@
       }
       if (alive) {
         t.gfx.clear();
-        const col = color;
-        const sz = 7;
-        t.gfx.beginFill(col, 0.9);
-        t.gfx.drawRect(t.x - sz, t.y - sz, sz * 2, sz * 2);
-        t.gfx.endFill();
-        t.gfx.lineStyle(1.5, 0xffffff, 0.5);
-        t.gfx.drawRect(t.x - sz, t.y - sz, sz * 2, sz * 2);
-        t.gfx.lineStyle(1, 0xffffff, 0.3);
-        t.gfx.moveTo(t.x, t.y);
-        t.gfx.lineTo(t.x + t.nx * sz * 2.5, t.y + t.ny * sz * 2.5);
+        DefenseRenderer.drawTurretShape(t.gfx, t.x, t.y, t.nx || 0, t.ny || -1, color, cam.zoom);
       } else {
         t.gfx.clear();
         t.gfx.visible = true;
@@ -2891,56 +2900,7 @@
   }
 
   function drawShipShape(g, unitType, col, highlight) {
-    const type = UNIT_TYPES[unitType] || UNIT_TYPES.fighter;
-    const s = type.sizeMultiplier * 6 + 6;
-    const fillCol = highlight || col;
-
-    if (unitType === "fighter") {
-      g.poly([s * 1.8, 0, -s * 0.8, -s * 0.7, -s * 0.4, 0, -s * 0.8, s * 0.7]);
-      g.fill({ color: fillCol, alpha: 0.9 });
-      g.moveTo(s * 1.8, 0); g.lineTo(-s * 0.1, 0);
-      g.stroke({ color: 0xffffff, width: 0.8, alpha: 0.5 });
-    } else if (unitType === "destroyer") {
-      g.poly([s * 2, 0, -s * 0.6, -s * 0.9, -s * 0.9, -s * 0.3, -s * 0.9, s * 0.3, -s * 0.6, s * 0.9]);
-      g.fill({ color: fillCol, alpha: 0.9 });
-      g.moveTo(s * 2, 0); g.lineTo(-s * 0.2, 0);
-      g.stroke({ color: 0xffffff, width: 1, alpha: 0.5 });
-      g.moveTo(s * 0.6, -s * 0.5); g.lineTo(-s * 0.5, -s * 0.5);
-      g.stroke({ color: 0xffffff, width: 0.7, alpha: 0.4 });
-      g.moveTo(s * 0.6, s * 0.5); g.lineTo(-s * 0.5, s * 0.5);
-      g.stroke({ color: 0xffffff, width: 0.7, alpha: 0.4 });
-    } else if (unitType === "cruiser") {
-      g.poly([s * 2, 0, s * 0.5, -s * 0.5, -s * 0.5, -s, -s, -s * 0.6, -s, s * 0.6, -s * 0.5, s, s * 0.5, s * 0.5]);
-      g.fill({ color: fillCol, alpha: 0.9 });
-      g.moveTo(s * 2, 0); g.lineTo(-s * 0.3, 0);
-      g.stroke({ color: 0xffffff, width: 1.2, alpha: 0.5 });
-      g.moveTo(0, -s * 0.7); g.lineTo(-s * 0.7, -s * 0.7);
-      g.stroke({ color: 0xffffff, width: 0.8, alpha: 0.4 });
-      g.moveTo(0, s * 0.7); g.lineTo(-s * 0.7, s * 0.7);
-      g.stroke({ color: 0xffffff, width: 0.8, alpha: 0.4 });
-    } else if (unitType === "battleship") {
-      g.poly([s * 2.2, 0, s * 0.8, -s * 0.6, -s * 0.2, -s * 1.1, -s * 1.1, -s * 0.8, -s * 1.1, s * 0.8, -s * 0.2, s * 1.1, s * 0.8, s * 0.6]);
-      g.fill({ color: fillCol, alpha: 0.9 });
-      g.moveTo(s * 2.2, 0); g.lineTo(-s * 0.3, 0);
-      g.stroke({ color: 0xffffff, width: 1.5, alpha: 0.5 });
-      g.circle(0, 0, s * 0.25);
-      g.fill({ color: 0xffffff, alpha: 0.3 });
-    } else if (unitType === "hyperDestroyer") {
-      g.poly([s * 2.5, 0, s * 1, -s * 0.5, s * 0.2, -s * 1.2, -s * 0.8, -s * 1, -s * 1.2, -s * 0.4,
-              -s * 1.2, s * 0.4, -s * 0.8, s, s * 0.2, s * 1.2, s * 1, s * 0.5]);
-      g.fill({ color: fillCol, alpha: 0.9 });
-      g.moveTo(s * 2.5, 0); g.lineTo(-s * 0.4, 0);
-      g.stroke({ color: 0xffffff, width: 1.8, alpha: 0.5 });
-      g.circle(0, 0, s * 0.35);
-      g.fill({ color: 0x66ccff, alpha: 0.5 });
-      g.circle(s * 0.8, 0, s * 0.15);
-      g.fill({ color: 0x66ccff, alpha: 0.4 });
-    } else {
-      g.poly([s * 2, 0, -s, -s, -s, s]);
-      g.fill({ color: fillCol, alpha: 0.9 });
-      g.moveTo(s * 2, 0); g.lineTo(-s * 0.3, 0);
-      g.stroke({ color: 0xffffff, width: 1, alpha: 0.6 });
-    }
+    ShipRenderer.drawShape(g, unitType, col, highlight, cam.zoom);
   }
 
   function makeUnitVisual(u) {
@@ -3032,6 +2992,12 @@
       if (p.cityGfx) {
         p.cityGfx.position.set(p.x, p.y);
         p.cityGfx.scale.set(s);
+      }
+      if (p._orbitalRings) {
+        p._orbitalRingPhase = (p._orbitalRingPhase || 0) + 0.003;
+        p._orbitalRings.rotation = p._orbitalRingPhase;
+        p._orbitalRings.position.set(p.x, p.y);
+        p._orbitalRings.scale.set(s);
       }
       if (p.popLabel) {
         const maxSh = p.shieldMaxHp || 1;
@@ -6373,6 +6339,7 @@
   }
 
   function destroyCity(p) {
+    if (p._orbitalRings) { cityLayer.removeChild(p._orbitalRings); p._orbitalRings = null; }
     if (p.cityGfx) cityLayer.removeChild(p.cityGfx);
     if (p.label) cityLayer.removeChild(p.label);
     if (p.popLabel) cityLayer.removeChild(p.popLabel);
