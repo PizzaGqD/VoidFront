@@ -4364,7 +4364,7 @@
 
   // ── Mine placement ──
   let nextMineId = 1;
-  function createMine(x, y, ownerId, isRich) {
+  function createMine(x, y, ownerId, isRich, resourceType) {
     const id = nextMineId++;
     const mine = {
       id, x, y,
@@ -4372,6 +4372,7 @@
       captureProgress: ownerId ? 1 : 0,
       capturingUnitId: null,
       isRich: !!isRich,
+      resourceType: resourceType || "money",
       yieldAcc: 0,
       gfx: null
     };
@@ -4399,30 +4400,33 @@
     updateMineVisual(centerMine);
 
     const inflR = CFG.INFLUENCE_R(CFG.POP_START);
-    const r = rndFn || (() => Math.random());
+    const rnd = rndFn || (() => Math.random());
     for (const entry of entries) {
       const sp = entry.pos;
       const pid = entry.ownerId;
-      for (let m = 0; m < CFG.MINE_START_PER_PLAYER; m++) {
+      const startCount = CFG.MINE_START_PER_PLAYER;
+      for (let m = 0; m < startCount; m++) {
         const baseAngle = Math.atan2(sp.y - cy, sp.x - cx);
-        const spread = ((m - (CFG.MINE_START_PER_PLAYER - 1) / 2) / Math.max(1, CFG.MINE_START_PER_PLAYER - 1)) * 1.2;
-        const a = baseAngle + spread + (r() * 0.15);
-        const d = inflR * 0.85 + r() * (inflR * 0.1);
+        const spread = ((m - (startCount - 1) / 2) / Math.max(1, startCount - 1)) * 1.4;
+        const a = baseAngle + spread + (rnd() * 0.15);
+        const d = inflR * 0.80 + rnd() * (inflR * 0.12);
+        const resType = m < Math.ceil(startCount / 2) ? "money" : "xp";
         createMine(
           clamp(sp.x + Math.cos(a) * d, 40, CFG.WORLD_W - 40),
           clamp(sp.y + Math.sin(a) * d, 40, CFG.WORLD_H - 40),
-          pid, false
+          pid, false, resType
         );
       }
       for (let m = 0; m < CFG.MINE_NEUTRAL_PER_PLAYER; m++) {
         const baseAngle = Math.atan2(sp.y - cy, sp.x - cx);
         const spread = ((m - (CFG.MINE_NEUTRAL_PER_PLAYER - 1) / 2) / Math.max(1, CFG.MINE_NEUTRAL_PER_PLAYER - 1)) * 1.5;
-        const a = baseAngle + spread + Math.PI + (r() * 0.2);
-        const d = inflR * 1.2 + r() * (inflR * 0.3);
+        const a = baseAngle + spread + Math.PI + (rnd() * 0.2);
+        const d = inflR * 1.2 + rnd() * (inflR * 0.3);
+        const neutralType = rnd() < 0.5 ? "money" : "xp";
         createMine(
           clamp(sp.x + Math.cos(a) * d, 40, CFG.WORLD_W - 40),
           clamp(sp.y + Math.sin(a) * d, 40, CFG.WORLD_H - 40),
-          null, false
+          null, false, neutralType
         );
       }
     }
@@ -4433,57 +4437,72 @@
     const c = new PIXI.Container();
     const R = (mine.isRich ? 36 : 28) * 2;
     const ownerCol = mine.ownerId ? colorForId(mine.ownerId) : 0x555555;
+    const isMoney = mine.resourceType === "money";
+    const resCol = FACTION_VIS.RESOURCE_COLORS[isMoney ? "money" : "xp"];
 
     const outerGlow = new PIXI.Graphics();
     outerGlow.circle(0, 0, R + 12);
-    outerGlow.fill({ color: mine.ownerId ? ownerCol : 0x333344, alpha: mine.ownerId ? 0.15 : 0.08 });
+    outerGlow.fill({ color: mine.ownerId ? ownerCol : resCol.bg, alpha: mine.ownerId ? 0.15 : 0.10 });
     c.addChild(outerGlow);
 
     const bg = new PIXI.Graphics();
-    bg.rect(-R, -R, R * 2, R * 2);
-    bg.fill({ color: 0x111118, alpha: 0.9 });
-    bg.stroke({ color: mine.ownerId ? ownerCol : 0x666688, width: 3 });
+    if (isMoney) {
+      // Hex shape for money mines
+      const hexR = R * 0.9;
+      const pts = [];
+      for (let i = 0; i < 6; i++) {
+        const a = (Math.PI / 3) * i - Math.PI / 6;
+        pts.push(Math.cos(a) * hexR, Math.sin(a) * hexR);
+      }
+      bg.poly(pts);
+      bg.fill({ color: 0x111118, alpha: 0.88 });
+      bg.poly(pts);
+      bg.stroke({ color: mine.ownerId ? ownerCol : resCol.primary, width: 2.5 });
+    } else {
+      // Circle for xp mines
+      bg.circle(0, 0, R * 0.9);
+      bg.fill({ color: 0x0a1118, alpha: 0.88 });
+      bg.circle(0, 0, R * 0.9);
+      bg.stroke({ color: mine.ownerId ? ownerCol : resCol.primary, width: 2.5 });
+    }
     c.addChild(bg);
 
     const innerCircle = new PIXI.Graphics();
-    innerCircle.circle(0, 0, R * 0.55);
-    innerCircle.fill({ color: mine.isRich ? 0xffcc00 : (mine.ownerId ? ownerCol : 0x888899), alpha: 0.5 });
-    innerCircle.stroke({ color: mine.isRich ? 0xffaa00 : 0x999999, width: 2 });
+    innerCircle.circle(0, 0, R * 0.45);
+    const innerCol = mine.isRich ? 0xffcc00 : resCol.primary;
+    innerCircle.fill({ color: innerCol, alpha: 0.4 });
+    innerCircle.stroke({ color: resCol.secondary, width: 1.5 });
     c.addChild(innerCircle);
 
     if (mine.isRich) {
       const sparkle = new PIXI.Graphics();
-      sparkle.circle(0, 0, R * 0.25);
+      sparkle.circle(0, 0, R * 0.22);
       sparkle.fill({ color: 0xffee88, alpha: 0.35 });
       c.addChild(sparkle);
     }
 
-    const icon = new PIXI.Text({
-      text: mine.isRich ? "💎" : "⛏️",
-      style: { fontSize: mine.isRich ? 40 : 32 }
+    // Resource type indicator
+    const typeLabel = new PIXI.Text({
+      text: mine.isRich ? "💎" : (isMoney ? "⚡€" : "✦"),
+      style: { fontSize: mine.isRich ? 36 : 26, fill: isMoney ? 0xffdd44 : 0x66ddff, fontWeight: "bold" }
     });
-    icon.anchor.set(0.5);
-    icon.y = -1;
-    c.addChild(icon);
+    typeLabel.anchor.set(0.5);
+    typeLabel.y = -1;
+    c.addChild(typeLabel);
 
     const captureR = CFG.MINE_CAPTURE_RADIUS || 140;
     const capRing = new PIXI.Graphics();
     capRing.circle(0, 0, captureR);
-    capRing.stroke({ color: mine.ownerId ? ownerCol : 0x556688, width: 1.5, alpha: 0.25 });
+    capRing.stroke({ color: mine.ownerId ? ownerCol : resCol.primary, width: 1.2, alpha: 0.20 });
     capRing.circle(0, 0, captureR);
-    capRing.fill({ color: mine.ownerId ? ownerCol : 0x334466, alpha: 0.04 });
+    capRing.fill({ color: mine.ownerId ? ownerCol : resCol.bg, alpha: 0.03 });
     c.addChildAt(capRing, 0);
 
     if (mine.ownerId && mine.captureProgress >= 1) {
       const ownerGlow = new PIXI.Graphics();
-      ownerGlow.circle(0, 0, R * 0.8);
-      ownerGlow.fill({ color: ownerCol, alpha: 0.18 });
+      ownerGlow.circle(0, 0, R * 0.75);
+      ownerGlow.fill({ color: ownerCol, alpha: 0.16 });
       c.addChildAt(ownerGlow, 0);
-
-      const flag = new PIXI.Text({ text: "🚩", style: { fontSize: 12 } });
-      flag.anchor.set(0.5);
-      flag.position.set(R * 0.7, -R * 0.7);
-      c.addChild(flag);
     }
 
     c.x = mine.x;
@@ -4561,7 +4580,7 @@
             const oldest = state.mineGems.find(g => g.alive && g._mineId === mine.id);
             if (oldest) oldest.value += batchVal;
           } else {
-            const isCredit = Math.random() < 0.45;
+            const isCredit = mine.resourceType === "money";
             const variedVal = batchVal * (0.6 + Math.random() * 0.8);
             spawnMineGem(mine, owner, variedVal, isCredit);
             activeGems++;
@@ -4801,7 +4820,7 @@
       if (mine._remoteGemAcc >= spawnInterval) {
         mine._remoteGemAcc -= spawnInterval;
         const batchVal = totalVal * spawnInterval;
-        const isCredit = Math.random() < 0.45;
+        const isCredit = mine.resourceType === "money";
         const variedVal = batchVal * (0.6 + Math.random() * 0.8);
         const gem = {
           id: state.nextResId++,
@@ -4833,8 +4852,11 @@
       const dist = Math.hypot(dx, dy);
       if (dist < 15) {
         if (!g._visualOnly) {
-          target.eCredits = (target.eCredits || 0) + g.value;
-          if (!g.isCredit) gainXP(target, g.value);
+          if (g.isCredit) {
+            target.eCredits = (target.eCredits || 0) + g.value;
+          } else {
+            gainXP(target, g.value);
+          }
         }
         if (target.id === state.myPlayerId) tickSound(1480, 0.03, 0.04);
         g.alive = false;

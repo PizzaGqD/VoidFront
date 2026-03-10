@@ -314,7 +314,8 @@
           gs.mines.push({
             id: m.id, x: roundN(m.x, 10), y: roundN(m.y, 10),
             ownerId: m.ownerId, captureProgress: roundN(m.captureProgress, 100),
-            capturingUnitId: m.capturingUnitId, isRich: m.isRich
+            capturingUnitId: m.capturingUnitId, isRich: m.isRich,
+            resourceType: m.resourceType || "money"
           });
         }
       }

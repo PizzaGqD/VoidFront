@@ -117,7 +117,7 @@
     "gemSpeed": 15,
     "gemInterceptRadius": 30,
     "maxGemsPerMine": 10,
-    "startingMinesPerPlayer": 2,
+    "startingMinesPerPlayer": 4,
     "neutralMinesPerPlayer": 2,
     "totalMines": 25,
     "comment": "1 mine ≈ 60 eCredits/min. 2 starting mines = 120/min. Rich mine = 150/min. Control mines = faster tech-up."
