@@ -4735,49 +4735,13 @@
   }
 
   function makeGemVisual(gem) {
-    const sz = gemSizeForValue(gem.value);
     const g = new PIXI.Graphics();
-
-    if (gem.isCredit) {
-      const fontSize = Math.min(48, Math.max(12, 10 + gem.value * 3));
-      const euroText = new PIXI.Text({ text: "€", style: { fontSize, fill: 0xffdd44, fontWeight: "bold", fontFamily: "Arial" } });
-      euroText.anchor.set(0.5);
-      g.addChild(euroText);
-      if (gem.value >= 8) {
-        const glow = makeGlow(0xffdd44, 16, 3);
-        if (glow) g.filters = [glow];
-      } else if (gem.value >= 4) {
-        const glow = makeGlow(0xffcc22, 8, 1.5);
-        if (glow) g.filters = [glow];
-      }
-    } else {
-      const col = gemColorForValue(gem.value);
-      const shape = Math.floor(Math.random() * 5);
-      if (shape === 0) {
-        g.poly([0, -sz, sz * 0.6, -sz * 0.2, sz * 0.4, sz * 0.8, -sz * 0.4, sz * 0.8, -sz * 0.6, -sz * 0.2]);
-        g.fill({ color: col, alpha: 0.95 });
-      } else if (shape === 1) {
-        g.poly([0, -sz, sz * 0.7, 0, 0, sz, -sz * 0.7, 0]);
-        g.fill({ color: col, alpha: 0.95 });
-      } else if (shape === 2) {
-        g.poly([sz * 0.3, -sz, sz * 0.8, -sz * 0.3, sz * 0.5, sz * 0.6, -sz * 0.5, sz * 0.6, -sz * 0.8, -sz * 0.3, -sz * 0.3, -sz]);
-        g.fill({ color: col, alpha: 0.95 });
-      } else if (shape === 3) {
-        g.poly([0, -sz, sz * 0.5, -sz * 0.5, sz * 0.3, sz * 0.3, 0, sz * 0.9, -sz * 0.3, sz * 0.3, -sz * 0.5, -sz * 0.5]);
-        g.fill({ color: col, alpha: 0.95 });
-      } else {
-        g.poly([0, -sz * 0.9, sz * 0.8, -sz * 0.3, sz * 0.6, sz * 0.7, -sz * 0.6, sz * 0.7, -sz * 0.8, -sz * 0.3]);
-        g.fill({ color: col, alpha: 0.95 });
-      }
-      if (gem.value >= 10) {
-        g.circle(0, 0, sz * 0.25);
-        g.fill({ color: 0xffffff, alpha: 0.35 });
-      }
-      const glowDist = gem.value >= 10 ? 14 : (gem.value >= 5 ? 10 : 6);
-      const glow = makeGlow(col, glowDist, gem.value >= 10 ? 2.8 : 1.8);
+    ResourceFlow.drawPacket(g, gem.isCredit, gem.value, cam.zoom);
+    const glowCfg = ResourceFlow.getPacketGlow(gem.isCredit, gem.value, cam.zoom);
+    if (glowCfg) {
+      const glow = makeGlow(glowCfg.color, glowCfg.distance, glowCfg.outerStrength);
       if (glow) g.filters = [glow];
     }
-
     g.x = gem.x;
     g.y = gem.y;
     gem.gfx = g;
@@ -4872,19 +4836,21 @@
       g.y += ny * spd + perpY * g.drift * dt;
       if (g.gfx) { g.gfx.x = g.x; g.gfx.y = g.y; g.gfx.rotation += dt * 1.5; }
 
-      let intercepted = false;
       const gemProtected = g._interceptProtectUntil && state.t < g._interceptProtectUntil;
-      for (const u of state.units.values()) {
-        if (u.owner === g.targetPlayerId) continue;
-        if (gemProtected) continue;
-        const uHR = getUnitHitRadius(u);
-        if (Math.hypot(u.x - g.x, u.y - g.y) < uHR + 4) {
-          const interceptor = state.players.get(u.owner);
-          if (interceptor) {
-            g.targetPlayerId = u.owner;
-            g._interceptProtectUntil = state.t + 1.0;
-            intercepted = true;
-            break;
+      if (!gemProtected && !g._visualOnly) {
+        const interceptR = CFG.MINE_GEM_INTERCEPT_R || 30;
+        const nearby = queryHash(g.x, g.y, interceptR);
+        for (let ni = 0; ni < nearby.length; ni++) {
+          const u = nearby[ni];
+          if (u.owner === g.targetPlayerId) continue;
+          const uHR = getUnitHitRadius(u);
+          if (Math.hypot(u.x - g.x, u.y - g.y) < uHR + 4) {
+            const interceptor = state.players.get(u.owner);
+            if (interceptor) {
+              g.targetPlayerId = u.owner;
+              g._interceptProtectUntil = state.t + 1.0;
+              break;
+            }
           }
         }
       }
