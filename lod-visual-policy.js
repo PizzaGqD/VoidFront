@@ -73,7 +73,60 @@
     tracers:     80,
     hitFlashes:  40,
     pulses:      60,
+    bullets:    120,
   };
+
+  var _frameCounts = {};
+
+  function resetFrameCounts() {
+    _frameCounts = {};
+  }
+
+  /**
+   * Check if we can draw one more of this type this frame.
+   * @param {string} type - e.g. "gems", "tracers", "bullets"
+   * @returns {boolean}
+   */
+  function canDraw(type) {
+    var cap = VISIBLE_CAPS[type];
+    if (cap == null) return true;
+    var cur = _frameCounts[type] || 0;
+    if (cur >= cap) return false;
+    _frameCounts[type] = cur + 1;
+    return true;
+  }
+
+  function getFrameCount(type) {
+    return _frameCounts[type] || 0;
+  }
+
+  /**
+   * Check if a world point is visible on screen given camera state.
+   * @param {number} wx - world x
+   * @param {number} wy - world y
+   * @param {object} cam - { x, y, zoom, screenW, screenH }
+   * @param {number} [margin] - extra margin in screen pixels
+   * @returns {boolean}
+   */
+  function isOnScreen(wx, wy, cam, margin) {
+    if (!cam) return true;
+    var m = margin || 50;
+    var halfW = (cam.screenW || 1920) / (2 * (cam.zoom || 0.22));
+    var halfH = (cam.screenH || 1080) / (2 * (cam.zoom || 0.22));
+    return wx >= cam.x - halfW - m && wx <= cam.x + halfW + m &&
+           wy >= cam.y - halfH - m && wy <= cam.y + halfH + m;
+  }
+
+  /**
+   * Check if an object at world coords is too small to see.
+   * @param {number} worldSize - size in world units
+   * @param {number} zoom - camera zoom
+   * @param {number} [minPixels] - minimum screen pixels to be visible (default 2)
+   * @returns {boolean} true if too small
+   */
+  function tooSmallToSee(worldSize, zoom, minPixels) {
+    return worldSize * (zoom || 0.22) < (minPixels || 2);
+  }
 
   const LOD = {
     LEVELS,
@@ -83,6 +136,11 @@
     getDetail,
     shouldDraw,
     VISIBLE_CAPS,
+    resetFrameCounts,
+    canDraw,
+    getFrameCount,
+    isOnScreen,
+    tooSmallToSee,
   };
 
   if (typeof window !== "undefined") window.LOD = LOD;

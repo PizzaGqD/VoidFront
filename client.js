@@ -2428,12 +2428,13 @@
     const TAIL_STEPS = 12;
     const TAIL_COVER = 0.05;
 
+    const patrolDetail = LOD.getDetail("patrol", cam.zoom);
     for (const p of state.players.values()) {
       const patrolCount = p._patrolCount || 0;
       const light = p.zoneLightGfx;
       if (!light || light.destroyed) continue;
       light.clear();
-      if (patrolCount === 0) continue;
+      if (patrolCount === 0 || !patrolDetail.shape) continue;
 
       const poly = p.influencePolygon;
       if (!poly || poly.length < 3 || p.color == null) continue;
@@ -4834,7 +4835,10 @@
       const perpX = -ny, perpY = nx;
       g.x += nx * spd + perpX * g.drift * dt;
       g.y += ny * spd + perpY * g.drift * dt;
-      if (g.gfx) { g.gfx.x = g.x; g.gfx.y = g.y; g.gfx.rotation += dt * 1.5; }
+      if (g.gfx) {
+        g.gfx.x = g.x; g.gfx.y = g.y; g.gfx.rotation += dt * 1.5;
+        g.gfx.visible = inView(g.x, g.y) && LOD.canDraw("gems");
+      }
 
       const gemProtected = g._interceptProtectUntil && state.t < g._interceptProtectUntil;
       if (!gemProtected && !g._visualOnly) {
@@ -6259,70 +6263,14 @@
     _bulletsGfx.clear();
     if (state.bullets.length === 0) return;
     const g = _bulletsGfx;
+    const now = performance.now();
     for (let i = 0; i < state.bullets.length; i++) {
       const b = state.bullets[i];
-
-      if (b.type === "laser") {
-        const t = Math.min(1, b.progress || 0);
-        const tipX = b.fromX + (b.toX - b.fromX) * t;
-        const tipY = b.fromY + (b.toY - b.fromY) * t;
-        if (!inView(tipX, tipY) && !inView(b.fromX, b.fromY)) continue;
-
-        const col = b.color ?? 0xaa44ff;
-        const big = b.big;
-        const fadeIn = Math.min(1, t * 5);
-        const fadeOut = t > 0.7 ? 1 - (t - 0.7) / 0.3 : 1;
-        const fade = fadeIn * fadeOut;
-
-        g.moveTo(b.fromX, b.fromY); g.lineTo(tipX, tipY);
-        g.stroke({ color: col, width: big ? 22 : 14, alpha: 0.1 * fade });
-        g.moveTo(b.fromX, b.fromY); g.lineTo(tipX, tipY);
-        g.stroke({ color: col, width: big ? 10 : 7, alpha: 0.3 * fade });
-        g.moveTo(b.fromX, b.fromY); g.lineTo(tipX, tipY);
-        g.stroke({ color: col, width: big ? 4 : 2.5, alpha: 0.85 * fade });
-        g.moveTo(b.fromX, b.fromY); g.lineTo(tipX, tipY);
-        g.stroke({ color: 0xffffff, width: big ? 2 : 1, alpha: 0.9 * fade });
-
-        g.circle(tipX, tipY, big ? 4 : 2.5);
-        g.fill({ color: 0xffffff, alpha: 0.7 * fade });
-
-      } else if (b.type === "ranged") {
-        if (!inView(b.x || b.fromX, b.y || b.fromY)) continue;
-        const dx = b.toX - b.fromX, dy = b.toY - b.fromY;
-        const dl = Math.hypot(dx, dy) || 1;
-        const tx = -(dx / dl) * 6, ty = -(dy / dl) * 6;
-        const bPulse = 0.7 + 0.3 * Math.sin(performance.now() / 100 + (b.x || 0) * 0.1);
-        const bCol = b.color ?? 0xffaa44;
-        // City shots: small bullet + trail only (no glow circles)
-        if (b.aoe) {
-          const borderFade = b._fadeAlpha != null ? b._fadeAlpha : 1;
-          g.lineStyle(3, bCol, 0.4 * bPulse * borderFade);
-          g.moveTo(b.x, b.y); g.lineTo(b.x + tx * 3, b.y + ty * 3);
-          g.lineStyle(1.5, bCol, 0.6 * bPulse * borderFade);
-          g.moveTo(b.x, b.y); g.lineTo(b.x + tx * 2, b.y + ty * 2);
-          g.beginFill(bCol, 0.9 * borderFade);
-          g.drawCircle(b.x, b.y, 2.5);
-          g.endFill();
-        } else {
-          g.beginFill(bCol, 0.12 * bPulse);
-          g.drawCircle(b.x, b.y, 7);
-          g.endFill();
-          g.lineStyle(2, bCol, 0.9);
-          g.moveTo(b.x, b.y); g.lineTo(b.x + tx, b.y + ty);
-          g.beginFill(bCol, 1);
-          g.drawCircle(b.x, b.y, b.big ? 4 : 2.5);
-          g.endFill();
-        }
-
-      } else {
-        if (!inView(b.fromX, b.fromY)) continue;
-        const t = Math.min(1, b.progress || 0);
-        const x = b.fromX + (b.toX - b.fromX) * t;
-        const y = b.fromY + (b.toY - b.fromY) * t;
-        g.beginFill(b.color ?? 0xffff00, 1);
-        g.drawCircle(x, y, b.big ? 6 : 5);
-        g.endFill();
-      }
+      const bx = b.x || b.fromX || 0;
+      const by = b.y || b.fromY || 0;
+      if (!inView(bx, by)) continue;
+      if (!LOD.canDraw("bullets")) break;
+      CombatVFX.drawBullet(g, b, cam.zoom, now);
     }
   }
 
@@ -12750,6 +12698,7 @@
     // sim
     state._frameCtr = (state._frameCtr || 0) + 1;
     state._vp = getViewport();
+    LOD.resetFrameCounts();
     rebuildSpatialHash();
 
     const isRemoteClient = !!(state._multiSlots && !state._multiIsHost);
