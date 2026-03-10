@@ -2556,67 +2556,7 @@
   }
 
   function redrawZone(p) {
-    if (!p.zoneGfx || !p.zoneGlow || p.zoneGfx.destroyed || p.zoneGlow.destroyed) return;
-    const poly = p.influencePolygon;
-    if (!poly || poly.length < 3) return;
-
-    const hash = zoneShapeHash(p);
-    if (p._lastZoneHash === hash) return;
-    p._lastZoneHash = hash;
-
-    p.zoneGfx.clear();
-    p.zoneGlow.clear();
-
-    const smoothPoly = smoothedPoly(poly);
-
-    // Glass base — player color, semi-transparent
-    const dark = darkenColor(p.color, 0.4);
-    p.zoneGfx.beginFill(dark, 0.18);
-    drawSmoothClosed(p.zoneGfx, smoothPoly);
-    p.zoneGfx.endFill();
-    p.zoneGfx.beginFill(p.color, 0.12);
-    drawSmoothClosed(p.zoneGfx, smoothPoly);
-    p.zoneGfx.endFill();
-
-    // Gloss highlight — lighter tint of player color toward center
-    const innerScale1 = 0.92;
-    const innerPoly1 = smoothPoly.map(pt => ({
-      x: p.x + (pt.x - p.x) * innerScale1,
-      y: p.y + (pt.y - p.y) * innerScale1
-    }));
-    const r = Math.min(255, ((p.color >> 16) & 0xff) + 90);
-    const g = Math.min(255, ((p.color >> 8) & 0xff) + 70);
-    const b = Math.min(255, (p.color & 0xff) + 70);
-    const glossColor = (r << 16) | (g << 8) | b;
-    p.zoneGfx.beginFill(glossColor, 0.08);
-    drawSmoothClosed(p.zoneGfx, innerPoly1);
-    p.zoneGfx.endFill();
-
-    p.zoneGfx.lineStyle(4, p.color, 0.7);
-    drawSmoothClosed(p.zoneGfx, smoothPoly);
-
-    p.zoneGlow.lineStyle(12, p.color, 0.12);
-    drawSmoothClosed(p.zoneGlow, smoothPoly);
-
-    p.zoneGfx.lineStyle(2, p.color, 0.35);
-    drawSmoothClosed(p.zoneGfx, innerPoly1);
-
-    const margin = CFG.INFLUENCE_ARMY_MARGIN ?? 40;
-    const numRays = poly.length;
-    const innerPoly = [];
-    for (let i = 0; i < numRays; i++) {
-      const angle = (i / numRays) * Math.PI * 2;
-      const d = Math.max(0, (p.influenceRayDistances && p.influenceRayDistances[i]) ? p.influenceRayDistances[i] - margin : Math.hypot(poly[i].x - p.x, poly[i].y - p.y) - margin);
-      innerPoly.push({ x: p.x + Math.cos(angle) * d, y: p.y + Math.sin(angle) * d });
-    }
-    const smoothInner = smoothedPoly(innerPoly);
-    if (smoothInner.length >= 3 && margin > 0) {
-      p.zoneGfx.beginFill(glossColor, 0.06);
-      drawSmoothClosed(p.zoneGfx, smoothInner);
-      p.zoneGfx.endFill();
-      p.zoneGfx.lineStyle(2.5, p.color, 0.45);
-      drawSmoothClosed(p.zoneGfx, smoothInner);
-    }
+    ZoneRenderer.redraw(p, { INFLUENCE_ARMY_MARGIN: CFG.INFLUENCE_ARMY_MARGIN, zoom: cam.zoom });
   }
 
   // ------------------------------------------------------------
