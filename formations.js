@@ -10,11 +10,11 @@
   "use strict";
 
   const SPACING = {
-    fighter: 32,
-    destroyer: 44,
-    cruiser: 60,
-    battleship: 80,
-    hyperDestroyer: 100
+    fighter: 52,
+    destroyer: 72,
+    cruiser: 100,
+    battleship: 130,
+    hyperDestroyer: 170
   };
 
   function spacingFor(typeA, typeB) {

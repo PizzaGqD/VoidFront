@@ -7,7 +7,8 @@
     _roomId: null,
     _isHost: false,
     _mySlot: null,
-    _lobbyList: []
+    _lobbyList: [],
+    _colorEditSlot: null
   };
   const socketUrlEarly = window.GAME_SERVER_URL || location.origin;
   const socket = typeof io !== "undefined" ? io(socketUrlEarly, { transports: ["websocket", "polling"] }) : null;
@@ -85,7 +86,7 @@
       (list || []).forEach(function(r) {
         const btn = document.createElement("button");
         btn.type = "button"; btn.className = "menu-btn lobby-list-item";
-        btn.textContent = (r.code||"")+" — "+(r.hostName||"?")+" ("+(r.slotsUsed||0)+"/"+(r.slotsTotal||5)+")";
+        btn.textContent = (r.code||"")+" — "+(r.hostName||"?")+" ("+(r.slotsUsed||0)+"/"+(r.slotsTotal||6)+")";
         btn.addEventListener("click", function() {
           socket.emit("join", r.roomId||r.code, getNick(), function(data) {
             if (data.error) { alert(data.error); return; }
@@ -105,7 +106,7 @@
   // ------------------------------------------------------------
   // Build version & changelog
   // ------------------------------------------------------------
-  const BUILD_VERSION = "BUILD 1.4a";
+  const BUILD_VERSION = "BUILD 1.6a";
   const BUILD_CHANGELOG = [
     { version: "BUILD 0.1a-0.5a", date: "2026-03-08", changes: [
       "Mines, formations, movement, RTS input, VoidFront branding"
@@ -182,6 +183,21 @@
       "BOT: Aggressive squad merging — 500px radius, immediate merge after burst purchase, no more 1-unit squads",
       "FIX: Removed all legacy movement branches (formation_hold snap, WAYPOINT_STOP_DIST snap, dual combat state machine)",
       "TEST: Rewrote all tests for new API — engagement, free-chase, no-snap, order buffer, stable slots (20 tests)"
+    ]},
+    { version: "BUILD 1.5a", date: "2026-03-10", changes: [
+      "FIX: Slot count desync — server had 6 slots, client iterated only 5 in startGameMulti, renderLobby, mine placement",
+      "ARCH: Lobby spawn selection moved to dedicated 3rd column with numbered map preview",
+      "ARCH: Spawn position chosen via dropdown per slot instead of click-on-map",
+      "ARCH: Unique colors enforced server-side — auto-assign on join/bot-add, reject duplicates on setColor",
+      "ARCH: Unique spawn positions enforced server-side — auto-assign on join/bot-add",
+      "ARCH: Host can override any slot's color (setSlotColor) and spawn (setSlotSpawn)",
+      "ARCH: gameState relay restricted to host only (server security fix)",
+      "ARCH: Project naming unified to VoidFront (package.json, server console, net.js, README)"
+    ]},
+    { version: "BUILD 1.6a", date: "2026-03-10", changes: [
+      "ARCH: Extracted utils.js — pure math/color/geometry helpers (clamp, rand, mulberry32, hslToHex, hslToRgb, dist2, norm, isPointInPolygon, polygonArea)",
+      "ARCH: Extracted noise.js — procedural noise (hash2, smoothstep, lerp, valueNoise, fbm)",
+      "ARCH: client.js imports via destructuring from window.UTILS / window.NOISE — all call sites unchanged"
     ]}
   ];
   {
@@ -1059,45 +1075,11 @@
   const GAME_VERSION = "0.5A";
 
   // ------------------------------------------------------------
-  // Helpers
+  // Helpers (imported from utils.js / noise.js)
   // ------------------------------------------------------------
-  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-  const rand = (a, b) => Math.random() * (b - a) + a;
-  function mulberry32(seed) {
-    return function () {
-      let t = (seed += 0x6d2b79f5) >>> 0;
-      t = Math.imul(t ^ (t >>> 15), t | 1);
-      return ((t ^ (t >>> 22)) >>> 0) / 4294967296;
-    };
-  }
-
-  function hslToHex(h, s, l) {
-    h /= 360;
-    const a = s * Math.min(l, 1 - l);
-    const f = (n) => { const k = (n + h * 12) % 12; return l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1)); };
-    const r = Math.round(f(0) * 255), g = Math.round(f(8) * 255), b = Math.round(f(4) * 255);
-    return (r << 16) | (g << 8) | b;
-  }
-  const dist2 = (ax, ay, bx, by) => {
-    const dx = ax - bx, dy = ay - by;
-    return dx * dx + dy * dy;
-  };
-  const norm = (dx, dy) => {
-    const l = Math.hypot(dx, dy) || 1;
-    return [dx / l, dy / l];
-  };
-
-  function hslToRgb(h, s, l) {
-    s /= 100; l /= 100;
-    const k = n => (n + h / 30) % 12;
-    const a = s * Math.min(l, 1 - l);
-    const f = n => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
-    return {
-      r: Math.round(255 * f(0)),
-      g: Math.round(255 * f(8)),
-      b: Math.round(255 * f(4))
-    };
-  }
+  const { clamp, rand, mulberry32, hslToHex, hslToRgb,
+          dist2, norm, isPointInPolygon, polygonArea } = window.UTILS;
+  const { hash2, valueNoise, fbm } = window.NOISE;
   function colorForId(id) {
     if (PLAYER_COLORS[id] != null) return PLAYER_COLORS[id];
     const h = (id * 137.508) % 360;
@@ -1121,6 +1103,58 @@
 
 	document.body.appendChild(app.canvas);
 	app.canvas.style.cssText = "position:fixed;inset:0;z-index:0;";
+
+  // ── Procedural SFX (laser, explosion) — audible only when camera close to action ──
+  let _audioCtx = null;
+  const SOUND_HEAR_RADIUS = 550;
+  function ensureAudioCtx() {
+    if (_audioCtx) return _audioCtx;
+    _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    return _audioCtx;
+  }
+  function isNearCamera(wx, wy) {
+    const v = state._vp;
+    if (!v) return false;
+    const cx = (v.x + v.x2) / 2, cy = (v.y + v.y2) / 2;
+    return Math.hypot(wx - cx, wy - cy) < SOUND_HEAR_RADIUS;
+  }
+  function playLaserSound(fromX, fromY, toX, toY) {
+    const mx = (fromX + toX) / 2, my = (fromY + toY) / 2;
+    if (!isNearCamera(mx, my)) return;
+    try {
+      const ctx = ensureAudioCtx();
+      if (ctx.state === "suspended") ctx.resume();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain); gain.connect(ctx.destination);
+      osc.type = "sine"; osc.frequency.setValueAtTime(1200, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(400, ctx.currentTime + 0.06);
+      gain.gain.setValueAtTime(0.08, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.06);
+      osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.06);
+    } catch (_) {}
+  }
+  function playExplosionSound(x, y) {
+    if (!isNearCamera(x, y)) return;
+    try {
+      const ctx = ensureAudioCtx();
+      if (ctx.state === "suspended") ctx.resume();
+      const buf = ctx.createBuffer(1, ctx.sampleRate * 0.15, ctx.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) {
+        const t = i / ctx.sampleRate;
+        d[i] = (Math.random() * 2 - 1) * Math.exp(-t * 25);
+      }
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      const gain = ctx.createGain();
+      src.connect(gain); gain.connect(ctx.destination);
+      gain.gain.setValueAtTime(0.15, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
+      src.start(ctx.currentTime);
+    } catch (_) {}
+  }
+
   // ── Starfield: 5 layers, 20% stars each, parallax 0.25 → 0.05 ───────────
   const starLayer = new PIXI.Container();
   app.stage.addChildAt(starLayer, 0); // behind world
@@ -1213,6 +1247,7 @@
   const gridLayer = new PIXI.Container();
   const zonesLayer = new PIXI.Container();
   const resLayer = new PIXI.Container();
+  const shipTrailsLayer = new PIXI.Container();
   const unitsLayer = new PIXI.Container();
   const cityLayer = new PIXI.Container();
   const fogLayer = new PIXI.Container();
@@ -1240,7 +1275,7 @@
   const combatDebugLayer = new PIXI.Container();
   combatDebugLayer.addChild(combatDebugGfx);
   const combatDebugLabels = new Map(); // unitId -> PIXI.Text
-  world.addChild(mapLayer, gridLayer, zonesLayer, zoneEffectsLayer, turretLayer, activityZoneLayer, unitsLayer, resLayer, cityLayer, shieldHitEffectsLayer, squadLabelsLayer, combatLayer, floatingDamageLayer, bulletsLayer, ghostLayer, combatDebugLayer);
+  world.addChild(mapLayer, gridLayer, zonesLayer, zoneEffectsLayer, turretLayer, activityZoneLayer, shipTrailsLayer, unitsLayer, resLayer, cityLayer, shieldHitEffectsLayer, squadLabelsLayer, combatLayer, floatingDamageLayer, bulletsLayer, ghostLayer, combatDebugLayer);
   world.addChild(fogLayer);
   world.addChild(pathPreviewLayer, selectionBoxLayer);
   world.addChild(worldBorderDarkenLayer);
@@ -1294,46 +1329,6 @@
   let mapSprite = null;
   let mapSeed = (Date.now() >>> 0);
 
-  function hash2(ix, iy, seed) {
-    let x = ix | 0, y = iy | 0;
-    let h = seed ^ (x * 374761393) ^ (y * 668265263);
-    h = (h ^ (h >>> 13)) * 1274126177;
-    return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
-  }
-  const smoothstep = (t) => t * t * (3 - 2 * t);
-  const lerp = (a, b, t) => a + (b - a) * t;
-
-  function valueNoise(x, y, freq, seed) {
-    const fx = x * freq;
-    const fy = y * freq;
-    const x0 = Math.floor(fx), y0 = Math.floor(fy);
-    const tx = smoothstep(fx - x0);
-    const ty = smoothstep(fy - y0);
-
-    const v00 = hash2(x0, y0, seed);
-    const v10 = hash2(x0 + 1, y0, seed);
-    const v01 = hash2(x0, y0 + 1, seed);
-    const v11 = hash2(x0 + 1, y0 + 1, seed);
-
-    const a = lerp(v00, v10, tx);
-    const b = lerp(v01, v11, tx);
-    return lerp(a, b, ty);
-  }
-
-  function fbm(x, y, seed) {
-    let a = 0.5;
-    let f = 1.0;
-    let sum = 0;
-    let norm = 0;
-    for (let i = 0; i < 5; i++) {
-      const n = valueNoise(x, y, 0.0022 * f, seed + i * 1337);
-      sum += n * a;
-      norm += a;
-      a *= 0.55;
-      f *= 2.05;
-    }
-    return sum / norm;
-  }
 
   /** Terrain type at world (wx, wy). Used for speed multiplier and influence cost. */
   function getTerrainType(wx, wy) {
@@ -1497,27 +1492,6 @@
     return points;
   }
 
-  function isPointInPolygon(px, py, polygon) {
-    if (!polygon || polygon.length < 3) return false;
-    let inside = false;
-    const n = polygon.length;
-    for (let i = 0, j = n - 1; i < n; j = i++) {
-      const xi = polygon[i].x, yi = polygon[i].y;
-      const xj = polygon[j].x, yj = polygon[j].y;
-      if (((yi > py) !== (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi)) inside = !inside;
-    }
-    return inside;
-  }
-
-  function polygonArea(polygon) {
-    if (!polygon || polygon.length < 3) return 0;
-    let area = 0;
-    const n = polygon.length;
-    for (let i = 0, j = n - 1; i < n; j = i++) {
-      area += polygon[i].x * polygon[j].y - polygon[j].x * polygon[i].y;
-    }
-    return Math.abs(area) * 0.5;
-  }
 
   /** Glass base only: dark, semi-transparent so starfield shows through. */
   function makeMapTexture() {
@@ -2000,7 +1974,7 @@
     return Math.max(1, base);
   }
 
-  const CARD_RARITY_WEIGHTS = { common: 40, uncommon: 25, rare: 17, epic: 10, legendary: 5, mythic: 3 };
+  const CARD_RARITY_WEIGHTS = { common: 45, uncommon: 28, rare: 15, epic: 8, legendary: 3, mythic: 1 };
   const CARD_RARITY_COLORS = {
     common: 0x888888, uncommon: 0x22aa44, rare: 0x4488dd,
     epic: 0x9944cc, legendary: 0xddcc00, mythic: 0xdd4400
@@ -2112,12 +2086,10 @@
   function getRandomCards(count, player) {
     const picks = (player && player._cardPicksCount) || {};
     const allowed = c => !c.maxPicks || (picks[c.id] || 0) < c.maxPicks;
-    const level = player ? (player.level || 1) : 1;
-    const guaranteeLegendary = (level % 5 === 0);
     const out = [];
     const usedBuffIds = new Set();
     for (let i = 0; i < count; i++) {
-      let rarity = (i === 0 && guaranteeLegendary) ? "legendary" : rollCardRarity();
+      const rarity = rollCardRarity();
       const pool = CARD_DEFS.filter(c => c.rarity === rarity && allowed(c) && !usedBuffIds.has(c.id) && !c.patrolBonus);
       if (pool.length < 2) {
         const fallback = CARD_DEFS.filter(c => allowed(c) && !usedBuffIds.has(c.id) && !c.patrolBonus);
@@ -2456,10 +2428,23 @@
       const b = p.color & 0xff;
       const bright = ((Math.min(255, r + 80) << 16) | (Math.min(255, g + 80) << 8) | Math.min(255, b + 80));
 
+      const isRemote = !!(state._multiSlots && !state._multiIsHost);
+      const PATROL_INTERP_MS = 250;
       for (let idx = 0; idx < patrolCount; idx++) {
         const patrol = p._patrols[idx];
         if (!patrol) continue;
-        const t = patrol.t;
+        let t = patrol.t;
+        if (isRemote && patrol._interpStart != null) {
+          const elapsed = performance.now() - patrol._interpStart;
+          const frac = Math.min(1, elapsed / PATROL_INTERP_MS);
+          let from = patrol._interpFromT ?? t;
+          let to = patrol._interpToT ?? t;
+          let d = to - from;
+          if (d > 0.5) d -= 1;
+          if (d < -0.5) d += 1;
+          t = ((from + d * frac) % 1 + 1) % 1;
+          patrol._interpDisplayT = t;
+        }
 
         for (let i = TAIL_STEPS; i >= 1; i--) {
           const tailT = ((t - (i / TAIL_STEPS) * TAIL_COVER) + 2) % 1;
@@ -3045,6 +3030,12 @@
       u.gfx.visible = vis;
       if (vis) {
         u.gfx.position.set(u.x, u.y);
+        const spd = Math.hypot(u.vx || 0, u.vy || 0);
+        if (spd > 2 && (vfc + u.id) % 2 === 0) {
+          if (!u._trail) u._trail = [];
+          u._trail.push({ x: u.x, y: u.y });
+          if (u._trail.length > 10) u._trail.shift();
+        } else if (spd <= 2 && u._trail) u._trail = [];
         const _tRot = Math.atan2(u.vy || 0, u.vx || 0);
         let _dRot = _tRot - u.gfx.rotation;
         while (_dRot > Math.PI) _dRot -= Math.PI * 2;
@@ -3060,6 +3051,25 @@
         }
       }
     }
+  }
+
+  function updateShipTrails() {
+    destroyChildren(shipTrailsLayer);
+    const g = new PIXI.Graphics();
+    for (const u of state.units.values()) {
+      if (!u._trail || u._trail.length < 2 || !inView(u.x, u.y)) continue;
+      const col = u.color ?? 0x888888;
+      const n = u._trail.length;
+      for (let i = 0; i < n - 1; i++) {
+        const p = u._trail[i];
+        const alpha = (i / n) * 0.25;
+        const r = 2 + (i / n) * 2;
+        g.beginFill(col, alpha);
+        g.drawCircle(p.x, p.y, r);
+        g.endFill();
+      }
+    }
+    shipTrailsLayer.addChild(g);
   }
 
   function updateActivityZones() {
@@ -3151,37 +3161,60 @@
       const owner = state.players.get(squad[0].owner);
       const col = owner ? owner.color : 0x888888;
 
-      const atkR = Math.max(...squad.map(u => getUnitAtkRange(u)));
-      const engR = Math.max(...squad.map(u => getUnitEngagementRange(u)));
+      const maxAtkR = Math.max(...squad.map(u => getUnitAtkRange(u)));
+      const maxEngR = Math.max(...squad.map(u => getUnitEngagementRange(u)));
       const spreadR = Math.max(0, ...squad.map(u => Math.hypot(u.x - cx, u.y - cy)));
+      const findUnitAt = (px, py) => squad.reduce((b, u) => {
+        const d = (u.x - px) ** 2 + (u.y - py) ** 2;
+        return d < b.d ? { u, d } : b;
+      }, { u: squad[0], d: Infinity }).u;
 
       const rg = new PIXI.Graphics();
       if (squad.length >= 3) {
         const hullPts = convexHull(squad.map(u => ({ x: u.x, y: u.y })));
-        if (atkR > 5 && hullPts.length >= 3) {
+        if (maxAtkR > 5 && hullPts.length >= 3) {
+          const smoothPts = [];
+          for (let hi = 0; hi < hullPts.length; hi++) {
+            const hp = hullPts[hi];
+            const hpNext = hullPts[(hi + 1) % hullPts.length];
+            const r = getUnitAtkRange(findUnitAt(hp.x, hp.y));
+            const rNext = getUnitAtkRange(findUnitAt(hpNext.x, hpNext.y));
+            smoothPts.push({ x: hp.x, y: hp.y, r });
+            const mx = (hp.x + hpNext.x) / 2, my = (hp.y + hpNext.y) / 2;
+            smoothPts.push({ x: mx, y: my, r: (r + rNext) / 2 });
+          }
           rg.lineStyle(2, col, 0.4);
           rg.beginFill(col, 0.08);
-          rg.moveTo(hullPts[0].x + (hullPts[0].x - cx) / (spreadR || 1) * atkR,
-                     hullPts[0].y + (hullPts[0].y - cy) / (spreadR || 1) * atkR);
-          for (let hi = 1; hi <= hullPts.length; hi++) {
-            const hp = hullPts[hi % hullPts.length];
-            const dx = hp.x - cx, dy = hp.y - cy;
+          for (let i = 0; i < smoothPts.length; i++) {
+            const p = smoothPts[i];
+            const dx = p.x - cx, dy = p.y - cy;
             const dl = Math.hypot(dx, dy) || 1;
-            rg.lineTo(hp.x + (dx / dl) * atkR, hp.y + (dy / dl) * atkR);
+            const ox = p.x + (dx / dl) * p.r, oy = p.y + (dy / dl) * p.r;
+            if (i === 0) rg.moveTo(ox, oy);
+            else rg.lineTo(ox, oy);
           }
           rg.closePath();
           rg.endFill();
 
-          if (engR < atkR - 1) {
+          if (maxEngR < maxAtkR - 1) {
+            const engSmooth = [];
+            for (let hi = 0; hi < hullPts.length; hi++) {
+              const hp = hullPts[hi];
+              const hpNext = hullPts[(hi + 1) % hullPts.length];
+              const r = getUnitEngagementRange(findUnitAt(hp.x, hp.y));
+              const rNext = getUnitEngagementRange(findUnitAt(hpNext.x, hpNext.y));
+              engSmooth.push({ x: hp.x, y: hp.y, r });
+              const mx = (hp.x + hpNext.x) / 2, my = (hp.y + hpNext.y) / 2;
+              engSmooth.push({ x: mx, y: my, r: (r + rNext) / 2 });
+            }
             rg.lineStyle(1.5, 0xff8800, 0.35);
             rg.beginFill(0xff8800, 0.03);
-            rg.moveTo(hullPts[0].x + (hullPts[0].x - cx) / (spreadR || 1) * engR,
-                       hullPts[0].y + (hullPts[0].y - cy) / (spreadR || 1) * engR);
-            for (let hi = 1; hi <= hullPts.length; hi++) {
-              const hp = hullPts[hi % hullPts.length];
-              const dx = hp.x - cx, dy = hp.y - cy;
+            for (let i = 0; i < engSmooth.length; i++) {
+              const p = engSmooth[i];
+              const dx = p.x - cx, dy = p.y - cy;
               const dl = Math.hypot(dx, dy) || 1;
-              rg.lineTo(hp.x + (dx / dl) * engR, hp.y + (dy / dl) * engR);
+              const ox = p.x + (dx / dl) * p.r, oy = p.y + (dy / dl) * p.r;
+              if (i === 0) rg.moveTo(ox, oy); else rg.lineTo(ox, oy);
             }
             rg.closePath();
             rg.endFill();
@@ -3190,13 +3223,13 @@
       } else {
         rg.lineStyle(2, col, 0.4);
         rg.beginFill(col, 0.08);
-        rg.drawCircle(cx, cy, spreadR + atkR);
+        rg.drawCircle(cx, cy, spreadR + maxAtkR);
         rg.endFill();
 
-        if (engR < atkR - 1) {
+        if (maxEngR < maxAtkR - 1) {
           rg.lineStyle(1.5, 0xff8800, 0.35);
           rg.beginFill(0xff8800, 0.03);
-          rg.drawCircle(cx, cy, spreadR + engR);
+          rg.drawCircle(cx, cy, spreadR + maxEngR);
           rg.endFill();
         }
       }
@@ -4441,7 +4474,7 @@
     return mine;
   }
 
-  function placeMines(spawnPositions, playerCount, rndFn) {
+  function placeMines(entries, rndFn) {
     state.mines.clear();
     nextMineId = 1;
     const cx = CFG.WORLD_W * 0.5, cy = CFG.WORLD_H * 0.5;
@@ -4460,15 +4493,15 @@
     updateMineVisual(centerMine);
 
     const inflR = CFG.INFLUENCE_R(CFG.POP_START);
-    const pids = [...state.players.values()].map(p => p.id);
-    for (let pi = 0; pi < playerCount; pi++) {
-      const sp = spawnPositions[pi];
-      const pid = pids[pi];
+    const r = rndFn || (() => Math.random());
+    for (const entry of entries) {
+      const sp = entry.pos;
+      const pid = entry.ownerId;
       for (let m = 0; m < CFG.MINE_START_PER_PLAYER; m++) {
         const baseAngle = Math.atan2(sp.y - cy, sp.x - cx);
         const spread = ((m - (CFG.MINE_START_PER_PLAYER - 1) / 2) / Math.max(1, CFG.MINE_START_PER_PLAYER - 1)) * 1.2;
-        const a = baseAngle + spread + (rndFn() * 0.15);
-        const d = inflR * 0.85 + rndFn() * (inflR * 0.1);
+        const a = baseAngle + spread + (r() * 0.15);
+        const d = inflR * 0.85 + r() * (inflR * 0.1);
         createMine(
           clamp(sp.x + Math.cos(a) * d, 40, CFG.WORLD_W - 40),
           clamp(sp.y + Math.sin(a) * d, 40, CFG.WORLD_H - 40),
@@ -4478,8 +4511,8 @@
       for (let m = 0; m < CFG.MINE_NEUTRAL_PER_PLAYER; m++) {
         const baseAngle = Math.atan2(sp.y - cy, sp.x - cx);
         const spread = ((m - (CFG.MINE_NEUTRAL_PER_PLAYER - 1) / 2) / Math.max(1, CFG.MINE_NEUTRAL_PER_PLAYER - 1)) * 1.5;
-        const a = baseAngle + spread + Math.PI + (rndFn() * 0.2);
-        const d = inflR * 1.2 + rndFn() * (inflR * 0.3);
+        const a = baseAngle + spread + Math.PI + (r() * 0.2);
+        const d = inflR * 1.2 + r() * (inflR * 0.3);
         createMine(
           clamp(sp.x + Math.cos(a) * d, 40, CFG.WORLD_W - 40),
           clamp(sp.y + Math.sin(a) * d, 40, CFG.WORLD_H - 40),
@@ -5127,8 +5160,7 @@
       state._lastTimeSnapshotAt = 0;
       state._timeJumpAvailableAt = 61;
 
-      const oneSpawn = [{ x: cx, y: topY }];
-      placeMines(oneSpawn, 1, soloRnd);
+      placeMines([{ pos: { x: cx, y: topY }, ownerId: 1 }], soloRnd);
       placeNebulae(soloRnd);
       return;
     }
@@ -5166,7 +5198,7 @@
     state._timeJumpAvailableAt = state.players.size * 61;
 
     const orderedSpawns = [playerPos, ...botPositions];
-    placeMines(orderedSpawns, totalPlayers, soloRnd);
+    placeMines(orderedSpawns.map((pos, i) => ({ pos, ownerId: i + 1 })), soloRnd);
     placeNebulae(soloRnd);
   }
 
@@ -5233,6 +5265,7 @@
     const allSpawns = getFixedSpawnPositions(CFG.MAX_PLAYERS);
 
     const positions = [];
+    const mineEntries = [];
     for (let i = 0; i < filledSlotIndices.length; i++) {
       const slotIndex = filledSlotIndices[i];
       const pid = slotToPid[slotIndex];
@@ -5240,6 +5273,7 @@
       const spIdx = (slotData && slotData.spawnIndex != null) ? slotData.spawnIndex : i;
       const pos = allSpawns[spIdx] || allSpawns[i] || allSpawns[0];
       positions.push(pos);
+      mineEntries.push({ pos, ownerId: pid });
       const pl = makePlayer(pid, nameForId(pid), pos.x, pos.y, CFG.POP_START);
       state.players.set(pl.id, pl);
       makeCityVisual(pl);
@@ -5252,7 +5286,15 @@
     const me = state.players.get(state.myPlayerId);
     centerOn(me.x, me.y);
 
-    placeMines(positions, n, locRnd);
+    for (let i = 0; i < CFG.MAX_PLAYERS; i++) {
+      if (!(slotToPid[i] != null)) {
+        const slotData = (slots || [])[i];
+        const spIdx = (slotData && slotData.spawnIndex != null) ? slotData.spawnIndex : i;
+        const pos = allSpawns[spIdx] || allSpawns[i] || allSpawns[0];
+        mineEntries.push({ pos, ownerId: null });
+      }
+    }
+    placeMines(mineEntries, locRnd);
     placeNebulae();
   }
 
@@ -5340,7 +5382,7 @@
   // Units
   // ------------------------------------------------------------
   const FORM_ELONGATE = 1.85;
-  const FORM_MIN_SPACING = 50;
+  const FORM_MIN_SPACING = 60;
 
   function pigFormationOffsets(n, dirX, dirY, depth, widthMul, sizeMul, hitSpacing) {
     const depthRows = Math.max(1, depth || 3);
@@ -5656,6 +5698,7 @@
   const UNIT_CREDIT_DROPS = { fighter: 5, destroyer: 50, cruiser: 150, battleship: 400, hyperDestroyer: 800 };
 
   function killUnit(u, reason = "dead", killerOwner) {
+    if (typeof playExplosionSound === "function") playExplosionSound(u.x, u.y);
     const baseXP = UNIT_XP_DROPS[u.unitType] || 1;
     const xpDrop = Math.max(1, Math.round(baseXP * (0.8 + Math.random() * 0.4)));
     spawnXPOrb(u.x + (Math.random() - 0.5) * 10, u.y + (Math.random() - 0.5) * 10, xpDrop, killerOwner);
@@ -5842,6 +5885,7 @@
         const city = firePlan.city;
         u.atkCd = 1 / getUnitAtkRate(u);
         const dmg = getUnitDmg(u);
+        if (typeof playLaserSound === "function") playLaserSound(u.x, u.y, city.x, city.y);
         state.bullets.push({
           type: "laser", fromX: u.x, fromY: u.y,
           toX: city.x, toY: city.y,
@@ -5869,6 +5913,7 @@
           const hpA = facing + hpAngles[ti % hpAngles.length];
           const fromX = firePlan.targets.length > 1 ? u.x + Math.cos(hpA) * hitR : u.x;
           const fromY = firePlan.targets.length > 1 ? u.y + Math.sin(hpA) * hitR : u.y;
+          if (typeof playLaserSound === "function") playLaserSound(fromX, fromY, tgt.x, tgt.y);
           state.bullets.push({
             type: "laser", fromX, fromY,
             toX: tgt.x, toY: tgt.y,
@@ -5885,6 +5930,7 @@
         const t = firePlan.turret;
         u.atkCd = 1 / getUnitAtkRate(u);
         const dmg = getUnitDmg(u);
+        if (typeof playLaserSound === "function") playLaserSound(u.x, u.y, t.x, t.y);
         state.bullets.push({
           type: "laser", fromX: u.x, fromY: u.y,
           toX: t.x, toY: t.y,
@@ -5903,6 +5949,7 @@
         if (d2base <= atkRange2) {
           u.atkCd = 1 / getUnitAtkRate(u);
           const dmg = getUnitDmg(u);
+          if (typeof playLaserSound === "function") playLaserSound(u.x, u.y, pb.x, pb.y);
           state.bullets.push({
             type: "laser", fromX: u.x, fromY: u.y,
             toX: pb.x, toY: pb.y,
@@ -6096,6 +6143,7 @@
                   hitIds.add(bestTarget.id);
                   applyUnitDamage(bestTarget, chainDmg, b.ownerId);
                   bestTarget._hitFlashT = state.t;
+                  if (typeof playLaserSound === "function") playLaserSound(lastX, lastY, bestTarget.x, bestTarget.y);
                   state.bullets.push({
                     type: "laser", fromX: lastX, fromY: lastY,
                     toX: bestTarget.x, toY: bestTarget.y,
@@ -6753,6 +6801,12 @@
       if (u.gfx) {
         const vis = inView(u.x, u.y);
         u.gfx.visible = vis;
+        const spd = Math.hypot(u.vx || 0, u.vy || 0);
+        if (spd > 2 && (state._frameCtr + u.id) % 2 === 0) {
+          if (!u._trail) u._trail = [];
+          u._trail.push({ x: u.x, y: u.y });
+          if (u._trail.length > 10) u._trail.shift();
+        } else if (spd <= 2 && u._trail) u._trail = [];
         if (vis) {
           const vfc = state._frameCtr;
           const sel = state.selectedUnitIds.has(u.id);
@@ -9635,19 +9689,29 @@
       }
       const aR = m.aoeR || METEOR_AOE_RADIUS;
       const aR2 = aR * aR;
-      // Kill ALL units in AOE path (instant kill, any HP)
       for (const u of state.units.values()) {
         if (u.hp <= 0) continue;
         if ((u.x - m.x) ** 2 + (u.y - m.y) ** 2 <= aR2) {
-          state.floatingDamage.push({ x: u.x, y: u.y - 15, text: "💥", color: 0xff4400, ttl: 0.7 });
-          u.hp = 0;
+          const maxHp = u.maxHp || 1;
+          const dmg = Math.max(1, Math.floor(maxHp * 0.75));
+          u.hp = Math.max(0, u.hp - dmg);
           u.lastDamagedBy = m.ownerId;
+          state.floatingDamage.push({ x: u.x, y: u.y - 15, text: "💥 -" + dmg, color: 0xff4400, ttl: 0.7 });
+          if (!m._impactFx) {
+            m._impactFx = true;
+            if (!state._meteorImpactEffects) state._meteorImpactEffects = [];
+            state._meteorImpactEffects.push({ x: m.x, y: m.y, t0: state.t, duration: 0.5 });
+          }
         }
       }
-      // Damage turrets in AOE path
       for (const t of state.turrets.values()) {
         if (t.hp <= 0) continue;
         if ((t.x - m.x) ** 2 + (t.y - m.y) ** 2 <= aR2) {
+          if (!m._impactFx) {
+            m._impactFx = true;
+            if (!state._meteorImpactEffects) state._meteorImpactEffects = [];
+            state._meteorImpactEffects.push({ x: m.x, y: m.y, t0: state.t, duration: 0.5 });
+          }
           state.floatingDamage.push({ x: t.x, y: t.y - 12, text: "💥", color: 0xff4400, ttl: 0.7 });
           t.hp = 0;
           t._diedAt = state.t;
@@ -9661,6 +9725,11 @@
         const sR = shieldRadius(p);
         const dist = Math.hypot(m.x - p.x, m.y - p.y);
         if (dist <= sR + aR) {
+          if (!m._impactFx) {
+            m._impactFx = true;
+            if (!state._meteorImpactEffects) state._meteorImpactEffects = [];
+            state._meteorImpactEffects.push({ x: m.x, y: m.y, t0: state.t, duration: 0.5 });
+          }
           const dmg = Math.max(1, Math.round(p.shieldHp * 0.25));
           p.shieldHp = Math.max(0, p.shieldHp - dmg);
           if (p.shieldHp === 0) p.shieldRegenCd = SHIELD_REGEN_DELAY;
@@ -9758,6 +9827,66 @@
       m.gfx.moveTo(m.x, m.y); m.gfx.lineTo(m.x + tdx * trailLen * 0.5, m.y + tdy * trailLen * 0.5);
       m.gfx.lineStyle(m.radius * 1.2, 0xff8844, 0.25);
       m.gfx.moveTo(m.x, m.y); m.gfx.lineTo(m.x + tdx * trailLen * 0.35, m.y + tdy * trailLen * 0.35);
+    }
+  }
+
+  function drawMeteorImpactEffects() {
+    if (!state._meteorImpactEffects || !state._meteorImpactEffects.length) return;
+    const W = CFG.WORLD_W, H = CFG.WORLD_H;
+    const margin = 100;
+    for (let i = state._meteorImpactEffects.length - 1; i >= 0; i--) {
+      const fx = state._meteorImpactEffects[i];
+      const elapsed = state.t - fx.t0;
+      if (elapsed >= fx.duration) {
+        if (fx.gfx && !fx.gfx.destroyed) { fx.gfx.parent?.removeChild(fx.gfx); fx.gfx.destroy(true); }
+        state._meteorImpactEffects.splice(i, 1);
+        continue;
+      }
+      const f = elapsed / fx.duration;
+      const alpha = 1 - f;
+      const r = (METEOR_AOE_RADIUS || 30) * (0.5 + 0.5 * (1 - f));
+      if (fx.x < -margin || fx.x > W + margin || fx.y < -margin || fx.y > H + margin) continue;
+      if (!fx.gfx || fx.gfx.destroyed) { fx.gfx = new PIXI.Graphics(); world.addChild(fx.gfx); }
+      fx.gfx.clear();
+      fx.gfx.beginFill(0xff4400, alpha * 0.4);
+      fx.gfx.drawCircle(fx.x, fx.y, r);
+      fx.gfx.endFill();
+      fx.gfx.beginFill(0xff8800, alpha * 0.25);
+      fx.gfx.drawCircle(fx.x, fx.y, r * 0.6);
+      fx.gfx.endFill();
+    }
+  }
+
+  function stepRandomEvents(dt) {
+    if (!state._multiIsHost && state._multiSlots) return;
+    const W = CFG.WORLD_W, H = CFG.WORLD_H;
+    const margin = 200;
+    if (state.t >= (state._randomBlackHoleNextAt ?? 0)) {
+      state._randomBlackHoleNextAt = state.t + 300;
+      const x = margin + Math.random() * (W - 2 * margin);
+      const y = margin + Math.random() * (H - 2 * margin);
+      spawnBlackHole(x, y, null);
+    }
+    if (!state._randomMeteorScheduled) state._randomMeteorScheduled = [];
+    if (state.t >= (state._randomMeteorNextAt ?? 0)) {
+      state._randomMeteorNextAt = state.t + 240;
+      const angles = [Math.random() * Math.PI * 2, Math.random() * Math.PI * 2, Math.random() * Math.PI * 2];
+      for (let i = 0; i < 3; i++) {
+        state._randomMeteorScheduled.push({ spawnAt: state.t + i * 2, angle: angles[i] });
+      }
+    }
+    for (let i = state._randomMeteorScheduled.length - 1; i >= 0; i--) {
+      const s = state._randomMeteorScheduled[i];
+      if (state.t < s.spawnAt) continue;
+      state._randomMeteorScheduled.splice(i, 1);
+      const edge = Math.floor(Math.random() * 4);
+      let sx, sy, tx, ty;
+      if (edge === 0) { sx = Math.random() * W; sy = -100; tx = W * 0.5 + (Math.random() - 0.5) * W * 0.6; ty = H * 0.5; }
+      else if (edge === 1) { sx = W + 100; sy = Math.random() * H; tx = W * 0.5; ty = H * 0.5 + (Math.random() - 0.5) * H * 0.6; }
+      else if (edge === 2) { sx = Math.random() * W; sy = H + 100; tx = W * 0.5 + (Math.random() - 0.5) * W * 0.6; ty = H * 0.5; }
+      else { sx = -100; sy = Math.random() * H; tx = W * 0.5; ty = H * 0.5 + (Math.random() - 0.5) * H * 0.6; }
+      const angle = Math.atan2(ty - sy, tx - sx) + (Math.random() - 0.5) * 0.4;
+      _spawnMeteorLocal(tx, ty, angle, null);
     }
   }
 
@@ -11372,7 +11501,7 @@
   function startGameMulti(slots, mySlot) {
     state.botPlayerIds = new Set();
     const filledSlots = [];
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < slots.length; i++) {
       const s = slots[i] || {};
       if (s.id || s.isBot) filledSlots.push(i);
     }
@@ -11543,6 +11672,20 @@
       for (const k of pKeys) {
         if (k === "influenceRayDistances" && isRemote && p.influenceRayDistances) {
           NET.Interp.setZoneTarget(pl, p.influenceRayDistances);
+          continue;
+        }
+        if (k === "_patrols" && isRemote && Array.isArray(p._patrols)) {
+          pl._patrols = pl._patrols || [];
+          for (let i = 0; i < p._patrols.length; i++) {
+            const src = p._patrols[i];
+            let dst = pl._patrols[i];
+            if (!dst) { dst = { t: 0 }; pl._patrols.push(dst); }
+            dst._interpFromT = dst._interpDisplayT ?? dst.t ?? 0;
+            dst._interpToT = (src && typeof src.t === "number") ? src.t : dst.t;
+            dst._interpStart = performance.now();
+            dst.t = dst._interpToT;
+            if (src && src.atkCd != null) dst.atkCd = src.atkCd;
+          }
           continue;
         }
         if (p[k] !== undefined) pl[k] = p[k];
@@ -12099,13 +12242,82 @@
         urlHintEl.style.display = (!state._serverUrl && url.indexOf("localhost") !== -1 && state._isHost) ? "block" : "none";
       }
     }
-    slotsEl.innerHTML = "";
-    for (let i = 0; i < 5; i++) {
+    const spawnBySlot = new Map();
+    const spawnTaken = new Map();
+    for (let i = 0; i < slots.length; i++) {
       const s = slots[i] || {};
+      if (!s.id && !s.isBot) continue;
+      const sp = s.spawnIndex != null ? s.spawnIndex : i;
+      spawnBySlot.set(i, sp);
+      spawnTaken.set(sp, i);
+    }
+
+    slotsEl.innerHTML = "";
+    const editSlot = state._colorEditSlot != null ? state._colorEditSlot : state._mySlot;
+    for (let i = 0; i < slots.length; i++) {
+      const s = slots[i] || {};
+      const occupied = !!(s.id || s.isBot);
       const div = document.createElement("div");
-      div.className = "lobby-slot" + (!s.id && !s.isBot ? " empty" : "");
+      div.className = "lobby-slot" + (occupied ? "" : " empty");
       const colorHex = "#" + (LOBBY_COLORS[s.colorIndex || 0] || 0x888888).toString(16).padStart(6, "0");
-      div.innerHTML = "<span class=\"slot-color\" style=\"background:" + colorHex + "\"></span><span class=\"slot-name\">" + (s.name || "Пусто") + "</span>" + (s.isBot ? "<span class=\"slot-badge\">Бот</span>" : "");
+
+      const colorSpan = document.createElement("span");
+      colorSpan.className = "slot-color";
+      colorSpan.style.background = colorHex;
+      if (state._isHost && occupied) {
+        colorSpan.style.cursor = "pointer";
+        colorSpan.title = "Выбрать цвет для этого слота";
+        if (i === editSlot) {
+          colorSpan.style.boxShadow = "0 0 0 3px #fff";
+        }
+        const slotIdx = i;
+        colorSpan.addEventListener("click", () => {
+          state._colorEditSlot = slotIdx;
+          renderLobby();
+        });
+      }
+      div.appendChild(colorSpan);
+
+      const nameSpan = document.createElement("span");
+      nameSpan.className = "slot-name";
+      nameSpan.textContent = s.name || "Пусто";
+      div.appendChild(nameSpan);
+
+      if (s.isBot) {
+        const badge = document.createElement("span");
+        badge.className = "slot-badge";
+        badge.textContent = "Бот";
+        div.appendChild(badge);
+      }
+
+      if (occupied) {
+        const curSpawn = spawnBySlot.get(i) ?? i;
+        const sel = document.createElement("select");
+        sel.className = "slot-spawn-select";
+        sel.title = "Позиция спавна";
+        for (let sp = 0; sp < slots.length; sp++) {
+          const opt = document.createElement("option");
+          opt.value = sp;
+          opt.textContent = "Поз. " + (sp + 1);
+          const takenBy = spawnTaken.get(sp);
+          if (takenBy != null && takenBy !== i) opt.disabled = true;
+          if (sp === curSpawn) opt.selected = true;
+          sel.appendChild(opt);
+        }
+        const canChange = state._isHost || (i === state._mySlot);
+        sel.disabled = !canChange;
+        const slotIdx = i;
+        sel.addEventListener("change", () => {
+          const newSp = parseInt(sel.value);
+          if (state._isHost && slotIdx !== state._mySlot) {
+            socket.emit("setSlotSpawn", slotIdx, newSp);
+          } else {
+            socket.emit("setSpawn", newSp);
+          }
+        });
+        div.appendChild(sel);
+      }
+
       if (state._isHost && i > 0) {
         const btn = document.createElement("button");
         btn.type = "button";
@@ -12119,19 +12331,113 @@
       }
       slotsEl.appendChild(div);
     }
+
+    const spawnMapEl = document.getElementById("lobbySpawnMap");
+    if (spawnMapEl) {
+      const SPAWN_COUNT = slots.length || 6;
+      const W = (typeof CFG !== "undefined" ? CFG.WORLD_W : 7200) || 7200;
+      const H = (typeof CFG !== "undefined" ? CFG.WORLD_H : 4320) || 4320;
+      const wCx = W * 0.5, wCy = H * 0.5;
+      const wR = Math.min(W, H) * 0.38;
+      const spawns = [];
+      for (let i = 0; i < SPAWN_COUNT; i++) {
+        const angle = (i / SPAWN_COUNT) * Math.PI * 2 - Math.PI / 2;
+        spawns.push({ x: wCx + Math.cos(angle) * wR, y: wCy + Math.sin(angle) * wR });
+      }
+      const cw = spawnMapEl.width, ch = spawnMapEl.height;
+      const ctx = spawnMapEl.getContext("2d");
+      ctx.fillStyle = "#0a0c1a";
+      ctx.fillRect(0, 0, cw, ch);
+
+      const pad = 30;
+      const scaleX = (cw - pad * 2) / W, scaleY = (ch - pad * 2) / H;
+      const scale = Math.min(scaleX, scaleY);
+      const offX = (cw - W * scale) / 2, offY = (ch - H * scale) / 2;
+
+      ctx.beginPath();
+      ctx.arc(offX + wCx * scale, offY + wCy * scale, wR * scale, 0, Math.PI * 2);
+      ctx.strokeStyle = "rgba(100,150,255,0.15)";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      const DOT_R = 16;
+      for (let i = 0; i < spawns.length; i++) {
+        const px = offX + spawns[i].x * scale;
+        const py = offY + spawns[i].y * scale;
+        const ownerSlot = spawnTaken.get(i);
+        const occupied = ownerSlot != null;
+        const slotData = occupied ? (slots[ownerSlot] || {}) : null;
+        const color = occupied ? "#" + (LOBBY_COLORS[slotData.colorIndex || 0] || 0x888888).toString(16).padStart(6, "0") : "#334";
+        const borderColor = occupied ? "rgba(255,255,255,0.5)" : "#556";
+
+        ctx.beginPath();
+        ctx.arc(px, py, DOT_R, 0, Math.PI * 2);
+        ctx.fillStyle = color;
+        ctx.fill();
+        ctx.strokeStyle = borderColor;
+        ctx.lineWidth = occupied ? 2 : 1;
+        ctx.stroke();
+
+        ctx.fillStyle = occupied ? "#fff" : "#889";
+        ctx.font = "bold 13px sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(String(i + 1), px, py + 1);
+
+        if (occupied && slotData) {
+          const label = slotData.name || (slotData.isBot ? "Бот" : "");
+          if (label) {
+            ctx.fillStyle = "rgba(255,255,255,0.7)";
+            ctx.font = "11px sans-serif";
+            ctx.fillText(label.length > 8 ? label.slice(0, 7) + "…" : label, px, py + DOT_R + 12);
+          }
+        }
+      }
+      spawnMapEl.onclick = null;
+    }
+
     const pickerEl = document.getElementById("colorPicker");
     if (pickerEl) {
       pickerEl.innerHTML = "";
-      const mySlot = slots[state._mySlot];
-      const curColor = (mySlot && mySlot.colorIndex != null) ? mySlot.colorIndex : 0;
+      const targetSlot = editSlot != null ? editSlot : state._mySlot;
+      const targetData = slots[targetSlot] || {};
+      const curColor = targetData.colorIndex != null ? targetData.colorIndex : 0;
+
+      const usedColors = new Set();
+      for (let j = 0; j < slots.length; j++) {
+        const sl = slots[j] || {};
+        if ((sl.id || sl.isBot) && j !== targetSlot) usedColors.add(sl.colorIndex);
+      }
+
+      const label = document.getElementById("colorPickerLabel");
+      if (label) {
+        if (state._isHost && targetSlot !== state._mySlot) {
+          const tName = targetData.name || (targetData.isBot ? "Бот" : "Слот " + (targetSlot + 1));
+          label.textContent = "Цвет для: " + tName;
+        } else {
+          label.textContent = "Ваш цвет:";
+        }
+      }
+
       for (let i = 0; i < 36; i++) {
         const sw = document.createElement("div");
-        sw.className = "color-swatch" + (i === curColor ? " selected" : "");
+        const taken = usedColors.has(i);
+        sw.className = "color-swatch" + (i === curColor ? " selected" : "") + (taken ? " taken" : "");
         sw.style.background = "#" + (LOBBY_COLORS[i] || 0).toString(16).padStart(6, "0");
-        sw.addEventListener("click", () => {
-          socket.emit("setColor", i);
-          document.querySelectorAll("#colorPicker .color-swatch").forEach((el, j) => el.classList.toggle("selected", j === i));
-        });
+        if (taken) {
+          sw.style.opacity = "0.25";
+          sw.style.cursor = "default";
+          sw.title = "Занят";
+        } else {
+          const colorIdx = i;
+          sw.addEventListener("click", () => {
+            if (state._isHost && targetSlot !== state._mySlot) {
+              socket.emit("setSlotColor", targetSlot, colorIdx);
+            } else {
+              socket.emit("setColor", colorIdx);
+            }
+          });
+        }
         pickerEl.appendChild(sw);
       }
     }
@@ -12632,6 +12938,7 @@
       stepStorm(dt);
       stepAbilityStorms(dt);
       stepBlackHoles(dt);
+      stepRandomEvents(dt);
       stepAbilityZoneEffects(dt);
       stepAbilityCooldowns(dt);
       stepLoanDebts(dt);
@@ -12654,30 +12961,6 @@
 
       for (const u of state.units.values()) {
         NET.Interp.tickUnit(u, interpMs);
-      }
-      // Smooth formation for other players: followers follow leader's interpolated position
-      const myId = state.myPlayerId;
-      for (const u of state.units.values()) {
-        if (u.owner === myId) continue;
-        if (!u.leaderId) continue;
-        const leader = state.units.get(u.leaderId);
-        if (!leader) continue;
-        const fox = u.formationOffsetX ?? 0, foy = u.formationOffsetY ?? 0;
-        const lox = leader.formationOffsetX ?? 0, loy = leader.formationOffsetY ?? 0;
-        const relX = fox - lox, relY = foy - loy;
-        if (relX === 0 && relY === 0) continue;
-
-        const formAngle = leader._formationAngle ?? 0;
-        const lastAngle = leader._lastFacingAngle ?? formAngle;
-        const delta = lastAngle - formAngle;
-        if (Math.abs(delta) < 0.01) {
-          u.x = leader.x + relX;
-          u.y = leader.y + relY;
-        } else {
-          const cosD = Math.cos(delta), sinD = Math.sin(delta);
-          u.x = leader.x + (relX * cosD - relY * sinD);
-          u.y = leader.y + (relX * sinD + relY * cosD);
-        }
       }
       updateUnitVisualsOnly();
 
@@ -12724,6 +13007,24 @@
       state._lastSendCheck = now;
       if (_netSendScheduler.update(dtMs)) {
         const gs = serializeGameState();
+        const payload = JSON.stringify(gs);
+        const size = payload.length;
+        if (!state._netPacketStats) state._netPacketStats = { samples: [], lastLog: 0 };
+        const st = state._netPacketStats;
+        st.samples.push({ size, full: !!gs._fullSync, t: state.t });
+        if (st.samples.length > 120) st.samples.shift();
+        if (state.t - st.lastLog >= 10) {
+          st.lastLog = state.t;
+          const recent = st.samples.slice(-30);
+          const avg = recent.reduce((s, x) => s + x.size, 0) / recent.length;
+          const fulls = recent.filter(x => x.full).length;
+          const line = `[NET-PKT] size=${size} avg30=${Math.round(avg)} fullSyncs=${fulls} units=${(gs.units||[]).length}`;
+          console.log(line);
+          if (typeof window !== "undefined") {
+            window._lastNetPacketLog = line;
+            window._netPacketSamples = st.samples;
+          }
+        }
         state._socket.emit("gameState", gs);
       }
     }
@@ -12763,6 +13064,7 @@
     if (vfc % 3 === 0) drawTurrets();
     if (vfc % 2 === 0) updateCityPopLabels();
     if (vfc % 3 === 0) updateSquadLabels();
+    if (vfc % 2 === 0) updateShipTrails();
     if (vfc % 3 === 0) updateCombatUI();
     updateFloatingDamage(dt);
     updateAbilityAnnouncements(dt);
@@ -12771,6 +13073,7 @@
     if (vfc % 2 === 0) { drawAbilityStorms(); drawBlackHoles(); drawPirateBase(); drawAbilityZoneEffects(); }
     drawHyperFlashes();
     drawMeteors();
+    drawMeteorImpactEffects();
     if (state._abilityTargeting) drawAbilityTargetPreview();
     else clearAbilityPreview();
     if (neonEdgeSprite) {

@@ -1,7 +1,7 @@
 {
-  "name": "hoi2d",
-  "version": "1.0.0",
-  "description": "VoidFront lobby server",
+  "name": "voidfront",
+  "version": "1.4.0",
+  "description": "VoidFront — browser RTS / tactical game",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

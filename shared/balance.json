@@ -1,9 +1,9 @@
 {
   "world": {
-    "width": 6000,
-    "height": 3600,
+    "width": 7200,
+    "height": 4320,
     "maxPlayers": 6,
-    "comment": "World size in px. 6000x3600 gives ~16:9 aspect."
+    "comment": "World size in px. 7200x4320 gives ~16:9 aspect (+20%)."
   },
   "camera": {
     "startZoom": 0.22,
@@ -38,7 +38,7 @@
       "hp": 45,
       "damage": 3,
       "attackRate": 0.8,
-      "speed": 34,
+      "speed": 25.5,
       "attackRange": 104,
       "maxTargets": 1,
       "popPenaltyPerUnit": 1,
@@ -53,7 +53,7 @@
       "hp": 700,
       "damage": 14,
       "attackRate": 0.42,
-      "speed": 28,
+      "speed": 21,
       "attackRange": 120,
       "maxTargets": 2,
       "popPenaltyPerUnit": 10,
@@ -68,7 +68,7 @@
       "hp": 2200,
       "damage": 28,
       "attackRate": 0.3,
-      "speed": 20,
+      "speed": 15,
       "attackRange": 180,
       "maxTargets": 3,
       "popPenaltyPerUnit": 30,
@@ -83,7 +83,7 @@
       "hp": 5500,
       "damage": 55,
       "attackRate": 0.22,
-      "speed": 15,
+      "speed": 11.25,
       "attackRange": 220,
       "maxTargets": 4,
       "popPenaltyPerUnit": 60,
@@ -98,7 +98,7 @@
       "hp": 12000,
       "damage": 90,
       "attackRate": 0.18,
-      "speed": 12,
+      "speed": 9,
       "attackRange": 260,
       "maxTargets": 6,
       "popPenaltyPerUnit": 100,

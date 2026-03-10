@@ -96,7 +96,7 @@
           <span id="lobbyHostBadge" class="pill" style="display:none">Хост</span>
           <button type="button" id="lobbyLeave" class="menu-btn secondary">Выйти</button>
         </div>
-        <p class="muted">5 слотов. Хост запускает игру. Можно заполнить слоты ботами.</p>
+        <p class="muted">6 слотов. Хост запускает игру. Можно заполнить слоты ботами.</p>
         <div class="lobby-url-row">
           <label class="muted">Адрес для подключения:</label>
           <div class="lobby-url-box">
@@ -108,7 +108,7 @@
         </div>
         <div id="lobbySlots" class="lobby-slots"></div>
         <div class="lobby-actions">
-          <label>Ваш цвет:</label>
+          <label id="colorPickerLabel">Ваш цвет:</label>
           <div id="colorPicker" class="color-picker"></div>
           <button type="button" id="lobbyStart" class="menu-btn primary" style="display:none">Начать игру</button>
         </div>
@@ -120,6 +120,11 @@
           <input type="text" id="chatInput" class="chat-input" placeholder="Сообщение..." maxlength="200" />
           <button type="button" id="chatSend" class="menu-btn chat-send-btn">Отправить</button>
         </div>
+      </div>
+      <div class="lobby-map">
+        <div class="lobby-map-title">Карта спавнов</div>
+        <canvas id="lobbySpawnMap" width="280" height="280"></canvas>
+        <p class="muted" style="font-size:11px;margin-top:6px;text-align:center">Позиция выбирается в строке слота</p>
       </div>
     </div>
   </div>
@@ -280,7 +285,7 @@
   <div id="hudTooltip" class="hud-tooltip" style="display:none"></div>
 
   <div id="hud">
-    <div class="title">VoidFront <span id="gameVersionBadge" style="font-size:11px;font-weight:600;opacity:0.55;letter-spacing:0.3px;cursor:help;" title="">BUILD 1.2a</span></div>
+    <div class="title">VoidFront <span id="gameVersionBadge" style="font-size:11px;font-weight:600;opacity:0.55;letter-spacing:0.3px;cursor:help;" title="">BUILD 1.6a</span></div>
 
     <div id="eCreditsDisplay" class="ecredits-display" data-tooltip="Кредиты — основная валюта для покупки кораблей. Получаете от шахт и от населения (каждые 50 жителей = +1⚡€/сек)">
       <span class="ecredits-icon">⚡€</span>
@@ -534,12 +539,14 @@
   <script src="https://cdn.jsdelivr.net/npm/pixi.js@8.6.6/dist/pixi.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/pixi-filters@6.1.1/dist/pixi-filters.min.js"></script>
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-  <script src="net.js?v=4"></script>
-  <script src="formations.js?v=14"></script>
-  <script src="combat.js?v=14"></script>
-  <script src="squad-logic.js?v=14"></script>
-  <script src="client.js?v=14"></script>
-  <script src="test-mechanics.js?v=14"></script>
+  <script src="utils.js?v=16"></script>
+  <script src="noise.js?v=16"></script>
+  <script src="net.js?v=16"></script>
+  <script src="formations.js?v=16"></script>
+  <script src="combat.js?v=16"></script>
+  <script src="squad-logic.js?v=16"></script>
+  <script src="client.js?v=16"></script>
+  <script src="test-mechanics.js?v=16"></script>
   <script>
   (function(){
     var b = document.getElementById("btnCreateRoom");

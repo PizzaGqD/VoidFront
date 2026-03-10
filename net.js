@@ -1,5 +1,5 @@
 /**
- * NetEngine — networking module for Hoi2D multiplayer.
+ * NetEngine — networking module for VoidFront multiplayer.
  *
  * Architecture:
  *   Host (authoritative) runs simulation, sends snapshots at fixed 30 Hz.

@@ -1,5 +1,5 @@
 /**
- * Останавливает процесс, слушающий порт 3040 (сервер Hoi2D).
+ * Останавливает процесс, слушающий порт 3040 (сервер VoidFront).
  * Запуск: node stop-server.js   или  npm run stop
  */
 const { execSync } = require("child_process");

@@ -91,12 +91,48 @@ function getRoom(roomId) {
       hostId: null,
       createdAt: Date.now(),
       slots: Array.from({ length: SLOTS }, (_, i) => ({
-        id: null, name: null, colorIndex: 0, isBot: false, spawnIndex: i
+        id: null, name: null, colorIndex: i, isBot: false, spawnIndex: i
       })),
       chat: []
     });
   }
   return rooms.get(roomId);
+}
+
+function getUsedColors(room, excludeSlot) {
+  const used = new Set();
+  for (let i = 0; i < SLOTS; i++) {
+    if (i === excludeSlot) continue;
+    const s = room.slots[i];
+    if (s.id || s.isBot) used.add(s.colorIndex);
+  }
+  return used;
+}
+
+function getUsedSpawns(room, excludeSlot) {
+  const used = new Set();
+  for (let i = 0; i < SLOTS; i++) {
+    if (i === excludeSlot) continue;
+    const s = room.slots[i];
+    if (s.id || s.isBot) used.add(s.spawnIndex != null ? s.spawnIndex : i);
+  }
+  return used;
+}
+
+function nextFreeColor(room, excludeSlot) {
+  const used = getUsedColors(room, excludeSlot);
+  for (let c = 0; c < COLOR_COUNT; c++) {
+    if (!used.has(c)) return c;
+  }
+  return 0;
+}
+
+function nextFreeSpawn(room, excludeSlot) {
+  const used = getUsedSpawns(room, excludeSlot);
+  for (let s = 0; s < SLOTS; s++) {
+    if (!used.has(s)) return s;
+  }
+  return 0;
 }
 
 function slotSummary(room) {
@@ -156,7 +192,7 @@ io.on("connection", (socket) => {
     const roomId = "r_" + Math.random().toString(36).slice(2, 10);
     const room = getRoom(roomId);
     room.hostId = socket.id;
-    room.slots[0] = { id: socket.id, name, colorIndex: 0, isBot: false };
+    room.slots[0] = { id: socket.id, name, colorIndex: 0, isBot: false, spawnIndex: 0 };
     socket.join(roomId);
     socket.roomId = roomId;
     socket.slotIndex = 0;
@@ -208,7 +244,9 @@ io.on("connection", (socket) => {
 
     room.slots[slotIndex] = {
       id: socket.id, name,
-      colorIndex: slotIndex % COLOR_COUNT, isBot: false
+      colorIndex: nextFreeColor(room, slotIndex),
+      isBot: false,
+      spawnIndex: nextFreeSpawn(room, slotIndex)
     };
     if (!room.hostId) {
       room.hostId = socket.id;
@@ -235,12 +273,15 @@ io.on("connection", (socket) => {
     if (isBot) {
       room.slots[slotIndex] = {
         id: null, name: "Бот",
-        colorIndex: room.slots[slotIndex].colorIndex, isBot: true
+        colorIndex: nextFreeColor(room, slotIndex),
+        isBot: true,
+        spawnIndex: nextFreeSpawn(room, slotIndex)
       };
     } else {
       room.slots[slotIndex] = {
         id: null, name: null,
-        colorIndex: room.slots[slotIndex].colorIndex, isBot: false
+        colorIndex: room.slots[slotIndex].colorIndex, isBot: false,
+        spawnIndex: room.slots[slotIndex].spawnIndex
       };
     }
     io.to(roomId).emit("slots", slotSummary(room));
@@ -252,7 +293,23 @@ io.on("connection", (socket) => {
     const room = getRoom(roomId);
     const idx = room.slots.findIndex((s) => s.id === socket.id);
     if (idx < 0) return;
-    room.slots[idx].colorIndex = Math.max(0, Math.min(COLOR_COUNT - 1, colorIndex | 0));
+    const ci = Math.max(0, Math.min(COLOR_COUNT - 1, colorIndex | 0));
+    const used = getUsedColors(room, idx);
+    if (used.has(ci)) return;
+    room.slots[idx].colorIndex = ci;
+    io.to(roomId).emit("slots", slotSummary(room));
+  });
+
+  socket.on("setSlotColor", (slotIndex, colorIndex) => {
+    const roomId = socket.roomId;
+    if (!roomId) return;
+    const room = getRoom(roomId);
+    if (room.hostId !== socket.id) return;
+    if (slotIndex < 0 || slotIndex >= SLOTS) return;
+    const ci = Math.max(0, Math.min(COLOR_COUNT - 1, colorIndex | 0));
+    const used = getUsedColors(room, slotIndex);
+    if (used.has(ci)) return;
+    room.slots[slotIndex].colorIndex = ci;
     io.to(roomId).emit("slots", slotSummary(room));
   });
 
@@ -266,6 +323,19 @@ io.on("connection", (socket) => {
     const taken = room.slots.some((s, j) => j !== idx && s.spawnIndex === si && (s.id || s.isBot));
     if (taken) return;
     room.slots[idx].spawnIndex = si;
+    io.to(roomId).emit("slots", slotSummary(room));
+  });
+
+  socket.on("setSlotSpawn", (slotIndex, spawnIndex) => {
+    const roomId = socket.roomId;
+    if (!roomId) return;
+    const room = getRoom(roomId);
+    if (room.hostId !== socket.id) return;
+    if (slotIndex < 0 || slotIndex >= SLOTS) return;
+    const si = Math.max(0, Math.min(SLOTS - 1, spawnIndex | 0));
+    const taken = room.slots.some((s, j) => j !== slotIndex && s.spawnIndex === si && (s.id || s.isBot));
+    if (taken) return;
+    room.slots[slotIndex].spawnIndex = si;
     io.to(roomId).emit("slots", slotSummary(room));
   });
 
@@ -289,6 +359,8 @@ io.on("connection", (socket) => {
   socket.on("gameState", (data) => {
     const roomId = socket.roomId;
     if (!roomId) return;
+    const room = getRoom(roomId);
+    if (room.hostId !== socket.id) return;
     _gsLogCtr++;
     if (_gsLogCtr % 500 === 1) {
       const seq = data?._seq ?? "?";
@@ -347,7 +419,7 @@ httpServer.listen(PORT, "0.0.0.0", () => {
   const lanUrl = getServerLanUrl();
   const useTunnel = process.env.USE_TUNNEL === "1" || process.argv.includes("--tunnel");
 
-  console.log("Hoi2D lobby server: http://localhost:" + PORT);
+  console.log("VoidFront lobby server: http://localhost:" + PORT);
   if (lanUrl) console.log("  LAN: " + lanUrl);
 
   if (useTunnel) {
