@@ -57,6 +57,7 @@
       holdPoint: clonePoint(order.holdPoint),
       targetUnitId: order.targetUnitId,
       targetCityId: order.targetCityId,
+      targetPirateBase: !!order.targetPirateBase,
       mineId: order.mineId,
       angle: order.angle,
       suppressPathPreview: !!order.suppressPathPreview
@@ -146,12 +147,20 @@
       mode: c?.mode || "idle",
       zoneId: c?.zoneId ?? null,
       queuedOrder: cloneOrder(c?.queuedOrder),
-      resumeOrder: cloneOrder(c?.resumeOrder)
+      resumeOrder: cloneOrder(c?.resumeOrder),
+      focusTargetUnitId: c?.focusTargetUnitId,
+      combatTargetSquadId: c?.combatTargetSquadId ?? null,
+      _pendingResume: !!c?._pendingResume,
+      _disengageTimer: c?._disengageTimer ?? null,
+      lastContactAt: c?.lastContactAt ?? null
     };
   }
 
   function buildDefaultOrder(leader) {
     if (!leader) return { type: "idle", waypoints: [] };
+    if (leader._orderType === "attackPirateBase") {
+      return { type: "attackPirateBase", waypoints: cloneWaypoints(leader.waypoints), targetPirateBase: true, suppressPathPreview: true };
+    }
     if (leader.chaseTargetCityId != null) {
       return { type: "siege", waypoints: cloneWaypoints(leader.waypoints), targetCityId: leader.chaseTargetCityId, suppressPathPreview: true };
     }
@@ -348,6 +357,34 @@
     return squad.combat.mode !== "idle";
   }
 
+  function summarizeOrder(order) {
+    if (!order) return null;
+    return {
+      type: order.type || "idle",
+      targetUnitId: order.targetUnitId ?? null,
+      targetCityId: order.targetCityId ?? null,
+      mineId: order.mineId ?? null,
+      waypointCount: Array.isArray(order.waypoints) ? order.waypoints.length : 0,
+      holdPoint: clonePoint(order.holdPoint)
+    };
+  }
+
+  function getSquadDebugState(state, squadOrId) {
+    const sq = typeof squadOrId === "object" ? squadOrId : state.squads.get(squadOrId);
+    if (!sq) return null;
+    return {
+      squadId: sq.id,
+      ownerId: sq.ownerId,
+      mode: sq.combat.mode || "idle",
+      inCombat: sq.combat.mode !== "idle",
+      combatLocked: isOrderLocked(sq),
+      combatZoneId: sq.combat.zoneId ?? null,
+      queuedOrder: summarizeOrder(sq.combat.queuedOrder),
+      resumeOrder: summarizeOrder(sq.combat.resumeOrder),
+      combatTargetSquadId: sq.combat.combatTargetSquadId ?? null
+    };
+  }
+
   function queueIfLocked(state, squadId, order) {
     const sq = state.squads.get(squadId);
     if (!sq || !isOrderLocked(sq)) return null;
@@ -407,6 +444,14 @@
     return setSquadOrder(state, squadId, order);
   }
 
+  function issuePirateBaseOrder(state, squadId, waypoints) {
+    const order = { type: "attackPirateBase", targetPirateBase: true, waypoints: cloneWaypoints(waypoints), suppressPathPreview: true };
+    const queued = queueIfLocked(state, squadId, order);
+    if (queued) return queued;
+    clearCombatForSquad(state, squadId, false);
+    return setSquadOrder(state, squadId, order);
+  }
+
   function issueCaptureOrder(state, squadId, mineId, point, waypoints) {
     const wp = cloneWaypoints(waypoints != null ? waypoints : (point ? [point] : []));
     const order = { type: "capture", mineId, waypoints: wp, suppressPathPreview: false };
@@ -414,6 +459,14 @@
     if (queued) return queued;
     clearCombatForSquad(state, squadId, false);
     return setSquadOrder(state, squadId, order);
+  }
+
+  function setSquadFocusTarget(state, squadId, targetUnitId) {
+    const sq = state.squads.get(squadId);
+    if (!sq) return null;
+    sq.combat = normalizeCombat(sq.combat);
+    sq.combat.focusTargetUnitId = targetUnitId != null ? targetUnitId : undefined;
+    return sq;
   }
 
   function setSquadFormation(state, squadId, formationType, formationRows, formationWidth) {
@@ -572,10 +625,6 @@
       if (owners.size >= 2) hasConflict = true;
 
       if (!hasConflict) {
-        for (const sid of alive) {
-          const sq = state.squads.get(sid);
-          if (sq && sq.combat.mode !== "idle") exitCombat(state, sq);
-        }
         state.engagementZones.delete(zone.id);
         continue;
       }
@@ -738,7 +787,7 @@
 
   // ─── Combat Mode Transitions ──────────────────────────────────────
 
-  function updateSquadCombatState(state, squad, helpers) {
+  function updateSingleSquadCombatState(state, squad, helpers) {
     const units = getSquadUnits(state, squad);
     if (!units.length) return;
     const leader = getLeader(state, squad);
@@ -764,6 +813,7 @@
       }
 
       squad.combat._disengageTimer = null;
+      squad.combat._pendingResume = false;
       return;
     }
 
@@ -772,7 +822,7 @@
         squad.combat._disengageTimer = state.t + config.disengageDelay;
       }
       if (state.t >= squad.combat._disengageTimer) {
-        exitCombat(state, squad);
+        queueCombatExit(state, squad);
       }
       return;
     }
@@ -780,6 +830,15 @@
     squad.combat.mode = "idle";
     squad.combat.zoneId = null;
     squad.combat._disengageTimer = null;
+    squad.combat.combatTargetSquadId = null;
+    squad.combat._pendingResume = false;
+  }
+
+  function updateSquadCombatState(state, helpers) {
+    ensureRuntime(state);
+    for (const sq of state.squads.values()) {
+      updateSingleSquadCombatState(state, sq, helpers);
+    }
   }
 
   function findZoneForSquad(state, squadId) {
@@ -789,12 +848,17 @@
     return null;
   }
 
-  function exitCombat(state, squad) {
+  function queueCombatExit(state, squad) {
     squad.combat.mode = "idle";
     squad.combat.zoneId = null;
     squad.combat._disengageTimer = null;
+    squad.combat.focusTargetUnitId = undefined;
+    squad.combat.combatTargetSquadId = null;
+    squad.combat._pendingResume = true;
     squad._zoneImmunityUntil = state.t + 3;
+  }
 
+  function exitCombat(state, squad) {
     if (squad.combat.queuedOrder) {
       squad.order = cloneOrder(squad.combat.queuedOrder);
       squad.combat.queuedOrder = null;
@@ -809,6 +873,7 @@
 
     squad.formation.dirty = true;
     squad.formation.dirtyAt = state.t ?? 0;
+    squad.combat._pendingResume = false;
     applyCompatibility(state, squad);
 
     for (const u of getSquadUnits(state, squad)) {
@@ -816,7 +881,72 @@
       u._currentTargetId = undefined;
       u._squadCombatPhase = null;
       u._engagementZoneId = null;
+      u._engagementAnchorX = undefined;
+      u._engagementAnchorY = undefined;
     }
+  }
+
+  function getEnemySquadCandidates(state, squad, zone) {
+    if (!zone) return [];
+    const out = [];
+    for (const sid of zone.squadIds) {
+      const other = state.squads.get(sid);
+      if (!other || other.ownerId === squad.ownerId) continue;
+      if (!getSquadUnits(state, other).length) continue;
+      out.push(other);
+    }
+    return out;
+  }
+
+  function selectCombatTargetSquadId(state, squad, zone) {
+    if (!zone) return null;
+    const candidates = getEnemySquadCandidates(state, squad, zone);
+    if (!candidates.length) return null;
+
+    const focusTarget = squad.combat?.focusTargetUnitId != null ? state.units.get(squad.combat.focusTargetUnitId) : null;
+    if (focusTarget && focusTarget.hp > 0 && focusTarget.owner !== squad.ownerId && focusTarget.squadId != null) {
+      if (candidates.some((other) => other.id === focusTarget.squadId)) return focusTarget.squadId;
+    }
+
+    if (squad.combat?.combatTargetSquadId != null) {
+      const current = state.squads.get(squad.combat.combatTargetSquadId);
+      if (current && current.ownerId !== squad.ownerId && zone.squadIds.includes(current.id) && getSquadUnits(state, current).length > 0) {
+        return current.id;
+      }
+    }
+
+    const center = getSquadCenter(state, squad);
+    let best = null;
+    let bestDist = Infinity;
+    for (const other of candidates) {
+      const otherCenter = getSquadCenter(state, other);
+      const dist = d(center.x, center.y, otherCenter.x, otherCenter.y);
+      if (dist < bestDist || (Math.abs(dist - bestDist) < 0.001 && other.id < (best?.id ?? Infinity))) {
+        best = other;
+        bestDist = dist;
+      }
+    }
+    return best ? best.id : null;
+  }
+
+  function getEnemyBuckets(state, squad, zone) {
+    if (!zone) {
+      if (squad.order.type === "attackUnit") {
+        const t = getUnit(state, squad.order.targetUnitId);
+        return { primary: t && t.hp > 0 ? [t] : [], secondary: [] };
+      }
+      return { primary: [], secondary: [] };
+    }
+    const primary = [];
+    const secondary = [];
+    const preferredSquadId = squad.combat?.combatTargetSquadId ?? null;
+    for (const sid of zone.squadIds) {
+      const other = state.squads.get(sid);
+      if (!other || other.ownerId === squad.ownerId) continue;
+      const bucket = preferredSquadId != null && sid !== preferredSquadId ? secondary : primary;
+      bucket.push(...getSquadUnits(state, other));
+    }
+    return { primary, secondary };
   }
 
   // ─── Anchor & Order Resolution ────────────────────────────────────
@@ -894,6 +1024,24 @@
         desY = city.y + (dy / len) * stopR;
         desFacing = Math.atan2(city.y - center.y, city.x - center.x);
       }
+    } else if (order.type === "attackPirateBase") {
+      const pirateBase = state.pirateBase && state.pirateBase.hp > 0 ? state.pirateBase : null;
+      if (!pirateBase) {
+        squad.order = { type: "idle", waypoints: [] };
+      } else if (order.waypoints && order.waypoints.length > 0) {
+        const wp = order.waypoints[0];
+        desX = wp.x; desY = wp.y;
+        desFacing = Math.atan2(wp.y - center.y, wp.x - center.x);
+        if (d(center.x, center.y, wp.x, wp.y) <= config.waypointReachRadius) order.waypoints.shift();
+      } else {
+        const avgR = getAvgAttackRange(units, helpers);
+        const stopR = Math.max(52, avgR * 0.85);
+        const dx = center.x - pirateBase.x, dy = center.y - pirateBase.y;
+        const len = Math.hypot(dx, dy) || 1;
+        desX = pirateBase.x + (dx / len) * stopR;
+        desY = pirateBase.y + (dy / len) * stopR;
+        desFacing = Math.atan2(pirateBase.y - center.y, pirateBase.x - center.x);
+      }
     } else if (order.holdPoint) {
       desX = order.holdPoint.x; desY = order.holdPoint.y;
     }
@@ -937,17 +1085,22 @@
     // ── Engaged mode: FREE CHASE to nearest enemy ──
     if (sq.combat.mode === "engaged") {
       const zone = sq.combat.zoneId != null ? state.engagementZones.get(sq.combat.zoneId) : null;
-      const enemies = getEnemiesInZone(state, sq, zone);
+      const enemyBuckets = getEnemyBuckets(state, sq, zone);
 
       let targetPos = null;
       if (typeof COMBAT !== "undefined" && COMBAT.pickTarget) {
-        const target = COMBAT.pickTarget(u, enemies, state);
+        let target = enemyBuckets.primary.length ? COMBAT.pickTarget(u, enemyBuckets.primary, state) : null;
+        if (!target && enemyBuckets.secondary.length) target = COMBAT.pickTarget(u, enemyBuckets.secondary, state);
         if (target) targetPos = { x: target.x, y: target.y };
       } else {
         let best = null, bestD = Infinity;
-        for (const e of enemies) {
-          const dd = d(u.x, u.y, e.x, e.y);
-          if (dd < bestD) { bestD = dd; best = e; }
+        const groups = [enemyBuckets.primary, enemyBuckets.secondary];
+        for (const group of groups) {
+          for (const e of group) {
+            const dd = d(u.x, u.y, e.x, e.y);
+            if (dd < bestD) { bestD = dd; best = e; }
+          }
+          if (best) break;
         }
         if (best) {
           u._currentTargetId = best.id;
@@ -965,17 +1118,19 @@
     }
 
     // ── Siege circle formation around target ──
-    if (sq.order.type === "siege" && sq.order.waypoints && sq.order.waypoints.length === 0) {
+    if ((sq.order.type === "siege" || sq.order.type === "attackPirateBase") && sq.order.waypoints && sq.order.waypoints.length === 0) {
+      const pirateBase = sq.order.type === "attackPirateBase" ? (state.pirateBase && state.pirateBase.hp > 0 ? state.pirateBase : null) : null;
       const city = sq.order.targetCityId != null ? state.players.get(sq.order.targetCityId) : null;
-      if (city && !city.eliminated) {
+      const target = pirateBase || (city && !city.eliminated ? city : null);
+      if (target) {
         const units = getSquadUnits(state, sq);
         const avgR = getAvgAttackRange(units, helpers);
-        const shR = helpers.shieldRadius ? helpers.shieldRadius(city) : 0;
+        const shR = pirateBase ? 44 : (helpers.shieldRadius ? helpers.shieldRadius(city) : 0);
         const circleR = Math.max(shR + 8, avgR * 0.85);
         const idx = units.indexOf(u);
         const angle = (idx / units.length) * Math.PI * 2;
-        const tx = city.x + Math.cos(angle) * circleR;
-        const ty = city.y + Math.sin(angle) * circleR;
+        const tx = target.x + Math.cos(angle) * circleR;
+        const ty = target.y + Math.sin(angle) * circleR;
         return { tx, ty, moveMode: "squad_anchor" };
       }
     }
@@ -1014,20 +1169,8 @@
   // ─── Fire Plan ────────────────────────────────────────────────────
 
   function getEnemiesInZone(state, squad, zone) {
-    if (!zone) {
-      if (squad.order.type === "attackUnit") {
-        const t = getUnit(state, squad.order.targetUnitId);
-        return t && t.hp > 0 ? [t] : [];
-      }
-      return [];
-    }
-    const out = [];
-    for (const sid of zone.squadIds) {
-      const other = state.squads.get(sid);
-      if (!other || other.ownerId === squad.ownerId) continue;
-      out.push(...getSquadUnits(state, other));
-    }
-    return out;
+    const buckets = getEnemyBuckets(state, squad, zone);
+    return buckets.primary.concat(buckets.secondary);
   }
 
   function chooseLocalTarget(u, state, helpers) {
@@ -1035,16 +1178,29 @@
     if (!sq) return null;
     const range = helpers.getUnitAtkRange ? helpers.getUnitAtkRange(u) : (u.attackRange || 60);
     const zone = sq.combat.zoneId != null ? state.engagementZones.get(sq.combat.zoneId) : null;
-    const enemies = getEnemiesInZone(state, sq, zone);
+    const enemyBuckets = getEnemyBuckets(state, sq, zone);
+    const focusTarget = sq.combat && sq.combat.focusTargetUnitId != null ? state.units.get(sq.combat.focusTargetUnitId) : null;
+
+    if (focusTarget && focusTarget.hp > 0 && focusTarget.owner !== u.owner && d(u.x, u.y, focusTarget.x, focusTarget.y) <= range) {
+      u._localTargetId = focusTarget.id;
+      return focusTarget;
+    }
+    if (sq.combat && sq.combat.focusTargetUnitId != null && (!focusTarget || focusTarget.hp <= 0 || focusTarget.owner === u.owner)) {
+      sq.combat.focusTargetUnitId = undefined;
+    }
 
     const cur = u._localTargetId != null ? state.units.get(u._localTargetId) : null;
     if (cur && cur.hp > 0 && d(u.x, u.y, cur.x, cur.y) <= range) return cur;
 
     let best = null, bestD = Infinity;
-    for (const e of enemies) {
-      if (e.hp <= 0) continue;
-      const dd = d(u.x, u.y, e.x, e.y);
-      if (dd <= range && dd < bestD) { bestD = dd; best = e; }
+    const groups = [enemyBuckets.primary, enemyBuckets.secondary];
+    for (const group of groups) {
+      for (const e of group) {
+        if (e.hp <= 0) continue;
+        const dd = d(u.x, u.y, e.x, e.y);
+        if (dd <= range && dd < bestD) { bestD = dd; best = e; }
+      }
+      if (best) break;
     }
 
     u._localTargetId = best ? best.id : undefined;
@@ -1086,7 +1242,11 @@
       const city = state.players.get(sq.order.targetCityId);
       if (city && !city.eliminated) {
         const pR = helpers.getPlanetRadius ? helpers.getPlanetRadius(city) : 0;
-        if (d(u.x, u.y, city.x, city.y) <= pR * 2.5) {
+        const shR = helpers.shieldRadius ? helpers.shieldRadius(city) : 0;
+        // Keep siege fire valid after shield collapse. Squads often hold near range,
+        // which can be farther than the old fixed city-center threshold.
+        const cityAttackRadius = Math.max(pR * 2.5, shR + 8, range * 0.95);
+        if (d(u.x, u.y, city.x, city.y) <= cityAttackRadius) {
           u._currentTargetId = undefined;
           return { type: "city", city };
         }
@@ -1147,7 +1307,7 @@
 
       if (squad.combat.mode === "engaged") u._combatState = "attack";
       else if (squad.combat.mode === "approach") u._combatState = "chase";
-      else if (squad.order.type === "siege") u._combatState = "move";
+      else if (squad.order.type === "siege" || squad.order.type === "attackPirateBase") u._combatState = "move";
       else if (squad.order.type === "attackUnit") u._combatState = "chase";
       else if (squad.order.type === "move" || squad.order.type === "capture") u._combatState = "move";
       else u._combatState = "idle";
@@ -1157,6 +1317,38 @@
     if (leader) {
       leader._squadCombatPhase = phase;
       leader._engagedEnemyIds = engagedEnemyIds.size ? engagedEnemyIds : null;
+      leader._combatTargetSquadId = squad.combat.combatTargetSquadId ?? null;
+    }
+  }
+
+  function finalizeSquadState(state, squad, dt, helpers) {
+    cacheSquadSpeed(state, squad, helpers);
+    if (squad.combat.mode !== "idle") {
+      const zone = squad.combat.zoneId != null ? state.engagementZones.get(squad.combat.zoneId) : null;
+      squad.combat.combatTargetSquadId = selectCombatTargetSquadId(state, squad, zone);
+    } else {
+      squad.combat.combatTargetSquadId = null;
+    }
+    lerpFacing(state, squad, dt);
+    updateOrderAnchors(state, squad, helpers);
+    recalculateFormation(state, squad.id, helpers, false);
+    applyCompatibility(state, squad);
+    writeCompatFields(state, squad);
+  }
+
+  function updateCombat(state, dt, helpers) {
+    ensureRuntime(state);
+    for (const sq of state.squads.values()) {
+      finalizeSquadState(state, sq, dt, helpers);
+    }
+  }
+
+  function updateResumeOrders(state, dt, helpers) {
+    ensureRuntime(state);
+    for (const sq of state.squads.values()) {
+      if (!sq.combat?._pendingResume) continue;
+      exitCombat(state, sq);
+      finalizeSquadState(state, sq, dt, helpers);
     }
   }
 
@@ -1196,8 +1388,6 @@
     } else {
       squad.formation.facing = cur + Math.sign(delta) * step;
     }
-    squad.formation.dirty = true;
-    squad.formation.dirtyAt = state.t ?? 0;
   }
 
   // ─── Main Step ────────────────────────────────────────────────────
@@ -1206,18 +1396,9 @@
     ensureRuntime(state);
     syncSquadsFromState(state);
     buildEngagementZones(state, helpers);
-
-    for (const sq of state.squads.values()) {
-      cacheSquadSpeed(state, sq, helpers);
-      updateSquadCombatState(state, sq, helpers);
-    }
-    for (const sq of state.squads.values()) {
-      lerpFacing(state, sq, dt);
-      updateOrderAnchors(state, sq, helpers);
-      recalculateFormation(state, sq.id, helpers, false);
-      applyCompatibility(state, sq);
-      writeCompatFields(state, sq);
-    }
+    updateSquadCombatState(state, helpers);
+    updateCombat(state, dt, helpers);
+    updateResumeOrders(state, dt, helpers);
   }
 
   // ─── Public API ───────────────────────────────────────────────────
@@ -1242,10 +1423,17 @@
     issueMoveOrder,
     issueAttackUnitOrder,
     issueSiegeOrder,
+    issuePirateBaseOrder,
     issueCaptureOrder,
+    setSquadFocusTarget,
+    isOrderLocked,
     clearCombatForSquad,
     mergeSquads,
     splitSquadByType,
+    buildEngagementZones,
+    updateSquadCombatState,
+    updateCombat,
+    updateResumeOrders,
     step,
     getSquadEngagementRadius,
     getZoneJoinRadius,
@@ -1255,7 +1443,8 @@
     recordDamageSource,
     cloneOrder,
     getSquadSpeed,
-    cacheSquadSpeed
+    cacheSquadSpeed,
+    getSquadDebugState
   };
 
   if (typeof window !== "undefined") window.SQUADLOGIC = api;

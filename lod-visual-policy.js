@@ -19,9 +19,9 @@
 
   const DETAIL_TABLE = {
     zone: {
-      far:  { innerRings: 1, radialMarkers: false, sensorNodes: false, dashEdge: true,  fillAlpha: 0.10, edgeWidth: 1.5 },
-      mid:  { innerRings: 2, radialMarkers: true,  sensorNodes: false, dashEdge: true,  fillAlpha: 0.14, edgeWidth: 2.0 },
-      near: { innerRings: 3, radialMarkers: true,  sensorNodes: true,  dashEdge: true,  fillAlpha: 0.16, edgeWidth: 2.5 },
+      far:  { innerRings: 0, radialMarkers: false, sensorNodes: false, dashEdge: true,  fillAlpha: 0.010, edgeWidth: 1.15 },
+      mid:  { innerRings: 1, radialMarkers: false, sensorNodes: false, dashEdge: true,  fillAlpha: 0.012, edgeWidth: 1.30 },
+      near: { innerRings: 2, radialMarkers: true,  sensorNodes: true,  dashEdge: true,  fillAlpha: 0.015, edgeWidth: 1.45 },
     },
     ship: {
       far:  { fullShape: false, glow: false, trails: false, hitRadius: true  },
@@ -49,9 +49,9 @@
       near: { core: true,  rings: 2, glow: true,  label: true  },
     },
     patrol: {
-      far:  { shape: false, trail: false },
-      mid:  { shape: true,  trail: false },
-      near: { shape: true,  trail: true  },
+      far:  { shape: true,  trail: false, sizeMul: 0.95 },
+      mid:  { shape: true,  trail: false, sizeMul: 1.05 },
+      near: { shape: true,  trail: true,  sizeMul: 1.20 },
     },
   };
 

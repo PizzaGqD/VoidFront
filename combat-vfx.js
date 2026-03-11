@@ -17,6 +17,8 @@
   function drawBullet(g, b, zoom, now) {
     var detail = LOD.getDetail("bullet", zoom || 0.22);
     var palette = FACTION_VIS.getFactionPalette(b.color || 0xffaa44);
+    var coreCol = palette.core;
+    var solidCol = palette.solid;
 
     if (b.type === "laser") {
       var t = Math.min(1, b.progress || 0);
@@ -30,43 +32,53 @@
 
       if (detail.glow) {
         g.moveTo(b.fromX, b.fromY); g.lineTo(tipX, tipY);
-        g.stroke({ color: col, width: big ? 16 : 10, alpha: 0.08 * fade });
+        g.stroke({ color: col, width: big ? 9 : 6, alpha: 0.055 * fade });
       }
       g.moveTo(b.fromX, b.fromY); g.lineTo(tipX, tipY);
-      g.stroke({ color: col, width: big ? 4 : 2.5, alpha: 0.75 * fade });
+      g.stroke({ color: col, width: big ? 2.8 : 1.8, alpha: 0.72 * fade });
       g.moveTo(b.fromX, b.fromY); g.lineTo(tipX, tipY);
-      g.stroke({ color: 0xffffff, width: big ? 1.5 : 0.8, alpha: 0.8 * fade });
+      g.stroke({ color: 0xffffff, width: big ? 0.95 : 0.55, alpha: 0.72 * fade });
 
       if (detail.hitFlash) {
-        g.circle(tipX, tipY, big ? 3 : 2);
-        g.fill({ color: 0xffffff, alpha: 0.6 * fade });
+        if (detail.glow) {
+          g.circle(tipX, tipY, big ? 8 : 5);
+          g.fill({ color: col, alpha: 0.08 * fade });
+        }
+        g.circle(tipX, tipY, big ? 2.2 : 1.5);
+        g.fill({ color: 0xffffff, alpha: 0.52 * fade });
       }
 
     } else if (b.type === "ranged") {
       var dx = b.toX - b.fromX, dy = b.toY - b.fromY;
       var dl = Math.hypot(dx, dy) || 1;
-      var tx = -(dx / dl) * 5, ty = -(dy / dl) * 5;
-      var bCol = palette.core;
+      var ux = dx / dl, uy = dy / dl;
+      var tailLen = b.big ? 13 : (b.aoe ? 10 : 8);
+      var tailX = b.x - ux * tailLen;
+      var tailY = b.y - uy * tailLen;
+      var pulse = 0.72 + 0.28 * Math.sin(now / 160 + (b.x || 0) * 0.03);
 
       if (b.aoe) {
         var borderFade = b._fadeAlpha != null ? b._fadeAlpha : 1;
-        // Thin tracer line
-        g.moveTo(b.x, b.y); g.lineTo(b.x + tx * 2.5, b.y + ty * 2.5);
-        g.stroke({ color: bCol, width: 1.5, alpha: 0.55 * borderFade });
-        // Bright tip
-        g.circle(b.x, b.y, 2.0);
-        g.fill({ color: bCol, alpha: 0.85 * borderFade });
+        g.moveTo(tailX, tailY); g.lineTo(b.x, b.y);
+        g.stroke({ color: coreCol, width: 1.4, alpha: 0.44 * borderFade });
+        g.moveTo(tailX + ux * 2.5, tailY + uy * 2.5); g.lineTo(b.x, b.y);
+        g.stroke({ color: 0xffffff, width: 0.55, alpha: 0.38 * borderFade });
+        g.circle(b.x, b.y, 1.9);
+        g.fill({ color: solidCol, alpha: 0.80 * borderFade });
+        if (detail.hitFlash) {
+          g.circle(b.x, b.y, 4.8);
+          g.fill({ color: coreCol, alpha: 0.06 * borderFade });
+        }
       } else {
-        var bPulse = 0.75 + 0.25 * Math.sin(now / 120 + (b.x || 0) * 0.1);
-        // Trail line
-        g.moveTo(b.x, b.y); g.lineTo(b.x + tx, b.y + ty);
-        g.stroke({ color: bCol, width: 1.8, alpha: 0.7 * bPulse });
-        // Bright head
-        g.circle(b.x, b.y, b.big ? 3 : 2);
-        g.fill({ color: bCol, alpha: 0.9 });
+        g.moveTo(tailX, tailY); g.lineTo(b.x, b.y);
+        g.stroke({ color: coreCol, width: b.big ? 2.0 : 1.35, alpha: 0.58 * pulse });
+        g.moveTo(tailX + ux * 3, tailY + uy * 3); g.lineTo(b.x, b.y);
+        g.stroke({ color: 0xffffff, width: 0.62, alpha: 0.46 * pulse });
+        g.circle(b.x, b.y, b.big ? 2.4 : 1.8);
+        g.fill({ color: solidCol, alpha: 0.84 });
         if (detail.glow) {
-          g.circle(b.x, b.y, 5);
-          g.fill({ color: bCol, alpha: 0.08 * bPulse });
+          g.circle(b.x, b.y, b.big ? 6.5 : 4.5);
+          g.fill({ color: coreCol, alpha: 0.06 * pulse });
         }
       }
 

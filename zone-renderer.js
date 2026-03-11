@@ -10,10 +10,10 @@
 
   function zoneShapeHash(p) {
     const r = p.influenceRayDistances;
-    if (!r || r.length === 0) return 0;
-    let h = 0;
+    if (!r || r.length === 0) return -1;
+    let h = 1;
     for (let i = 0; i < r.length; i += 4) h = (h * 31 + (r[i] | 0)) >>> 0;
-    return h;
+    return h || 1;
   }
 
   function smoothedPoly(pts) {
@@ -114,33 +114,43 @@
     var poly = p.influencePolygon;
     if (!poly || poly.length < 3) return;
 
-    var hash = zoneShapeHash(p);
-    if (p._lastZoneHash === hash) return;
-    p._lastZoneHash = hash;
+    var zoom = cfg.zoom || 0.22;
+    var detail = LOD.getDetail("zone", zoom);
+    var shapeHash = zoneShapeHash(p);
+    var renderKey = [
+      shapeHash,
+      LOD.getLevel(zoom),
+      p.color || 0,
+      cfg.INFLUENCE_ARMY_MARGIN || 40
+    ].join(":");
+    if (p._lastZoneHash === shapeHash && p._lastZoneRenderKey === renderKey) return;
+    p._lastZoneHash = shapeHash;
+    p._lastZoneRenderKey = renderKey;
 
     p.zoneGfx.clear();
     p.zoneGlow.clear();
 
     var smoothPoly = smoothedPoly(poly);
     var palette = FACTION_VIS.getFactionPalette(p.color);
-    var zoom = cfg.zoom || 0.22;
-    var detail = LOD.getDetail("zone", zoom);
     var margin = cfg.INFLUENCE_ARMY_MARGIN || 40;
+    var pxToWorld = 1 / Math.max(zoom, 0.08);
 
-    // --- 1. Soft translucent fill ---
-    p.zoneGfx.beginFill(palette.soft, detail.fillAlpha);
+    // --- 1. Soft translucent fill (always light — almost invisible tint) ---
+    var fillAlpha = detail.fillAlpha != null ? detail.fillAlpha : 0.012;
+    p.zoneGfx.beginFill(palette.soft, fillAlpha);
     drawSmoothClosed(p.zoneGfx, smoothPoly);
     p.zoneGfx.endFill();
 
-    // secondary core tint fill (very subtle)
-    p.zoneGfx.beginFill(palette.core, detail.fillAlpha * 0.35);
+    // --- 1b. Readable outer coverage band for the turret edge area ---
+    p.zoneGfx.lineStyle(16 * pxToWorld, palette.core, 0.020);
     drawSmoothClosed(p.zoneGfx, smoothPoly);
-    p.zoneGfx.endFill();
+    p.zoneGfx.lineStyle(9 * pxToWorld, palette.edge, 0.030);
+    drawSmoothClosed(p.zoneGfx, smoothPoly);
 
     // --- 2. Inner rings ---
     var ringScales = [0.70, 0.85, 0.93];
-    var ringAlphas = [0.12, 0.18, 0.22];
-    var ringWidths = [1.0, 1.2, 1.5];
+    var ringAlphas = [0.018, 0.028, 0.040];
+    var ringWidths = [0.30 * pxToWorld, 0.42 * pxToWorld, 0.56 * pxToWorld];
     var ringCount = Math.min(detail.innerRings, ringScales.length);
     for (var ri = 0; ri < ringCount; ri++) {
       var ringPoly = scaledPoly(smoothPoly, p.x, p.y, ringScales[ri]);
@@ -151,13 +161,13 @@
     // --- 3. Radial markers (short tick lines on inner rings) ---
     if (detail.radialMarkers && ringCount >= 2) {
       var markerRing = scaledPoly(smoothPoly, p.x, p.y, ringScales[ringCount - 1]);
-      var markerStep = Math.max(4, Math.floor(markerRing.length / 24));
-      p.zoneGfx.lineStyle(1.0, palette.edge, 0.20);
+      var markerStep = Math.max(6, Math.floor(markerRing.length / 16));
+      p.zoneGfx.lineStyle(0.34 * pxToWorld, palette.edge, 0.055);
       for (var mi = 0; mi < markerRing.length; mi += markerStep) {
         var mp = markerRing[mi];
         var dx = mp.x - p.x, dy = mp.y - p.y;
         var dl = Math.hypot(dx, dy) || 1;
-        var tickLen = 6 + dl * 0.02;
+        var tickLen = 4.5 * pxToWorld;
         var nx = dx / dl, ny = dy / dl;
         p.zoneGfx.moveTo(mp.x - nx * tickLen, mp.y - ny * tickLen);
         p.zoneGfx.lineTo(mp.x + nx * tickLen, mp.y + ny * tickLen);
@@ -165,12 +175,12 @@
     }
 
     // --- 4. Segmented outer edge (dashed) ---
-    drawDashedClosed(p.zoneGfx, smoothPoly, 14, 8, detail.edgeWidth, palette.core, 0.55);
+    drawDashedClosed(p.zoneGfx, smoothPoly, 9 * pxToWorld, 7 * pxToWorld, detail.edgeWidth * pxToWorld, palette.core, 0.20);
 
     // --- 5. Sensor nodes along outer edge ---
     if (detail.sensorNodes) {
       var perim = polyPerimeter(smoothPoly);
-      var nodeSpacing = Math.max(40, Math.min(80, perim / 40));
+      var nodeSpacing = Math.max(90, Math.min(160, perim / 14));
       var nodeCount = Math.max(4, Math.floor(perim / nodeSpacing));
       var stepPts = Math.max(1, Math.floor(smoothPoly.length / nodeCount));
       for (var si = 0; si < smoothPoly.length; si += stepPts) {
@@ -178,10 +188,10 @@
         var sdx = sp.x - p.x, sdy = sp.y - p.y;
         var sdl = Math.hypot(sdx, sdy) || 1;
         // small diamond
-        var ns = 3.5;
+        var ns = 1.35 * pxToWorld;
         var nnx = sdx / sdl, nny = sdy / sdl;
         var perpx = -nny, perpy = nnx;
-        p.zoneGfx.beginFill(palette.core, 0.45);
+        p.zoneGfx.beginFill(palette.core, 0.10);
         p.zoneGfx.moveTo(sp.x + nnx * ns, sp.y + nny * ns);
         p.zoneGfx.lineTo(sp.x + perpx * ns * 0.6, sp.y + perpy * ns * 0.6);
         p.zoneGfx.lineTo(sp.x - nnx * ns, sp.y - nny * ns);
@@ -192,7 +202,7 @@
     }
 
     // --- 6. Outer glow (subtle) ---
-    p.zoneGlow.lineStyle(10, palette.glow || palette.core, 0.06);
+    p.zoneGlow.lineStyle(2.2 * pxToWorld, palette.glow || palette.core, 0.015);
     drawSmoothClosed(p.zoneGlow, smoothPoly);
 
     // --- 7. Inner defense margin ring ---
@@ -205,11 +215,8 @@
       innerPoly.push({ x: p.x + Math.cos(angle) * d, y: p.y + Math.sin(angle) * d });
     }
     var smoothInner = smoothedPoly(innerPoly);
-    if (smoothInner.length >= 3 && margin > 0) {
-      p.zoneGfx.beginFill(palette.core, 0.04);
-      drawSmoothClosed(p.zoneGfx, smoothInner);
-      p.zoneGfx.endFill();
-      drawDashedClosed(p.zoneGfx, smoothInner, 8, 6, 1.5, palette.edge, 0.30);
+    if (smoothInner.length >= 3 && margin > 0 && detail.sensorNodes) {
+      drawDashedClosed(p.zoneGfx, smoothInner, 7 * pxToWorld, 8 * pxToWorld, 0.44 * pxToWorld, palette.edge, 0.06);
     }
   }
 

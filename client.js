@@ -210,24 +210,21 @@
     }
   }
 
-  // Music Player — 4 unique tracks, random start, progress bar with seek
+  // Music Player — single existing track, progress bar with seek
   const MusicPlayer = (() => {
     const audio = document.getElementById("bgMusic");
     if (!audio) return null;
     const tracks = [
-      { file: "assets/Celestial%20Archive%20of%20the%20First%20Dawn.mp3", name: "Celestial Archive of the First Dawn" },
-      { file: "assets/Celestial%20Archive%20of%20the%20First%20Dawn%20(1).mp3", name: "Celestial Archive II" },
-      { file: "assets/Gravitational%20Echoes.mp3", name: "Gravitational Echoes" },
-      { file: "assets/Gravitational%20Hush.mp3", name: "Gravitational Hush" }
+      { file: "assets/Gravitational%20Echoes.mp3", name: "Gravitational Echoes" }
     ];
-    let idx = Math.floor(Math.random() * tracks.length);
+    let idx = 0;
     let started = false;
     let seeking = false;
     let userUnlocked = false;
     let pendingPlay = false;
     let trackErrorRecovering = false;
     audio.volume = 0.35;
-    audio.loop = false;
+    audio.loop = true;
     audio.autoplay = true;
     audio.muted = true;
 
@@ -294,8 +291,8 @@
       syncButtonsPlaying(false);
     }
     function toggle() { audio.paused ? play() : pause(); }
-    function next() { pendingPlay = true; loadTrack(idx + 1); attemptPlay(); }
-    function prev() { pendingPlay = true; loadTrack(idx - 1); attemptPlay(); }
+    function next() { pendingPlay = true; loadTrack(0); attemptPlay(); }
+    function prev() { pendingPlay = true; loadTrack(0); attemptPlay(); }
 
     let lastEndedAt = 0;
     audio.addEventListener("ended", () => {
@@ -305,7 +302,8 @@
       if (dur > 0 && cur < dur * 0.95) return;
       if (now - lastEndedAt < 500) return;
       lastEndedAt = now;
-      next();
+      audio.currentTime = 0;
+      if (pendingPlay) attemptPlay();
     });
     audio.addEventListener("canplay", () => { errorCount = 0; attemptPlay(); });
     let errorCount = 0;
@@ -318,7 +316,8 @@
       }
       trackErrorRecovering = true;
       setTimeout(() => {
-        next();
+        loadTrack(0);
+        attemptPlay();
         trackErrorRecovering = false;
       }, 1000);
     });
@@ -564,10 +563,10 @@
     NEBULA_DISCHARGE_SEGS: nebulaB.dischargeSegments ?? 5,
 
     BLACKHOLE_COOLDOWN: bhB.cooldown ?? 180,
-    BLACKHOLE_DURATION: bhB.duration ?? 17,
+    BLACKHOLE_DURATION: bhB.duration ?? 10,
     BLACKHOLE_RADIUS: bhB.radius ?? 400,
     BLACKHOLE_GROWTH_TIME: bhB.growthTime ?? 3,
-    BLACKHOLE_HOLD_TIME: bhB.holdTime ?? 10,
+    BLACKHOLE_HOLD_TIME: (bhB.holdTime ?? 10) + 5,
     BLACKHOLE_FADE_TIME: bhB.fadeTime ?? 4,
     BLACKHOLE_MIN_DPS: bhB.minDamagePerSec ?? 1,
     BLACKHOLE_MAX_DPS: bhB.maxDamagePerSec ?? 10,
@@ -655,6 +654,26 @@
     if (typeof SQUADLOGIC === "undefined" || !SQUADLOGIC.syncSquadsFromState) return null;
     SQUADLOGIC.syncSquadsFromState(state);
     return squad[0].squadId != null ? state.squads.get(squad[0].squadId) : null;
+  }
+
+  function requireSquadLogic(context) {
+    if (typeof SQUADLOGIC === "undefined") {
+      throw new Error(`[SQUADLOGIC] Missing in ${context}`);
+    }
+    return SQUADLOGIC;
+  }
+
+  function getAuthoritativeSquadStateForUnit(u) {
+    if (!u || u.squadId == null || !state.squads) return null;
+    return state.squads.get(u.squadId) || null;
+  }
+
+  function isAuthoritativeSquadInCombat(squadState) {
+    return !!(squadState && squadState.combat && squadState.combat.mode && squadState.combat.mode !== "idle");
+  }
+
+  function isUnitInAuthoritativeCombat(u) {
+    return isAuthoritativeSquadInCombat(getAuthoritativeSquadStateForUnit(u));
   }
 
   function applyFormationToSquad(squad, formationType, formationRows, dirX, dirY, formationPigWidth) {
@@ -1093,20 +1112,59 @@
   // ------------------------------------------------------------
   // Pixi App
   // ------------------------------------------------------------
-	const app = new PIXI.Application();
+  const LOW_GPU_MODE = !!(
+    (typeof navigator !== "undefined" && navigator.deviceMemory && navigator.deviceMemory <= 4) ||
+    (typeof navigator !== "undefined" && navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4)
+  );
+  const DISABLE_PIXI_FILTERS = true;
 
-	await app.init({
-	  resizeTo: window,
-	  antialias: true,
-	  background: 0x070a12
-	});
+  function showRendererInitError(err) {
+    console.error("[PIXI] Renderer init failed:", err);
+    let box = document.getElementById("rendererInitError");
+    if (box) return;
+    box = document.createElement("div");
+    box.id = "rendererInitError";
+    box.style.cssText = "position:fixed;inset:0;z-index:10000;display:flex;align-items:center;justify-content:center;background:#050814;color:#dbe9ff;font-family:Inter,system-ui,sans-serif;padding:24px;text-align:center;";
+    box.innerHTML =
+      "<div style=\"max-width:640px;background:rgba(7,12,26,0.88);border:1px solid rgba(92,142,255,0.34);border-radius:16px;padding:22px 24px;box-shadow:0 0 28px rgba(41,95,255,0.12)\">" +
+      "<div style=\"font-size:22px;font-weight:700;margin-bottom:10px;\">Не удалось запустить графику</div>" +
+      "<div style=\"font-size:14px;line-height:1.45;color:rgba(220,232,255,0.88)\">Браузер не смог создать `WebGL` renderer для PIXI. " +
+      "Обычно помогает включить аппаратное ускорение, обновить драйвер видеокарты или открыть игру в Chrome/Edge/Firefox без ограничений GPU.</div>" +
+      "</div>";
+    document.body.appendChild(box);
+  }
 
-	document.body.appendChild(app.canvas);
-	app.canvas.style.cssText = "position:fixed;inset:0;z-index:0;";
+  const app = new PIXI.Application();
+  try {
+    await app.init({
+      resizeTo: window,
+      antialias: !LOW_GPU_MODE,
+      background: 0x070a12,
+      preference: "webgl"
+    });
+  } catch (err) {
+    showRendererInitError(err);
+    return;
+  }
+
+  document.body.appendChild(app.canvas);
+  app.canvas.style.cssText = "position:fixed;inset:0;z-index:0;";
+  app.canvas.addEventListener("webglcontextlost", (ev) => {
+    ev.preventDefault();
+    console.error("[PIXI] WebGL context lost");
+    try { app.stop(); } catch (_) {}
+    showRendererInitError(new Error("WebGL context lost"));
+  });
 
   // ── Procedural SFX (laser, explosion) — audible only when camera close to action ──
   let _audioCtx = null;
   const SOUND_HEAR_RADIUS = 550;
+  const LASER_SFX_MIN_GAP_SEC = 0.02;
+  const LASER_SFX_WINDOW_SEC = 0.12;
+  const LASER_SFX_MAX_IN_WINDOW = 6;
+  let _lastLaserSfxAt = -Infinity;
+  let _laserSfxWindowStart = -Infinity;
+  let _laserSfxWindowCount = 0;
   function ensureAudioCtx() {
     if (_audioCtx) return _audioCtx;
     _audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -1124,14 +1182,27 @@
     try {
       const ctx = ensureAudioCtx();
       if (ctx.state === "suspended") ctx.resume();
+      const now = ctx.currentTime;
+      if ((now - _laserSfxWindowStart) > LASER_SFX_WINDOW_SEC) {
+        _laserSfxWindowStart = now;
+        _laserSfxWindowCount = 0;
+      }
+      if ((now - _lastLaserSfxAt) < LASER_SFX_MIN_GAP_SEC) return;
+      if (_laserSfxWindowCount >= LASER_SFX_MAX_IN_WINDOW) return;
+      _lastLaserSfxAt = now;
+      _laserSfxWindowCount++;
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.connect(gain); gain.connect(ctx.destination);
-      osc.type = "sine"; osc.frequency.setValueAtTime(1200, ctx.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(400, ctx.currentTime + 0.06);
-      gain.gain.setValueAtTime(0.08, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.06);
-      osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.06);
+      const burstMix = Math.max(0.25, 1 - (_laserSfxWindowCount - 1) * 0.14);
+      const startFreq = 1050 + Math.random() * 180;
+      const endFreq = 360 + Math.random() * 90;
+      osc.type = "triangle";
+      osc.frequency.setValueAtTime(startFreq, now);
+      osc.frequency.exponentialRampToValueAtTime(endFreq, now + 0.05);
+      gain.gain.setValueAtTime(0.05 * burstMix, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
+      osc.start(now); osc.stop(now + 0.05);
     } catch (_) {}
   }
   function playExplosionSound(x, y) {
@@ -1164,6 +1235,7 @@
   const STAR_COLORS = ["#ffffff","#ffffff","#ffffff","#ddeeff","#a8ccff","#ffe8c8","#ffd0a8","#c8b8ff","#ffcccc"];
   let _starSprites = [];
   let _starPulseData = []; // per-layer pulse metadata
+  let _starResizeBound = false;
 
   function buildStarTexture(seed, layerIndex) {
     const TW = 1600, TH = 1000;
@@ -1228,7 +1300,10 @@
       _starSprites.push(sp);
       _starPulseData.push(stars);
     }
-    app.renderer.on("resize", (w, h) => { _starSprites.forEach(s => { s.width = w; s.height = h; }); });
+    if (!_starResizeBound) {
+      _starResizeBound = true;
+      app.renderer.on("resize", (w, h) => { _starSprites.forEach(s => { s.width = w; s.height = h; }); });
+    }
   }
 
   // Subtle pulse: modulate alpha of each star layer slightly over time
@@ -1254,6 +1329,7 @@
 
   const turretLayer = new PIXI.Container();
   const activityZoneLayer = new PIXI.Container();
+  const abilityFxLayer = new PIXI.Container();
   const squadLabelsLayer = new PIXI.Container();
   const combatLayer = new PIXI.Container();
   const floatingDamageLayer = new PIXI.Container();
@@ -1274,13 +1350,16 @@
   const combatDebugGfx = new PIXI.Graphics();
   const combatDebugLayer = new PIXI.Container();
   combatDebugLayer.addChild(combatDebugGfx);
-  const combatDebugLabels = new Map(); // unitId -> PIXI.Text
-  world.addChild(mapLayer, gridLayer, zonesLayer, zoneEffectsLayer, turretLayer, activityZoneLayer, shipTrailsLayer, unitsLayer, resLayer, cityLayer, shieldHitEffectsLayer, squadLabelsLayer, combatLayer, floatingDamageLayer, bulletsLayer, ghostLayer, combatDebugLayer);
+  const combatDebugLabels = new Map(); // squad:<id> -> PIXI.Text
+  world.addChild(mapLayer, gridLayer, zonesLayer, zoneEffectsLayer, turretLayer, activityZoneLayer, abilityFxLayer, shipTrailsLayer, unitsLayer, resLayer, cityLayer, shieldHitEffectsLayer, squadLabelsLayer, combatLayer, floatingDamageLayer, bulletsLayer, ghostLayer, combatDebugLayer);
   world.addChild(fogLayer);
   world.addChild(pathPreviewLayer, selectionBoxLayer);
   world.addChild(worldBorderDarkenLayer);
   fogLayer.visible = false;
   app.stage.addChild(world);
+
+  const screenFxLayer = new PIXI.Container();
+  app.stage.addChild(screenFxLayer);
 
   const announcementLayer = new PIXI.Container();
   app.stage.addChild(announcementLayer);
@@ -1288,6 +1367,8 @@
   // Glow filter for primitives
   const GlowFilter = PIXI.filters.GlowFilter || (pixiFilters && pixiFilters.GlowFilter);
   function makeGlow(color = 0xffffff, distance = 16, outerStrength = 2) {
+    if (DISABLE_PIXI_FILTERS) return null;
+    if (LOW_GPU_MODE) return null;
     if (!GlowFilter) return null;
     return new GlowFilter({
       distance,
@@ -1613,26 +1694,20 @@
   let neonEdgeSprite = null;
 
   function rebuildNeonEdges() {
-    if (neonEdgeSprite) { if (neonEdgeSprite.parent) neonEdgeSprite.parent.removeChild(neonEdgeSprite); neonEdgeSprite.destroy(); }
+    if (neonEdgeSprite) {
+      if (neonEdgeSprite.parent) neonEdgeSprite.parent.removeChild(neonEdgeSprite);
+      if (neonEdgeSprite.destroy) neonEdgeSprite.destroy();
+    }
     const W = CFG.WORLD_W, H = CFG.WORLD_H;
     const PAD = 60;
-    const cnv = document.createElement("canvas");
-    cnv.width = W + PAD * 2;
-    cnv.height = H + PAD * 2;
-    const ctx = cnv.getContext("2d");
-
-    // Single core line with glow via shadow
-    ctx.shadowColor = "#55bbff";
-    ctx.shadowBlur = 30;
-    ctx.globalAlpha = 0.9;
-    ctx.strokeStyle = "#55bbff";
-    ctx.lineWidth = 4;
-    ctx.strokeRect(PAD, PAD, W, H);
-
-    ctx.globalAlpha = 1;
-    const tex = PIXI.Texture.from(cnv);
-    neonEdgeSprite = new PIXI.Sprite(tex);
-    neonEdgeSprite.position.set(-PAD, -PAD);
+    const g = new PIXI.Graphics();
+    g.rect(-PAD, -PAD, W + PAD * 2, H + PAD * 2);
+    g.stroke({ color: 0x2f84ff, alpha: 0.12, width: 18 });
+    g.rect(0, 0, W, H);
+    g.stroke({ color: 0x55bbff, alpha: 0.55, width: 4 });
+    g.rect(0, 0, W, H);
+    g.stroke({ color: 0xdaf2ff, alpha: 0.75, width: 1.5 });
+    neonEdgeSprite = g;
     world.addChild(neonEdgeSprite);
   }
 
@@ -1768,18 +1843,26 @@
   function rebuildGrid() {
     gridLayer.removeChildren();
     if (!CFG.GRID_ENABLED) return;
-    const step = CFG.GRID_STEP ?? 100;
+    const step = Math.round((CFG.GRID_STEP ?? 100) * 1.25);
+    function drawGridPath(target) {
+      for (let x = 0; x <= CFG.WORLD_W; x += step) {
+        target.moveTo(x, 0);
+        target.lineTo(x, CFG.WORLD_H);
+      }
+      for (let y = 0; y <= CFG.WORLD_H; y += step) {
+        target.moveTo(0, y);
+        target.lineTo(CFG.WORLD_W, y);
+      }
+    }
+
+    const glow = new PIXI.Graphics();
+    drawGridPath(glow);
+    glow.stroke({ color: 0x5d89d8, width: 1.53, alpha: 0.10 });
+    gridLayer.addChild(glow);
+
     const g = new PIXI.Graphics();
-    g.alpha = 0.12;
-    g.lineStyle(1, 0xffffff, 0.5);
-    for (let x = 0; x <= CFG.WORLD_W; x += step) {
-      g.moveTo(x, 0);
-      g.lineTo(x, CFG.WORLD_H);
-    }
-    for (let y = 0; y <= CFG.WORLD_H; y += step) {
-      g.moveTo(0, y);
-      g.lineTo(CFG.WORLD_W, y);
-    }
+    drawGridPath(g);
+    g.stroke({ color: 0x7ea9e0, width: 0.71, alpha: 0.24 });
     gridLayer.addChild(g);
 
     const labelStyle = { fontSize: 11, fill: 0x8899aa };
@@ -2189,68 +2272,61 @@
   function makeCityVisual(p) {
     const R = getPlanetRadius(p);
     const city = new PIXI.Graphics();
-    const seed = (state._gameSeed ?? 0) + p.id * 7919;
-    const rng = mulberry32(seed);
-
-    // Dark core
-    city.beginFill(0x020408, 1);
-    city.drawCircle(0, 0, R);
-    city.endFill();
-
-    // Smooth gradient — many layers dark → bright (player color)
-    const layers = 16;
-    for (let k = 0; k <= layers; k++) {
-      const frac = k / layers;
-      const r = R * (0.2 + frac * 0.8);
-      const t = frac * frac;
-      const a = 0.03 + t * 0.4;
-      const col = frac < 0.35 ? darkenColor(p.color, 0.12) : (frac < 0.65 ? darkenColor(p.color, 0.4) : p.color);
-      city.beginFill(col, a);
-      city.drawCircle(0, 0, r);
-      city.endFill();
-    }
-
-    // Random "continents" — irregular blobs per planet
-    const numBlobs = 4 + Math.floor(rng() * 5);
-    for (let b = 0; b < numBlobs; b++) {
-      const angle = rng() * Math.PI * 2;
-      const dist = R * (0.15 + rng() * 0.5);
-      const bx = Math.cos(angle) * dist;
-      const by = Math.sin(angle) * dist;
-      const br = R * (0.12 + rng() * 0.22);
-      const blobCol = darkenColor(p.color, 0.25 + rng() * 0.2);
-      city.beginFill(blobCol, 0.08 + rng() * 0.12);
-      city.drawCircle(bx, by, br);
-      city.endFill();
-    }
-
-    // Bright center core
     const palette = FACTION_VIS.getFactionPalette(p.color);
-    city.beginFill(palette.core, 0.55);
-    city.drawCircle(0, 0, R * 0.35);
+    const haloR = R * 1.85;
+    const shellR = R * 0.96;
+    const coreR = R * 0.54;
+
+    city.beginFill(palette.glow || p.color, 0.08);
+    city.drawCircle(0, 0, haloR);
     city.endFill();
+
+    city.beginFill(0x050912, 0.92);
+    city.drawCircle(0, 0, shellR);
+    city.endFill();
+
+    city.lineStyle(1.4, palette.edge, 0.30);
+    city.drawCircle(0, 0, shellR);
+
+    city.beginFill(palette.core, 0.16);
+    city.drawCircle(0, 0, R * 0.74);
+    city.endFill();
+
+    city.beginFill(palette.core, 0.34);
+    city.drawCircle(0, 0, coreR);
+    city.endFill();
+
+    city.lineStyle(1.1, palette.solid, 0.48);
+    city.drawCircle(0, 0, coreR);
+
+    city.beginFill(palette.core, 0.58);
+    city.drawCircle(0, 0, R * 0.24);
+    city.endFill();
+
+    city.beginFill(0xffffff, 0.82);
+    city.drawCircle(0, 0, R * 0.10);
+    city.endFill();
+
+    city.lineStyle(0.9, palette.edge, 0.20);
+    city.drawCircle(0, 0, R * 0.42);
+    city.lineStyle(0.7, palette.edge, 0.14);
+    city.drawCircle(0, 0, R * 0.60);
+
     city.beginFill(0xffffff, 0.18);
-    city.drawCircle(0, 0, R * 0.18);
+    city.drawCircle(-R * 0.10, -R * 0.12, R * 0.18);
     city.endFill();
 
-    // Crisp edge
-    city.lineStyle(2.5, p.color, 0.95);
-    city.drawCircle(0, 0, R);
-    city.lineStyle(8, palette.glow || p.color, 0.12);
-    city.drawCircle(0, 0, R + 3);
-
-    const glow = makeGlow(palette.core, 50, 3.5);
+    const glow = makeGlow(palette.core, 28, 2.2);
     if (glow) city.filters = [glow];
     city.position.set(p.x, p.y);
 
-    // Orbital rings container (rotated each frame)
     const orbitalRings = new PIXI.Graphics();
     const orbitDetail = LOD.getDetail("base", cam.zoom);
     const ringCount = orbitDetail.rings || 2;
-    const ringRadii = [R * 1.25, R * 1.55];
-    orbitalRings.lineStyle(1.0, palette.edge, 0.28);
+    const ringRadii = [R * 1.08, R * 1.34];
     for (let ri = 0; ri < Math.min(ringCount, ringRadii.length); ri++) {
-      orbitalRings.drawEllipse(0, 0, ringRadii[ri], ringRadii[ri] * 0.35);
+      orbitalRings.lineStyle(0.95, palette.edge, ri === 0 ? 0.22 : 0.16);
+      orbitalRings.drawEllipse(0, 0, ringRadii[ri], ringRadii[ri] * 0.42);
     }
     orbitalRings.position.set(p.x, p.y);
     p._orbitalRings = orbitalRings;
@@ -2424,10 +2500,18 @@
   const PATROL_ATTACK_RATE = 1.2;
   const PATROL_DMG = 3;
 
-  function updateZoneLights(dt) {
-    const TAIL_STEPS = 12;
-    const TAIL_COVER = 0.05;
+  function getPatrolOrbitState(p, t) {
+    const phase = ((((t || 0) % 1) + 1) % 1) * Math.PI * 2 - Math.PI / 2;
+    const orbitR = shieldRadius(p) + Math.max(18, getPlanetRadius(p) * 1.25);
+    return {
+      x: p.x + Math.cos(phase) * orbitR,
+      y: p.y + Math.sin(phase) * orbitR,
+      angle: phase + Math.PI / 2,
+      orbitR
+    };
+  }
 
+  function updateZoneLights(dt) {
     const patrolDetail = LOD.getDetail("patrol", cam.zoom);
     for (const p of state.players.values()) {
       const patrolCount = p._patrolCount || 0;
@@ -2435,15 +2519,7 @@
       if (!light || light.destroyed) continue;
       light.clear();
       if (patrolCount === 0 || !patrolDetail.shape) continue;
-
-      const poly = p.influencePolygon;
-      if (!poly || poly.length < 3 || p.color == null) continue;
-
-      if (!p._perimCache || p._perimCache.hash !== p._lastZoneHash) {
-        p._perimCache = { hash: p._lastZoneHash, ...calcPerim(poly) };
-      }
-      const { segs, totalLen } = p._perimCache;
-      if (totalLen < 1) continue;
+      if (p.color == null) continue;
 
       p._patrols = p._patrols || [];
       const r = (p.color >> 16) & 0xff;
@@ -2469,29 +2545,25 @@
           patrol._interpDisplayT = t;
         }
 
-        for (let i = TAIL_STEPS; i >= 1; i--) {
-          const tailT = ((t - (i / TAIL_STEPS) * TAIL_COVER) + 2) % 1;
-          const pt = getPolyPerimeterPoint(poly, segs, totalLen, tailT);
-          const progress = 1 - i / TAIL_STEPS;
-          light.beginFill(p.color, progress * 0.5);
-          light.drawCircle(pt.x, pt.y, 2 + progress * 5);
-          light.endFill();
+        const head = getPatrolOrbitState(p, t);
+        if (patrolDetail.trail) {
+          const TAIL_STEPS = 4;
+          const TAIL_COVER = 0.040;
+          for (let i = TAIL_STEPS; i >= 1; i--) {
+            const tailT = ((t - (i / TAIL_STEPS) * TAIL_COVER) + 2) % 1;
+            const pt = getPatrolOrbitState(p, tailT);
+            const progress = 1 - i / TAIL_STEPS;
+            light.beginFill(p.color, progress * 0.14);
+            light.drawCircle(pt.x, pt.y, 1.4 + progress * 2.8);
+            light.endFill();
+          }
         }
-        const head = getPolyPerimeterPoint(poly, segs, totalLen, t);
-        const rangeMul = p.turretRangeMul != null ? p.turretRangeMul : 1;
-        const patrolR = PATROL_ATTACK_R * rangeMul;
-        light.lineStyle(1, p.color, 0.12);
-        light.drawCircle(head.x, head.y, patrolR);
-        light.lineStyle(0);
-        light.beginFill(p.color, 0.45);
-        light.drawCircle(head.x, head.y, 10);
-        light.endFill();
-        light.beginFill(bright, 0.75);
-        light.drawCircle(head.x, head.y, 5);
-        light.endFill();
-        light.beginFill(0xffffff, 0.95);
-        light.drawCircle(head.x, head.y, 2);
-        light.endFill();
+        if (patrolDetail.trail) {
+          light.lineStyle(0.8, bright, 0.10);
+          light.moveTo(p.x, p.y);
+          light.lineTo(head.x, head.y);
+        }
+        DefenseRenderer.drawPatrolShape(light, head.x, head.y, head.angle, p.color, cam.zoom);
       }
     }
   }
@@ -2499,10 +2571,11 @@
   // Glow at zone contact points — where two players' borders meet
   const _contactPulse = { t: 0 };
   function updateZoneContacts(dt) {
+    contactGfx.clear();
+    if (LOD.getLevel(cam.zoom) !== LOD.LEVELS.NEAR) return;
+
     _contactPulse.t += dt;
     const pulse = 0.55 + 0.45 * Math.sin(_contactPulse.t * Math.PI * 2.5);
-
-    contactGfx.clear();
 
     const players = [];
     for (const p of state.players.values()) {
@@ -2510,8 +2583,8 @@
     }
     if (players.length < 2) return;
 
-    const THRESHOLD = 75;   // pixels — considered "touching"
-    const GLOW_R    = 22;
+    const THRESHOLD = 42;
+    const GLOW_R    = 10;
 
     for (let i = 0; i < players.length; i++) {
       for (let j = i + 1; j < players.length; j++) {
@@ -2526,10 +2599,10 @@
             const dist = Math.sqrt(dx * dx + dy * dy);
             if (dist < THRESHOLD) {
               const str = (1 - dist / THRESHOLD) * pulse;
-              contactGfx.beginFill(A.color, 0.55 * str);
+              contactGfx.beginFill(A.color, 0.16 * str);
               contactGfx.drawCircle(pa.x, pa.y, GLOW_R);
               contactGfx.endFill();
-              contactGfx.beginFill(B.color, 0.55 * str);
+              contactGfx.beginFill(B.color, 0.16 * str);
               contactGfx.drawCircle(pb.x, pb.y, GLOW_R);
               contactGfx.endFill();
             }
@@ -2849,13 +2922,6 @@
   function stepPatrols(dt) {
     for (const p of state.players.values()) {
       if (p.eliminated || (p._patrolCount || 0) === 0) continue;
-      const poly = p.influencePolygon;
-      if (!poly || poly.length < 3) continue;
-      if (!p._perimCache || p._perimCache.hash !== p._lastZoneHash) {
-        p._perimCache = { hash: p._lastZoneHash, ...calcPerim(poly) };
-      }
-      const { segs, totalLen } = p._perimCache;
-      if (totalLen < 1) continue;
       p._patrols = p._patrols || [];
       const rangeMul = p.turretRangeMul != null ? p.turretRangeMul : 1;
       const range = PATROL_ATTACK_R * rangeMul;
@@ -2863,13 +2929,11 @@
       const dmgMul = (p.turretDmgMul != null ? p.turretDmgMul : 1) * getLevelBonusMul(p);
       const dmg = Math.max(1, Math.round(PATROL_DMG * dmgMul));
       for (const patrol of p._patrols) {
-        const pos = getPolyPerimeterPoint(poly, segs, totalLen, patrol.t || 0);
+        patrol.t = ((patrol.t || 0) + dt * PATROL_LIGHT_SPEED) % 1;
+        const pos = getPatrolOrbitState(p, patrol.t || 0);
         const nearby = queryHash(pos.x, pos.y, range);
         const enemies = nearby.filter(u => u.owner !== p.id);
         const hasEnemies = enemies.length > 0;
-        if (!hasEnemies) {
-          patrol.t = ((patrol.t || 0) + dt * PATROL_LIGHT_SPEED) % 1;
-        }
         patrol.atkCd = (patrol.atkCd || 0) - dt;
         if (patrol.atkCd > 0 || !hasEnemies) continue;
         enemies.sort((a, b) => (a.x - pos.x) ** 2 + (a.y - pos.y) ** 2 - ((b.x - pos.x) ** 2 + (b.y - pos.y) ** 2));
@@ -2911,13 +2975,17 @@
     drawShipShape(g, u.unitType || "fighter", col);
 
     const type = UNIT_TYPES[u.unitType] || UNIT_TYPES.fighter;
-    const glowDist = Math.max(3, type.sizeMultiplier * 2 + 2);
-    const glow = makeGlow(col, glowDist, 0.8);
-    if (glow) g.filters = [glow];
+    const shipDetail = LOD.getDetail("ship", cam.zoom);
+    if (shipDetail.glow) {
+      const glowDist = Math.max(2.5, type.sizeMultiplier * 1.5 + 1.5);
+      const glow = makeGlow(col, glowDist, 0.45);
+      if (glow) g.filters = [glow];
+    }
 
     g.position.set(u.x, u.y);
     unitsLayer.addChild(g);
     u.gfx = g;
+    u._lastShipLodLevel = LOD.getLevel(cam.zoom);
   }
 
   function updateUnitVisualsOnly() {
@@ -2932,6 +3000,21 @@
       if (vis) {
         u.gfx.position.set(u.x, u.y);
         const spd = Math.hypot(u.vx || 0, u.vy || 0);
+        const shipDetail = LOD.getDetail("ship", cam.zoom);
+        const shipLodLevel = LOD.getLevel(cam.zoom);
+        if (u._lastShipLodLevel !== shipLodLevel) {
+          u._lastShipLodLevel = shipLodLevel;
+          const type = UNIT_TYPES[u.unitType] || UNIT_TYPES.fighter;
+          if (shipDetail.glow) {
+            const glowDist = Math.max(2.5, type.sizeMultiplier * 1.5 + 1.5);
+            const glow = makeGlow(u.color || 0x888888, glowDist, 0.45);
+            u.gfx.filters = glow ? [glow] : [];
+          } else {
+            u.gfx.filters = [];
+          }
+          u.gfx.clear();
+          drawShipShape(u.gfx, u.unitType || "fighter", u.color || 0x888888);
+        }
         if (spd > 2 && (vfc + u.id) % 2 === 0) {
           if (!u._trail) u._trail = [];
           u._trail.push({ x: u.x, y: u.y });
@@ -2957,14 +3040,19 @@
   function updateShipTrails() {
     destroyChildren(shipTrailsLayer);
     const g = new PIXI.Graphics();
+    const shipDetail = LOD.getDetail("ship", cam.zoom);
+    if (!shipDetail.trails) {
+      shipTrailsLayer.addChild(g);
+      return;
+    }
     for (const u of state.units.values()) {
       if (!u._trail || u._trail.length < 2 || !inView(u.x, u.y)) continue;
       const col = u.color ?? 0x888888;
       const n = u._trail.length;
       for (let i = 0; i < n - 1; i++) {
         const p = u._trail[i];
-        const alpha = (i / n) * 0.25;
-        const r = 2 + (i / n) * 2;
+        const alpha = (i / n) * 0.12;
+        const r = 1 + (i / n) * 1.35;
         g.beginFill(col, alpha);
         g.drawCircle(p.x, p.y, r);
         g.endFill();
@@ -2978,7 +3066,7 @@
     const g = new PIXI.Graphics();
     for (const p of state.players.values()) {
       const cityR = CFG.CITY_ATTACK_RADIUS * (p.waterBonus ? 1.25 : 1);
-      g.beginFill(p.color, 0.18);
+      g.beginFill(p.color, 0.05);
       g.drawCircle(p.x, p.y, cityR);
       g.endFill();
     }
@@ -3237,10 +3325,9 @@
   }
 
   function isUnitInCombat(u) {
-    const cs = u._combatState;
-    return cs === "acquire" || cs === "chase" || cs === "attack" || cs === "siege";
+    return isUnitInAuthoritativeCombat(u);
   }
-  // ^ helper used inline at multiple call sites
+  // ^ helper kept for older visual/UI call sites, but reads squad authority
 
   const CLUSTER_SPACING = 11;
 
@@ -3827,101 +3914,14 @@
     }
   }
 
+  let selectionAndOrdersApi = null;
+
   function updatePathPreview() {
+    if (selectionAndOrdersApi && selectionAndOrdersApi.updatePathPreview) {
+      selectionAndOrdersApi.updatePathPreview();
+      return;
+    }
     destroyChildren(pathPreviewLayer);
-    const me = state.players.get(state.myPlayerId);
-    const order = state.orderPreview;
-    if (order && order.type === "move" && state.formationPreview) {
-      const fp = state.formationPreview;
-      const squads = getSelectedSquads();
-      const cosA = Math.cos(fp.angle);
-      const sinA = Math.sin(fp.angle);
-      for (const squad of squads) {
-        const leader = squad.find(u => (u.leaderId || u.id) === (squad[0].leaderId || squad[0].id)) || squad[0];
-        const formationType = leader.formationType || "line";
-        const formationRows = fp.dragRows != null ? fp.dragRows : (leader.formationRows || 3);
-        const pigW = fp.dragWidth != null ? fp.dragWidth : (leader.formationPigWidth ?? 1);
-
-        let offsets;
-        if (typeof FORMATIONS !== "undefined" && FORMATIONS.getFormationOffsets) {
-          const unitTypes = squad.map(u => u.unitType || "fighter");
-          offsets = FORMATIONS.getFormationOffsets(unitTypes, formationType, formationRows, fp.angle, pigW);
-        } else {
-          offsets = getFormationOffsets(squad.length, formationType, formationRows, cosA, sinA, pigW, squad);
-        }
-
-        let sqcx = 0, sqcy = 0;
-        for (const u of squad) { sqcx += u.x; sqcy += u.y; }
-        sqcx /= squad.length; sqcy /= squad.length;
-        const dashLine = new PIXI.Graphics();
-        dashLine.lineStyle(2.5, 0x66aaff, 0.45);
-        drawDashedSegment(dashLine, sqcx, sqcy, fp.x, fp.y, 10, 7);
-        pathPreviewLayer.addChild(dashLine);
-
-        for (let i = 0; i < offsets.length; i++) {
-          const o = offsets[i] || { x: 0, y: 0 };
-          const u = squad[i] || squad[0];
-          const unitType = u.unitType || "fighter";
-          const uHitR = getUnitHitRadius(u);
-          const ghostG = new PIXI.Graphics();
-          drawShipShape(ghostG, unitType, 0xffffff, 0xffffff);
-          ghostG.alpha = 0.3;
-          ghostG.position.set(fp.x + o.x, fp.y + o.y);
-          ghostG.rotation = fp.angle;
-          ghostG.circle(0, 0, uHitR);
-          ghostG.stroke({ color: 0xffffff, width: 1, alpha: 0.15 });
-          pathPreviewLayer.addChild(ghostG);
-        }
-      }
-    } else if (order && (order.type === "attackUnit" || order.type === "attackCity" || order.type === "attackPirateBase" || order.type === "capture")) {
-      const squads = getSelectedSquads();
-      let scx = 0, scy = 0, scnt = 0;
-      for (const sq of squads) for (const u of sq) { scx += u.x; scy += u.y; scnt++; }
-      if (scnt) { scx /= scnt; scy /= scnt; }
-
-      let tx = order.x, ty = order.y;
-      let highlightColor = 0xff3333;
-      let highlightR = 20;
-
-      if (order.type === "attackUnit") {
-        const target = state.units.get(order.targetUnitId);
-        if (target) { tx = target.x; ty = target.y; highlightR = getUnitHitRadius(target) + 8; }
-      } else if (order.type === "attackCity") {
-        const city = state.players.get(order.targetCityId);
-        if (city) { tx = city.x; ty = city.y; highlightR = shieldRadius(city) + 12; }
-      } else if (order.type === "attackPirateBase" && state.pirateBase) {
-        tx = state.pirateBase.x; ty = state.pirateBase.y; highlightR = 40;
-      } else if (order.type === "capture") {
-        highlightColor = 0x33aaff; highlightR = 28;
-      }
-
-      const dashG = new PIXI.Graphics();
-      dashG.lineStyle(3, highlightColor, 0.65);
-      drawDashedSegment(dashG, scx, scy, tx, ty, 12, 8);
-      pathPreviewLayer.addChild(dashG);
-
-      const g = new PIXI.Graphics();
-      const pulse = 0.8 + Math.sin(performance.now() * 0.006) * 0.2;
-      g.circle(tx, ty, highlightR * pulse);
-      g.stroke({ color: highlightColor, width: 2.5, alpha: 0.7 });
-      g.circle(tx, ty, 4);
-      g.fill({ color: highlightColor, alpha: 0.6 });
-      pathPreviewLayer.addChild(g);
-    }
-    if (!me || !state.targetPoints || state.targetPoints.length === 0) return;
-    const pts = [{ x: me.x, y: me.y }, ...state.targetPoints];
-    const g = new PIXI.Graphics();
-    g.lineStyle(6, 0x000000, 0.4);
-    for (let i = 0; i < pts.length - 1; i++) {
-      g.moveTo(pts[i].x, pts[i].y);
-      g.lineTo(pts[i + 1].x, pts[i + 1].y);
-    }
-    g.lineStyle(4, me.color, 0.85);
-    for (let i = 0; i < pts.length - 1; i++) {
-      g.moveTo(pts[i].x, pts[i].y);
-      g.lineTo(pts[i + 1].x, pts[i + 1].y);
-    }
-    pathPreviewLayer.addChild(g);
   }
 
   function drawAnimatedDash(g, points, dash, gap, lineW, color, alpha, timeOffset) {
@@ -3954,7 +3954,7 @@
     for (const squad of allSquads) {
       if (squad.length === 0 || squad[0].owner !== state.myPlayerId) continue;
       const leader = squad.find(u => !u.leaderId) || squad[0];
-      const isAttack = leader.chaseTargetUnitId != null || leader.chaseTargetCityId != null || leader._orderType === "attackUnit" || leader._orderType === "siege";
+      const isAttack = leader.chaseTargetUnitId != null || leader.chaseTargetCityId != null || leader._orderType === "attackUnit" || leader._orderType === "siege" || leader._orderType === "attackPirateBase";
 
       if (isAttack) {
         let targetPos = null;
@@ -3979,6 +3979,8 @@
           const city = state.players.get(leader.chaseTargetCityId);
           if (city) targetPos = { x: city.x, y: city.y };
           if (!targetPos && state.pirateBase && state.pirateBase.hp > 0) targetPos = { x: state.pirateBase.x, y: state.pirateBase.y };
+        } else if (leader._orderType === "attackPirateBase" && state.pirateBase && state.pirateBase.hp > 0) {
+          targetPos = { x: state.pirateBase.x, y: state.pirateBase.y };
         }
         if (targetPos) {
           const atkPts = [{ x: leader.x, y: leader.y }, targetPos];
@@ -4169,57 +4171,18 @@
   }
 
   function makeResVisual(r) {
-    if (r.type === "credit") {
-      const val = r.value || 1;
-      const fontSize = Math.min(36, Math.max(14, 8 + val * 0.8));
-      const g = new PIXI.Container();
-      const txt = new PIXI.Text({ text: "€", style: { fontSize, fill: 0xffdd44, fontWeight: "bold", fontFamily: "Arial" } });
-      txt.anchor.set(0.5);
-      g.addChild(txt);
-      if (val >= 15 && makeGlow) {
-        const glow = makeGlow(0xffdd44, 12, 2);
-        if (glow) g.filters = [glow];
-      }
-      g.position.set(r.x, r.y);
-      resLayer.addChild(g);
-      r.gfx = g;
-      return;
-    }
+    const isCredit = r.type === "credit";
+    const value = isCredit ? (r.value || 1) : (r.xp || 1);
     const g = new PIXI.Graphics();
-    const xpVal = r.xp || 1;
-    const col = gemColorForValue(Math.min(10, xpVal));
-    r.color = col;
-    const sz = gemSizeForValue(Math.min(10, xpVal));
-    const shape = Math.floor(Math.random() * 5);
-
-    if (xpVal >= 10) {
-      g.poly([0, -sz, sz * 0.6, -sz * 0.2, sz * 0.9, 0, sz * 0.5, sz * 0.7, 0, sz, -sz * 0.5, sz * 0.7, -sz * 0.9, 0, -sz * 0.6, -sz * 0.2]);
-      g.fill({ color: col, alpha: 0.95 });
-      g.circle(0, 0, sz * 0.25);
-      g.fill({ color: 0xffffff, alpha: 0.35 });
-    } else if (shape === 0) {
-      g.poly([0, -sz, sz * 0.6, -sz * 0.2, sz * 0.4, sz * 0.8, -sz * 0.4, sz * 0.8, -sz * 0.6, -sz * 0.2]);
-      g.fill({ color: col, alpha: 0.95 });
-    } else if (shape === 1) {
-      g.poly([0, -sz, sz * 0.7, 0, 0, sz, -sz * 0.7, 0]);
-      g.fill({ color: col, alpha: 0.95 });
-    } else if (shape === 2) {
-      g.poly([sz * 0.3, -sz, sz * 0.8, -sz * 0.3, sz * 0.5, sz * 0.6, -sz * 0.5, sz * 0.6, -sz * 0.8, -sz * 0.3, -sz * 0.3, -sz]);
-      g.fill({ color: col, alpha: 0.95 });
-    } else if (shape === 3) {
-      g.poly([0, -sz, sz * 0.5, -sz * 0.5, sz * 0.3, sz * 0.3, 0, sz * 0.9, -sz * 0.3, sz * 0.3, -sz * 0.5, -sz * 0.5]);
-      g.fill({ color: col, alpha: 0.95 });
-    } else {
-      g.poly([0, -sz * 0.9, sz * 0.8, -sz * 0.3, sz * 0.6, sz * 0.7, -sz * 0.6, sz * 0.7, -sz * 0.8, -sz * 0.3]);
-      g.fill({ color: col, alpha: 0.95 });
-    }
-    g.moveTo(-sz * 0.15, -sz * 0.6);
-    g.lineTo(sz * 0.1, -sz * 0.25);
-    g.stroke({ color: 0xffffff, width: 0.8, alpha: 0.5 });
-
-    const glowDist = xpVal >= 10 ? 14 : (xpVal >= 5 ? 9 : 5);
-    const glow = makeGlow(col, glowDist, xpVal >= 10 ? 2.5 : 1.5);
+    ResourceFlow.drawPacket(g, isCredit, value, cam.zoom);
+    const glowCfg = ResourceFlow.getPacketGlow(isCredit, value, cam.zoom);
+    const glow = glowCfg ? makeGlow(glowCfg.color, glowCfg.distance, glowCfg.outerStrength) : null;
     if (glow) g.filters = [glow];
+    if (isCredit) {
+      r.color = FACTION_VIS.RESOURCE_COLORS.money.primary;
+    } else {
+      r.color = FACTION_VIS.RESOURCE_COLORS.xp.primary;
+    }
     g.position.set(r.x, r.y);
     resLayer.addChild(g);
     r.gfx = g;
@@ -4228,9 +4191,15 @@
   // ------------------------------------------------------------
   // Fog of war (RenderTexture)
   // ------------------------------------------------------------
+  const FOG_BASE_W = Math.max(1, Math.floor(CFG.WORLD_W / 2));
+  const FOG_BASE_H = Math.max(1, Math.floor(CFG.WORLD_H / 2));
+  const FOG_MAX_DIM = LOW_GPU_MODE ? 1024 : 1536;
+  const FOG_RT_SCALE = Math.min(1, FOG_MAX_DIM / Math.max(FOG_BASE_W, FOG_BASE_H));
+  const FOG_RT_W = Math.max(1, Math.floor(FOG_BASE_W * FOG_RT_SCALE));
+  const FOG_RT_H = Math.max(1, Math.floor(FOG_BASE_H * FOG_RT_SCALE));
   const fogRT = PIXI.RenderTexture.create({
-    width: Math.max(1, Math.floor(CFG.WORLD_W / 2)),
-    height: Math.max(1, Math.floor(CFG.WORLD_H / 2)),
+    width: FOG_RT_W,
+    height: FOG_RT_H,
     resolution: 1
   });
   const fogSprite = new PIXI.Sprite(fogRT);
@@ -4304,6 +4273,7 @@
     }
     overlapG.clear();
     if (!state.zonesEnabled) return;
+    if (LOD.getLevel(cam.zoom) !== LOD.LEVELS.NEAR) return;
 
     const ps = [...state.players.values()];
     for (let i = 0; i < ps.length; i++) {
@@ -4314,9 +4284,9 @@
         const my = (a.y + b.y) * 0.5;
         if (!isPointInPolygon(mx, my, a.influencePolygon) || !isPointInPolygon(mx, my, b.influencePolygon)) continue;
         const d = Math.hypot(a.x - b.x, a.y - b.y);
-        const rr = Math.max(12, Math.min(120, (a.influenceR + b.influenceR - d) * 0.25));
+        const rr = Math.max(10, Math.min(70, (a.influenceR + b.influenceR - d) * 0.16));
 
-        overlapG.beginFill(0x4a1520, 0.25);
+        overlapG.beginFill(0x4a1520, 0.10);
         overlapG.drawCircle(mx, my, rr);
         overlapG.endFill();
       }
@@ -4440,69 +4410,86 @@
     const ownerCol = mine.ownerId ? colorForId(mine.ownerId) : 0x555555;
     const isMoney = mine.resourceType === "money";
     const resCol = FACTION_VIS.RESOURCE_COLORS[isMoney ? "money" : "xp"];
+    const shellCol = mine.ownerId ? ownerCol : resCol.primary;
 
     const outerGlow = new PIXI.Graphics();
-    outerGlow.circle(0, 0, R + 12);
-    outerGlow.fill({ color: mine.ownerId ? ownerCol : resCol.bg, alpha: mine.ownerId ? 0.15 : 0.10 });
+    outerGlow.circle(0, 0, R + 8);
+    outerGlow.fill({ color: mine.ownerId ? ownerCol : resCol.bg, alpha: mine.ownerId ? 0.10 : 0.06 });
     c.addChild(outerGlow);
 
     const bg = new PIXI.Graphics();
     if (isMoney) {
-      // Hex shape for money mines
-      const hexR = R * 0.9;
+      const hexR = R * 0.78;
       const pts = [];
       for (let i = 0; i < 6; i++) {
         const a = (Math.PI / 3) * i - Math.PI / 6;
         pts.push(Math.cos(a) * hexR, Math.sin(a) * hexR);
       }
       bg.poly(pts);
-      bg.fill({ color: 0x111118, alpha: 0.88 });
+      bg.fill({ color: 0x0b1018, alpha: 0.92 });
       bg.poly(pts);
-      bg.stroke({ color: mine.ownerId ? ownerCol : resCol.primary, width: 2.5 });
+      bg.stroke({ color: shellCol, width: 1.7, alpha: 0.72 });
+
+      const innerPts = [];
+      for (let i = 0; i < 6; i++) {
+        const a = (Math.PI / 3) * i - Math.PI / 6;
+        innerPts.push(Math.cos(a) * hexR * 0.56, Math.sin(a) * hexR * 0.56);
+      }
+      bg.poly(innerPts);
+      bg.fill({ color: resCol.primary, alpha: 0.28 });
     } else {
-      // Circle for xp mines
-      bg.circle(0, 0, R * 0.9);
-      bg.fill({ color: 0x0a1118, alpha: 0.88 });
-      bg.circle(0, 0, R * 0.9);
-      bg.stroke({ color: mine.ownerId ? ownerCol : resCol.primary, width: 2.5 });
+      bg.circle(0, 0, R * 0.76);
+      bg.fill({ color: 0x081019, alpha: 0.92 });
+      bg.circle(0, 0, R * 0.76);
+      bg.stroke({ color: shellCol, width: 1.7, alpha: 0.72 });
+      bg.circle(0, 0, R * 0.44);
+      bg.stroke({ color: resCol.secondary, width: 0.95, alpha: 0.42 });
+      bg.circle(0, 0, R * 0.24);
+      bg.fill({ color: resCol.primary, alpha: 0.26 });
     }
     c.addChild(bg);
 
-    const innerCircle = new PIXI.Graphics();
-    innerCircle.circle(0, 0, R * 0.45);
-    const innerCol = mine.isRich ? 0xffcc00 : resCol.primary;
-    innerCircle.fill({ color: innerCol, alpha: 0.4 });
-    innerCircle.stroke({ color: resCol.secondary, width: 1.5 });
-    c.addChild(innerCircle);
-
     if (mine.isRich) {
       const sparkle = new PIXI.Graphics();
-      sparkle.circle(0, 0, R * 0.22);
-      sparkle.fill({ color: 0xffee88, alpha: 0.35 });
+      sparkle.circle(0, 0, R * 0.18);
+      sparkle.fill({ color: 0xffe18a, alpha: 0.30 });
+      sparkle.circle(0, 0, R * 0.08);
+      sparkle.fill({ color: 0xffffff, alpha: 0.55 });
       c.addChild(sparkle);
     }
 
-    // Resource type indicator
-    const typeLabel = new PIXI.Text({
-      text: mine.isRich ? "💎" : (isMoney ? "⚡€" : "✦"),
-      style: { fontSize: mine.isRich ? 36 : 26, fill: isMoney ? 0xffdd44 : 0x66ddff, fontWeight: "bold" }
-    });
-    typeLabel.anchor.set(0.5);
-    typeLabel.y = -1;
-    c.addChild(typeLabel);
+    const core = new PIXI.Graphics();
+    if (isMoney) {
+      const rr = R * 0.18;
+      const pts = [];
+      for (let i = 0; i < 6; i++) {
+        const a = (Math.PI / 3) * i - Math.PI / 6;
+        pts.push(Math.cos(a) * rr, Math.sin(a) * rr);
+      }
+      core.poly(pts);
+      core.fill({ color: resCol.primary, alpha: 0.72 });
+      core.poly(pts);
+      core.stroke({ color: resCol.secondary, width: 0.8, alpha: 0.55 });
+    } else {
+      core.circle(0, 0, R * 0.16);
+      core.fill({ color: resCol.primary, alpha: 0.62 });
+      core.circle(0, 0, R * 0.07);
+      core.fill({ color: 0xffffff, alpha: 0.65 });
+    }
+    c.addChild(core);
 
     const captureR = CFG.MINE_CAPTURE_RADIUS || 140;
     const capRing = new PIXI.Graphics();
     capRing.circle(0, 0, captureR);
-    capRing.stroke({ color: mine.ownerId ? ownerCol : resCol.primary, width: 1.2, alpha: 0.20 });
+    capRing.stroke({ color: shellCol, width: 1.0, alpha: 0.14 });
     capRing.circle(0, 0, captureR);
-    capRing.fill({ color: mine.ownerId ? ownerCol : resCol.bg, alpha: 0.03 });
+    capRing.fill({ color: mine.ownerId ? ownerCol : resCol.bg, alpha: 0.02 });
     c.addChildAt(capRing, 0);
 
     if (mine.ownerId && mine.captureProgress >= 1) {
       const ownerGlow = new PIXI.Graphics();
-      ownerGlow.circle(0, 0, R * 0.75);
-      ownerGlow.fill({ color: ownerCol, alpha: 0.16 });
+      ownerGlow.circle(0, 0, R * 0.66);
+      ownerGlow.fill({ color: ownerCol, alpha: 0.10 });
       c.addChildAt(ownerGlow, 0);
     }
 
@@ -4987,7 +4974,9 @@
     destroyChildren(bulletsLayer);
     destroyChildren(floatingDamageLayer);
     destroyChildren(activityZoneLayer);
+    destroyChildren(abilityFxLayer);
     destroyChildren(combatLayer);
+    destroyChildren(screenFxLayer);
     overlapG = new PIXI.Graphics();
     zonesLayer.addChild(overlapG);
 
@@ -5004,19 +4993,24 @@
     state.nextUnitId = 1;
     state.nextResId = 1;
     state.t = 0;
+    state.timeScale = 1;
+    state._timeRewindFx = null;
+    state._timeRewindFxToken = 0;
     state._domTimers = {};
     state._gameOver = false;
+    state._pendingFullSnap = null;
+    state._pendingSnap = null;
+    state._randomBlackHoleNextAt = 300;
+    state._randomMeteorNextAt = 240;
+    state._randomMeteorScheduled = [];
     // Reset fog memories
     app.renderer.render(new PIXI.Graphics(), { renderTexture: fogMemRT, clear: true });
 
     state.ghosts = [];
     state.bullets = [];
-    if (state.storm) {
-      if (state.storm.gfx) { state.storm.gfx.destroy(true); }
-      if (state.storm.emojiContainer) { state.storm.emojiContainer.destroy({ children: true }); }
-    }
+    if (state.storm) destroyIonStormVisual(state.storm);
     state.storm = null;
-    state._nextStormAt = 5;
+    state._nextStormAt = STORM_STARTUP_DELAY;
     state._ruinSpawns = [];
     state.floatingDamage = [];
     state.selectedUnitIds.clear();
@@ -5120,7 +5114,9 @@
     destroyChildren(bulletsLayer);
     destroyChildren(floatingDamageLayer);
     destroyChildren(activityZoneLayer);
+    destroyChildren(abilityFxLayer);
     destroyChildren(combatLayer);
+    destroyChildren(screenFxLayer);
     overlapG = new PIXI.Graphics();
     zonesLayer.addChild(overlapG);
 
@@ -5136,17 +5132,22 @@
     state.nextUnitId = 1;
     state.nextResId = 1;
     state.t = 0;
+    state.timeScale = 1;
+    state._timeRewindFx = null;
+    state._timeRewindFxToken = 0;
     state._domTimers = {};
     state._gameOver = false;
+    state._pendingFullSnap = null;
+    state._pendingSnap = null;
+    state._randomBlackHoleNextAt = 300;
+    state._randomMeteorNextAt = 240;
+    state._randomMeteorScheduled = [];
     app.renderer.render(new PIXI.Graphics(), { renderTexture: fogMemRT, clear: true });
     state.ghosts = [];
     state.bullets = [];
-    if (state.storm) {
-      if (state.storm.gfx) state.storm.gfx.destroy(true);
-      if (state.storm.emojiContainer) state.storm.emojiContainer.destroy({ children: true });
-    }
+    if (state.storm) destroyIonStormVisual(state.storm);
     state.storm = null;
-    state._nextStormAt = 5;
+    state._nextStormAt = STORM_STARTUP_DELAY;
     state._ruinSpawns = [];
     state.floatingDamage = [];
     state.selectedUnitIds.clear();
@@ -6339,6 +6340,330 @@
   const MIN_PERSONAL_DIST = movB.minPersonalDist ?? 16;
   const SEPARATION_PUSH = movB.separationPush ?? 0.5;
 
+  function createUnitMotionContext(u, dt, useSquadLogic) {
+    if (u.leaderId && !state.units.get(u.leaderId)) u.leaderId = null;
+    const leader = u.leaderId ? state.units.get(u.leaderId) : null;
+
+    const zoneOwner = getZoneOwnerFast(u.x, u.y);
+    u._territoryMul = zoneOwner === u.owner ? 1.1 : (zoneOwner !== 0 && zoneOwner !== u.owner ? 0.9 : 1);
+
+    const terrainSpd = getTerrainSpeedMultiplier(u.x, u.y);
+    const owner = state.players.get(u.owner);
+    let unitSpeedMul = (owner && owner.unitSpeedMul != null ? owner.unitSpeedMul : 1) * getLevelBonusMul(owner);
+    if (owner && state._battleMarchUntil && state._battleMarchUntil[owner.id] > state.t) unitSpeedMul *= 1.3;
+
+    const classOrder = ["fighter", "destroyer", "cruiser", "battleship", "hyperDestroyer"];
+    const classIdx = classOrder.indexOf(u.unitType || "fighter");
+    const individualSpeed = (u.speed || UNIT_TYPES[u.unitType || "fighter"]?.speed || 9) * 1.1 * Math.max(0.5, 1 - classIdx * 0.06);
+    const baseSpeed = (useSquadLogic && u.squadId != null)
+      ? (SQUADLOGIC.getSquadSpeed(state, u.squadId) || individualSpeed)
+      : individualSpeed;
+
+    const cryoSpd = (u._cryoSlowUntil && state.t < u._cryoSlowUntil) ? (1 - (u._cryoSlowAmount || CFG.CRYO_SLOW)) : 1;
+    let hyperMul = 1;
+    if (u._pirateHyperUntil && state.t < u._pirateHyperUntil) {
+      const wpH = u.waypoints;
+      const tgtH = wpH && wpH.length ? wpH[0] : null;
+      hyperMul = tgtH && Math.hypot(tgtH.x - u.x, tgtH.y - u.y) > PIRATE_RAID_HYPER_DIST ? PIRATE_RAID_HYPER_SPEED_MUL : 1;
+    }
+    const fleetBoostMul = (state._fleetBoostUntil && state._fleetBoostUntil[u.owner] && state.t < state._fleetBoostUntil[u.owner]) ? 1.5 : 1;
+    const speedMuls = terrainSpd * unitSpeedMul * (u._territoryMul ?? 1) * cryoSpd * hyperMul * fleetBoostMul;
+    const speed = baseSpeed * speedMuls;
+    const blackHolePullActive = !!(u._blackHolePullUntil && state.t < u._blackHolePullUntil);
+    return {
+      leader,
+      individualSpeed,
+      speed,
+      maxMove: speed * dt,
+      maxMoveIndividual: individualSpeed * speedMuls * dt,
+      blackHolePullActive,
+      blackHolePullStep: blackHolePullActive ? Math.max(0, (u._blackHolePullSpeed || 0) * dt) : 0
+    };
+  }
+
+  function resolveAuthoritativeMovementTarget(u, desired) {
+    if (typeof SQUADLOGIC === "undefined") return;
+    const combatHelpers = {
+      getUnitAtkRange,
+      getUnitEngagementRange,
+      getUnitBaseSpeed,
+      shieldRadius,
+      getPlanetRadius,
+      getUnitHitRadius
+    };
+    const movement = SQUADLOGIC.getUnitMovementTarget(u, state, combatHelpers);
+    if (movement) {
+      desired.tx = movement.tx;
+      desired.ty = movement.ty;
+      desired.moveMode = movement.moveMode || "formation_move";
+    }
+    if (state.pirateBase && state.pirateBase.hp > 0 && u.owner !== PIRATE_OWNER_ID) {
+      const pb = state.pirateBase;
+      const pbDist = Math.hypot(u.x - pb.x, u.y - pb.y);
+      const atkR = getUnitAtkRange(u);
+      if (pbDist < atkR * 1.5 && desired.moveMode !== "stop") {
+        const sq = u.squadId != null ? state.squads?.get(u.squadId) : null;
+        if (sq) {
+          const sqUnits = SQUADLOGIC.getSquadUnits(state, sq);
+          const ui = sqUnits.indexOf(u);
+          if (ui >= 0) {
+            const angle = (ui / Math.max(1, sqUnits.length)) * Math.PI * 2;
+            desired.tx = pb.x + Math.cos(angle) * atkR * 0.85;
+            desired.ty = pb.y + Math.sin(angle) * atkR * 0.85;
+            desired.moveMode = "squad_anchor";
+          }
+        }
+      }
+    }
+  }
+
+  function resolveLegacyMovementTarget(u, desired) {
+    if (desired.moveMode !== "stop") return;
+    const wp = u.waypoints;
+    const idx = u.waypointIndex ?? 0;
+    if (wp && idx < wp.length) {
+      const margin = 60;
+      const wt = wp[idx];
+      let wtx = clamp(wt.x, margin, CFG.WORLD_W - margin);
+      let wty = clamp(wt.y, margin, CFG.WORLD_H - margin);
+      const hasChaseTarget = u.chaseTargetUnitId != null || u.chaseTargetCityId != null;
+      if (!u.leaderId && !hasChaseTarget) {
+        const lox = u.formationOffsetX ?? 0;
+        const loy = u.formationOffsetY ?? 0;
+        if (lox !== 0 || loy !== 0) {
+          const fdelta = (u._lastFacingAngle ?? 0) - (u._formationAngle ?? 0);
+          if (Math.abs(fdelta) < 0.01) {
+            wtx += lox;
+            wty += loy;
+          } else {
+            const fcos = Math.cos(fdelta), fsin = Math.sin(fdelta);
+            wtx += lox * fcos - loy * fsin;
+            wty += lox * fsin + loy * fcos;
+          }
+        }
+      }
+      const wDist = Math.hypot(wtx - u.x, wty - u.y);
+      if (wDist <= WAYPOINT_RADIUS) {
+        u.waypointIndex = idx + 1;
+        if (u.waypointIndex >= wp.length && u.leaderId == null) {
+          const squad = [u];
+          for (const v of state.units.values()) if (v.leaderId === u.id) squad.push(v);
+          if (u.targetFormationAngle != null) {
+            applyFormationToSquad(squad, u.formationType || "pig", u.formationRows || 1, Math.cos(u.targetFormationAngle), Math.sin(u.targetFormationAngle), u.formationPigWidth);
+            u.targetFormationAngle = undefined;
+          }
+        }
+        if (u.waypointIndex < wp.length) {
+          const nw = wp[u.waypointIndex];
+          let nx = clamp(nw.x, margin, CFG.WORLD_W - margin);
+          let ny = clamp(nw.y, margin, CFG.WORLD_H - margin);
+          if (!u.leaderId && !hasChaseTarget) {
+            const lox2 = u.formationOffsetX ?? 0;
+            const loy2 = u.formationOffsetY ?? 0;
+            if (lox2 !== 0 || loy2 !== 0) {
+              const fdelta2 = (u._lastFacingAngle ?? 0) - (u._formationAngle ?? 0);
+              if (Math.abs(fdelta2) < 0.01) {
+                nx += lox2;
+                ny += loy2;
+              } else {
+                const fcos2 = Math.cos(fdelta2), fsin2 = Math.sin(fdelta2);
+                nx += lox2 * fcos2 - loy2 * fsin2;
+                ny += lox2 * fsin2 + loy2 * fcos2;
+              }
+            }
+          }
+          desired.tx = nx;
+          desired.ty = ny;
+          desired.moveMode = "waypoint";
+        }
+      } else {
+        desired.tx = wtx;
+        desired.ty = wty;
+        desired.moveMode = "waypoint";
+      }
+    } else if (u.straightMode && (u.vx || u.vy)) {
+      desired.tx = u.x + u.vx * 100;
+      desired.ty = u.y + u.vy * 100;
+      desired.moveMode = "straight";
+    }
+  }
+
+  function resolveDesiredMovementTarget(u, motionCtx) {
+    const desired = { tx: u.x, ty: u.y, moveMode: "stop" };
+    if (motionCtx && typeof SQUADLOGIC !== "undefined" && SQUADLOGIC.getUnitMovementTarget) {
+      resolveAuthoritativeMovementTarget(u, desired);
+    }
+    resolveLegacyMovementTarget(u, desired);
+    if (motionCtx.blackHolePullActive) {
+      desired.tx = u._blackHolePullX != null ? u._blackHolePullX : desired.tx;
+      desired.ty = u._blackHolePullY != null ? u._blackHolePullY : desired.ty;
+      desired.moveMode = "blackhole_pull";
+    }
+    return desired;
+  }
+
+  function applyHeadingAndMovement(u, desired, motionCtx, dt) {
+    let dx = desired.tx - u.x;
+    let dy = desired.ty - u.y;
+    let dist = Math.hypot(dx, dy);
+    const TURN_RATE = 4.5;
+
+    if (desired.moveMode === "free_chase" && dist > 1) {
+      const atkR = getUnitAtkRange(u) * 0.85;
+      if (dist <= atkR) {
+        desired.moveMode = "stop";
+        const faceAngle = Math.atan2(dy, dx);
+        u._lastFacingAngle = faceAngle;
+        u.vx = Math.cos(faceAngle);
+        u.vy = Math.sin(faceAngle);
+      }
+    }
+
+    if (dist < 2 && desired.moveMode !== "stop") {
+      u.vx = motionCtx.leader?.vx || 0;
+      u.vy = motionCtx.leader?.vy || 0;
+      return;
+    }
+    if (dist <= 0.5 || desired.moveMode === "stop") return;
+
+    const desiredAngle = Math.atan2(dy, dx);
+    let curFacing = u._lastFacingAngle ?? desiredAngle;
+    let angleDiff = desiredAngle - curFacing;
+    while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+    while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+
+    const turnStep = TURN_RATE * dt;
+    if (Math.abs(angleDiff) > turnStep) curFacing += Math.sign(angleDiff) * turnStep;
+    else curFacing = desiredAngle;
+
+    u._lastFacingAngle = curFacing;
+    const dirX = Math.cos(curFacing), dirY = Math.sin(curFacing);
+    const facingDot = Math.cos(angleDiff);
+    const moveScale = Math.max(0, facingDot);
+    const isFreeChase = desired.moveMode === "free_chase";
+    const isBlackHolePull = desired.moveMode === "blackhole_pull";
+    const effectiveMax = isBlackHolePull
+      ? motionCtx.blackHolePullStep
+      : (isFreeChase ? motionCtx.maxMoveIndividual : motionCtx.maxMove);
+    const decel = (!isFreeChase && !isBlackHolePull && dist < 20) ? (dist / 20) : 1;
+    const moveDist = Math.min(effectiveMax * decel * moveScale, dist);
+    if (moveDist > 0.01) {
+      u.x += Math.cos(curFacing) * moveDist;
+      u.y += Math.sin(curFacing) * moveDist;
+    }
+    const spd = dt > 0 ? moveDist / dt : 0;
+    u.vx = dirX * spd;
+    u.vy = dirY * spd;
+  }
+
+  function applyFriendlySeparation(u) {
+    const uType = UNIT_TYPES[u.unitType] || UNIT_TYPES.fighter;
+    const uSize = (uType.sizeMultiplier || 1) * 6 + 8;
+    const searchR = uSize + 40;
+    const neighbors = queryHash(u.x, u.y, searchR);
+    let sx = 0;
+    let sy = 0;
+    for (let ni = 0; ni < neighbors.length; ni++) {
+      const v = neighbors[ni];
+      if (v.id === u.id) continue;
+      if (v.owner !== u.owner) continue;
+      if (u.squadId != null && v.squadId != null && u.squadId === v.squadId) continue;
+      const vType = UNIT_TYPES[v.unitType] || UNIT_TYPES.fighter;
+      const vSize = (vType.sizeMultiplier || 1) * 6 + 8;
+      const minDist = Math.max(MIN_PERSONAL_DIST, (uSize + vSize) * 0.55);
+      const sdx = u.x - v.x;
+      const sdy = u.y - v.y;
+      const sDist = Math.hypot(sdx, sdy);
+      if (sDist < minDist && sDist > 0.1) {
+        const push = ((minDist - sDist) / minDist) * SEPARATION_PUSH;
+        sx += (sdx / sDist) * push;
+        sy += (sdy / sDist) * push;
+      }
+    }
+    const sl = Math.hypot(sx, sy);
+    if (sl > 2.0) {
+      sx *= 2.0 / sl;
+      sy *= 2.0 / sl;
+    }
+    u.x += sx;
+    u.y += sy;
+  }
+
+  function applyCombatZoneBoundary(u, motionCtx) {
+    if (!motionCtx || typeof SQUADLOGIC === "undefined") return;
+    const sq = getAuthoritativeSquadStateForUnit(u);
+    if (!isAuthoritativeSquadInCombat(sq) || sq.combat.zoneId == null) return;
+    const zone = state.engagementZones.get(sq.combat.zoneId);
+    const steer = SQUADLOGIC.getZoneBoundarySteer(u.x, u.y, zone);
+    if (!steer) return;
+    const push = steer.strength * motionCtx.maxMove * 0.8;
+    u.x += steer.sx * push;
+    u.y += steer.sy * push;
+  }
+
+  function applyObstaclePushes(u) {
+    for (const cp of state.players.values()) {
+      if (cp.eliminated) continue;
+      const noFlyR = shieldRadius(cp);
+      const dToCity = Math.hypot(u.x - cp.x, u.y - cp.y);
+      if (dToCity > 0 && dToCity < noFlyR) {
+        const scale = noFlyR / dToCity;
+        u.x = cp.x + (u.x - cp.x) * scale;
+        u.y = cp.y + (u.y - cp.y) * scale;
+      }
+    }
+    const mineR = (CFG.MINE_CAPTURE_RADIUS || 140) * 0.35;
+    for (const mine of state.mines.values()) {
+      const dToMine = Math.hypot(u.x - mine.x, u.y - mine.y);
+      if (dToMine > 0 && dToMine < mineR) {
+        const scale = mineR / dToMine;
+        u.x = mine.x + (u.x - mine.x) * scale;
+        u.y = mine.y + (u.y - mine.y) * scale;
+      }
+    }
+  }
+
+  function applyEnemyCollision(u, dt) {
+    const uBR = getUnitBoundingR(u);
+    const searchR = uBR * 2 + 15;
+    const nearU = queryHash(u.x, u.y, searchR);
+    const massU = u.sizeMultiplier || 1;
+    const obbA = getUnitOBB(u);
+    for (let ni = 0; ni < nearU.length; ni++) {
+      const v = nearU[ni];
+      if (v.id === u.id || v.owner === u.owner) continue;
+      const roughD = Math.abs(u.x - v.x) + Math.abs(u.y - v.y);
+      if (roughD > searchR) continue;
+      const obbB = getUnitOBB(v);
+      const hit = obbOverlap(obbA, obbB);
+      if (!hit) continue;
+      const massV = v.sizeMultiplier || 1;
+      const massRatio = massV / (massU + massV);
+      const push = Math.min(hit.overlap * 0.15 * dt, hit.overlap * 0.04) * massRatio;
+      u.x += hit.nx * push;
+      u.y += hit.ny * push;
+      if (!isUnitInAuthoritativeCombat(u)) {
+        if (typeof SQUADLOGIC !== "undefined" && SQUADLOGIC.recordDamageSource) {
+          SQUADLOGIC.recordDamageSource(u, v.id, state);
+        } else {
+          u._lastDamagedByUnitId = v.id;
+          u._lastDamagedAt = state.t;
+        }
+      }
+    }
+  }
+
+  function applyFinalWorldClamp(u) {
+    const inPirateHyper = u._pirateHyperUntil && state.t < u._pirateHyperUntil;
+    if (inPirateHyper) {
+      u.x = clamp(u.x, -500, CFG.WORLD_W + 500);
+      u.y = clamp(u.y, -500, CFG.WORLD_H + 500);
+    } else {
+      u.x = clamp(u.x, 0, CFG.WORLD_W);
+      u.y = clamp(u.y, 0, CFG.WORLD_H);
+    }
+  }
+
   function stepUnits(dt) {
     const useSquadLogic = typeof SQUADLOGIC !== "undefined" && SQUADLOGIC.getUnitMovementTarget;
     // ═══════════════════════════════════════════════════════════════════
@@ -6346,300 +6671,29 @@
     // Each unit resolves to a single target (tx,ty) then moves toward it
     // ═══════════════════════════════════════════════════════════════════
     for (const u of state.units.values()) {
-      if (u.leaderId && !state.units.get(u.leaderId)) u.leaderId = null;
-      const leader = u.leaderId ? state.units.get(u.leaderId) : null;
+      const motionCtx = createUnitMotionContext(u, dt, useSquadLogic);
 
-      // ── 1. SPEED CALCULATION (squad speed from cache) ─────────────
-      const zoneOwner = getZoneOwnerFast(u.x, u.y);
-      u._territoryMul = zoneOwner === u.owner ? 1.1 : (zoneOwner !== 0 && zoneOwner !== u.owner ? 0.9 : 1);
-      const terrainSpd = getTerrainSpeedMultiplier(u.x, u.y);
-      const owner = state.players.get(u.owner);
-      let unitSpeedMul = (owner && owner.unitSpeedMul != null ? owner.unitSpeedMul : 1) * getLevelBonusMul(owner);
-      if (owner && state._battleMarchUntil && state._battleMarchUntil[owner.id] > state.t) unitSpeedMul *= 1.3;
-      const classOrder = ["fighter", "destroyer", "cruiser", "battleship", "hyperDestroyer"];
-      const classIdx = classOrder.indexOf(u.unitType || "fighter");
-      const individualSpeed = (u.speed || UNIT_TYPES[u.unitType || "fighter"]?.speed || 9) * 1.1 * Math.max(0.5, 1 - classIdx * 0.06);
-      let baseSpeed;
-      if (useSquadLogic && u.squadId != null) {
-        baseSpeed = SQUADLOGIC.getSquadSpeed(state, u.squadId) || individualSpeed;
-      } else {
-        baseSpeed = individualSpeed;
-      }
-      const cryoSpd = (u._cryoSlowUntil && state.t < u._cryoSlowUntil) ? (1 - (u._cryoSlowAmount || CFG.CRYO_SLOW)) : 1;
-      let hyperMul = 1;
-      if (u._pirateHyperUntil && state.t < u._pirateHyperUntil) {
-        const wpH = u.waypoints;
-        const tgtH = wpH && wpH.length ? wpH[0] : null;
-        hyperMul = tgtH && Math.hypot(tgtH.x - u.x, tgtH.y - u.y) > PIRATE_RAID_HYPER_DIST ? PIRATE_RAID_HYPER_SPEED_MUL : 1;
-      }
-      const fleetBoostMul = (state._fleetBoostUntil && state._fleetBoostUntil[u.owner] && state.t < state._fleetBoostUntil[u.owner]) ? 1.5 : 1;
-      const speedMuls = terrainSpd * unitSpeedMul * (u._territoryMul ?? 1) * cryoSpd * hyperMul * fleetBoostMul;
-      const speed = baseSpeed * speedMuls;
-      const maxMove = speed * dt;
-      const maxMoveIndividual = individualSpeed * speedMuls * dt;
+      // 1. resolve desired movement target
+      const desired = resolveDesiredMovementTarget(u, motionCtx);
 
-      // ── 2. RESOLVE TARGET POSITION ────────────────────────────────
-      let tx = u.x, ty = u.y;
-      let moveMode = "stop"; // stop | combat | orbit | formation | waypoint | straight
+      // 2. turning / heading
+      // 3. formation movement / forward step toward target
+      applyHeadingAndMovement(u, desired, motionCtx, dt);
 
-      const attackingShield = u.chaseTargetCityId != null && (() => {
-        const c = state.players.get(u.chaseTargetCityId);
-        return c && (c.shieldHp || 0) > 0;
-      })();
+      // 4. friendly separation
+      applyFriendlySeparation(u);
 
-      const combatHelpers = { getUnitAtkRange, getUnitEngagementRange, getUnitBaseSpeed, shieldRadius, getPlanetRadius, getUnitHitRadius };
+      // 5. boundary constraints
+      applyCombatZoneBoundary(u, motionCtx);
 
-      if (useSquadLogic) {
-        const movement = SQUADLOGIC.getUnitMovementTarget(u, state, combatHelpers);
-        if (movement) {
-          tx = movement.tx;
-          ty = movement.ty;
-          moveMode = movement.moveMode || "formation_move";
-        }
-        if (state.pirateBase && state.pirateBase.hp > 0 && u.owner !== PIRATE_OWNER_ID) {
-          const pb = state.pirateBase;
-          const pbDist = Math.hypot(u.x - pb.x, u.y - pb.y);
-          const atkR = getUnitAtkRange(u);
-          if (pbDist < atkR * 1.5 && moveMode !== "stop") {
-            const sq = u.squadId != null ? state.squads?.get(u.squadId) : null;
-            if (sq) {
-              const sqUnits = SQUADLOGIC.getSquadUnits(state, sq);
-              const ui = sqUnits.indexOf(u);
-              if (ui >= 0) {
-                const angle = (ui / Math.max(1, sqUnits.length)) * Math.PI * 2;
-                tx = pb.x + Math.cos(angle) * atkR * 0.85;
-                ty = pb.y + Math.sin(angle) * atkR * 0.85;
-                moveMode = "squad_anchor";
-              }
-            }
-          }
-        }
-      }
+      // 6. obstacle push / shield push / mine push
+      applyObstaclePushes(u);
 
-      if (moveMode === "stop") {
-        const wp = u.waypoints;
-        const idx = u.waypointIndex ?? 0;
-        if (wp && idx < wp.length) {
-          const margin = 60;
-          const wt = wp[idx];
-          let wtx = clamp(wt.x, margin, CFG.WORLD_W - margin);
-          let wty = clamp(wt.y, margin, CFG.WORLD_H - margin);
-          const hasChaseTarget = u.chaseTargetUnitId != null || u.chaseTargetCityId != null;
-          if (!u.leaderId && !hasChaseTarget) {
-            const lox = u.formationOffsetX ?? 0;
-            const loy = u.formationOffsetY ?? 0;
-            if (lox !== 0 || loy !== 0) {
-              const fdelta = (u._lastFacingAngle ?? 0) - (u._formationAngle ?? 0);
-              if (Math.abs(fdelta) < 0.01) {
-                wtx += lox; wty += loy;
-              } else {
-                const fcos = Math.cos(fdelta), fsin = Math.sin(fdelta);
-                wtx += lox * fcos - loy * fsin;
-                wty += lox * fsin + loy * fcos;
-              }
-            }
-          }
-          const wDist = Math.hypot(wtx - u.x, wty - u.y);
-          if (wDist <= WAYPOINT_RADIUS) {
-            u.waypointIndex = idx + 1;
-            if (u.waypointIndex >= wp.length && u.leaderId == null) {
-              const squad = [u];
-              for (const v of state.units.values()) if (v.leaderId === u.id) squad.push(v);
-              if (u.targetFormationAngle != null) {
-                applyFormationToSquad(squad, u.formationType || "pig", u.formationRows || 1, Math.cos(u.targetFormationAngle), Math.sin(u.targetFormationAngle), u.formationPigWidth);
-                u.targetFormationAngle = undefined;
-              }
-            }
-            if (u.waypointIndex < wp.length) {
-              const nw = wp[u.waypointIndex];
-              let nx = clamp(nw.x, margin, CFG.WORLD_W - margin);
-              let ny = clamp(nw.y, margin, CFG.WORLD_H - margin);
-              if (!u.leaderId && !hasChaseTarget) {
-                const lox2 = u.formationOffsetX ?? 0;
-                const loy2 = u.formationOffsetY ?? 0;
-                if (lox2 !== 0 || loy2 !== 0) {
-                  const fdelta2 = (u._lastFacingAngle ?? 0) - (u._formationAngle ?? 0);
-                  if (Math.abs(fdelta2) < 0.01) {
-                    nx += lox2; ny += loy2;
-                  } else {
-                    const fcos2 = Math.cos(fdelta2), fsin2 = Math.sin(fdelta2);
-                    nx += lox2 * fcos2 - loy2 * fsin2;
-                    ny += lox2 * fsin2 + loy2 * fcos2;
-                  }
-                }
-              }
-              tx = nx;
-              ty = ny;
-              moveMode = "waypoint";
-            }
-          } else {
-            tx = wtx;
-            ty = wty;
-            moveMode = "waypoint";
-          }
-        } else if (u.straightMode && (u.vx || u.vy)) {
-          tx = u.x + u.vx * 100;
-          ty = u.y + u.vy * 100;
-          moveMode = "straight";
-        }
-      }
+      // 7. enemy collision
+      applyEnemyCollision(u, dt);
 
-      // ── 3. MOVE TOWARD TARGET (with ship turning) ─────────────────
-      let dx = tx - u.x, dy = ty - u.y;
-      let dist = Math.hypot(dx, dy);
-      const TURN_RATE = 4.5;
-
-      if (moveMode === "free_chase" && dist > 1) {
-        const atkR = getUnitAtkRange(u) * 0.85;
-        if (dist <= atkR) {
-          moveMode = "stop";
-          const faceAngle = Math.atan2(dy, dx);
-          u._lastFacingAngle = faceAngle;
-          u.vx = Math.cos(faceAngle);
-          u.vy = Math.sin(faceAngle);
-        }
-      }
-
-      if (dist < 2 && moveMode !== "stop") {
-        u.vx = leader?.vx || 0;
-        u.vy = leader?.vy || 0;
-      } else if (dist > 0.5 && moveMode !== "stop") {
-        const desiredAngle = Math.atan2(dy, dx);
-        let curFacing = u._lastFacingAngle ?? desiredAngle;
-        let angleDiff = desiredAngle - curFacing;
-        while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
-        while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
-
-        const turnStep = TURN_RATE * dt;
-        if (Math.abs(angleDiff) > turnStep) {
-          curFacing += Math.sign(angleDiff) * turnStep;
-        } else {
-          curFacing = desiredAngle;
-        }
-        u._lastFacingAngle = curFacing;
-        const dirX = Math.cos(curFacing), dirY = Math.sin(curFacing);
-        u.vx = dirX;
-        u.vy = dirY;
-
-        const facingDot = Math.cos(angleDiff);
-        const moveScale = Math.max(0, facingDot);
-
-        const isFreeChase = moveMode === "free_chase";
-        const effectiveMax = isFreeChase ? maxMoveIndividual : maxMove;
-        const decel = (!isFreeChase && dist < 20) ? (dist / 20) : 1;
-        const moveDist = Math.min(effectiveMax * decel * moveScale, dist);
-        if (moveDist > 0.01) {
-          u.x += Math.cos(curFacing) * moveDist;
-          u.y += Math.sin(curFacing) * moveDist;
-        }
-        const spd = dt > 0 ? moveDist / dt : 0;
-        u.vx = dirX * spd;
-        u.vy = dirY * spd;
-      }
-
-      // ── 4. SEPARATION (size-aware, prevents small ships falling under big ones)
-      {
-        const uType = UNIT_TYPES[u.unitType] || UNIT_TYPES.fighter;
-        const uSize = (uType.sizeMultiplier || 1) * 6 + 8;
-        const searchR = uSize + 40;
-        const neighbors = queryHash(u.x, u.y, searchR);
-        let sx = 0, sy = 0;
-        for (let ni = 0; ni < neighbors.length; ni++) {
-          const v = neighbors[ni];
-          if (v.id === u.id) continue;
-          const vType = UNIT_TYPES[v.unitType] || UNIT_TYPES.fighter;
-          const vSize = (vType.sizeMultiplier || 1) * 6 + 8;
-          const minDist = (uSize + vSize) * 0.7;
-          const sdx = u.x - v.x, sdy = u.y - v.y;
-          const sDist = Math.hypot(sdx, sdy);
-          if (sDist < minDist && sDist > 0.1) {
-            const isEnemy = v.owner !== u.owner;
-            const push = ((minDist - sDist) / minDist) * (isEnemy ? 1.2 : 0.5);
-            sx += (sdx / sDist) * push;
-            sy += (sdy / sDist) * push;
-          }
-        }
-        const sl = Math.hypot(sx, sy);
-        if (sl > 2.0) { sx *= 2.0 / sl; sy *= 2.0 / sl; }
-        u.x += sx;
-        u.y += sy;
-      }
-
-      // ── 4b. ZONE BOUNDARY CONTAINMENT ──
-      if (useSquadLogic && u.squadId != null && u._combatState && u._combatState !== "idle") {
-        const sq = state.squads.get(u.squadId);
-        if (sq && sq.combat.zoneId != null) {
-          const zone = state.engagementZones.get(sq.combat.zoneId);
-          const steer = SQUADLOGIC.getZoneBoundarySteer(u.x, u.y, zone);
-          if (steer) {
-            const push = steer.strength * maxMove * 0.8;
-            u.x += steer.sx * push;
-            u.y += steer.sy * push;
-          }
-        }
-      }
-
-      // ── 5. SHIELD PUSH + MINE PUSH + WORLD CLAMP ─────────────────
-      for (const cp of state.players.values()) {
-        if (cp.eliminated) continue;
-        const noFlyR = shieldRadius(cp);
-        const dToCity = Math.hypot(u.x - cp.x, u.y - cp.y);
-        if (dToCity > 0 && dToCity < noFlyR) {
-          const scale = noFlyR / dToCity;
-          u.x = cp.x + (u.x - cp.x) * scale;
-          u.y = cp.y + (u.y - cp.y) * scale;
-        }
-      }
-      const mineR = (CFG.MINE_CAPTURE_RADIUS || 140) * 0.35;
-      for (const mine of state.mines.values()) {
-        const dToMine = Math.hypot(u.x - mine.x, u.y - mine.y);
-        if (dToMine > 0 && dToMine < mineR) {
-          const scale = mineR / dToMine;
-          u.x = mine.x + (u.x - mine.x) * scale;
-          u.y = mine.y + (u.y - mine.y) * scale;
-        }
-      }
-      const inPirateHyper = u._pirateHyperUntil && state.t < u._pirateHyperUntil;
-      if (inPirateHyper) {
-        u.x = clamp(u.x, -500, CFG.WORLD_W + 500);
-        u.y = clamp(u.y, -500, CFG.WORLD_H + 500);
-      } else {
-        u.x = clamp(u.x, 0, CFG.WORLD_W);
-        u.y = clamp(u.y, 0, CFG.WORLD_H);
-      }
-
-      // ── 6. HITBOX COLLISION (enemies only, mass-based) ─────────────
-      // Friendly units pass through each other completely.
-      // Enemy OBB collision blocks and pushes units apart.
-      {
-        const uBR = getUnitBoundingR(u);
-        const searchR = uBR * 2 + 15;
-        const nearU = queryHash(u.x, u.y, searchR);
-        const massU = u.sizeMultiplier || 1;
-        const obbA = getUnitOBB(u);
-        for (let ni = 0; ni < nearU.length; ni++) {
-          const v = nearU[ni];
-          if (v.id === u.id || v.owner === u.owner) continue;
-          const roughD = Math.abs(u.x - v.x) + Math.abs(u.y - v.y);
-          if (roughD > searchR) continue;
-          const obbB = getUnitOBB(v);
-          const hit = obbOverlap(obbA, obbB);
-          if (!hit) continue;
-          const massV = v.sizeMultiplier || 1;
-          const massRatio = massV / (massU + massV);
-          const push = Math.min(hit.overlap * 0.15 * dt, hit.overlap * 0.04) * massRatio;
-          u.x += hit.nx * push;
-          u.y += hit.ny * push;
-          if (u._combatState === "idle" || u._combatState === "move") {
-            if (typeof SQUADLOGIC !== "undefined" && SQUADLOGIC.recordDamageSource) {
-              SQUADLOGIC.recordDamageSource(u, v.id, state);
-            } else {
-              u._lastDamagedByUnitId = v.id;
-              u._lastDamagedAt = state.t;
-            }
-          }
-        }
-      }
+      // 8. final clamp
+      applyFinalWorldClamp(u);
 
       if (u.gfx) {
         const vis = inView(u.x, u.y);
@@ -6710,11 +6764,11 @@
     }
   }
 
-  // Combat debug labels (shows state above each unit)
+  // Combat debug labels (authoritative squad state above each leader)
   function updateCombatDebugLabels() {
     const debugEnabled = typeof COMBAT !== "undefined" && COMBAT.DEBUG && COMBAT.DEBUG.enabled;
-    
-    if (!debugEnabled) {
+
+    if (!debugEnabled || typeof SQUADLOGIC === "undefined" || !SQUADLOGIC.getSquadList || !SQUADLOGIC.getSquadDebugState) {
       // Clear all labels
       for (const [uid, label] of combatDebugLabels) {
         if (label.parent) label.parent.removeChild(label);
@@ -6723,15 +6777,31 @@
       combatDebugLabels.clear();
       return;
     }
-    
+
+    function formatOrderDebug(order) {
+      if (!order || !order.type || order.type === "idle") return "-";
+      const parts = [order.type];
+      if (order.targetUnitId != null) parts.push(`u${order.targetUnitId}`);
+      if (order.targetCityId != null) parts.push(`c${order.targetCityId}`);
+      if (order.mineId != null) parts.push(`m${order.mineId}`);
+      if (order.waypointCount) parts.push(`wp${order.waypointCount}`);
+      if (order.holdPoint) parts.push("hold");
+      return parts.join(":");
+    }
+
     const activeIds = new Set();
-    for (const u of state.units.values()) {
-      if (u.hp <= 0) continue;
-      if (!inView(u.x, u.y)) continue;
-      
-      activeIds.add(u.id);
-      let label = combatDebugLabels.get(u.id);
-      
+    for (const squadState of SQUADLOGIC.getSquadList(state)) {
+      const leader = state.units.get(squadState.leaderUnitId);
+      if (!leader || leader.hp <= 0) continue;
+      if (!inView(leader.x, leader.y)) continue;
+
+      const debugState = SQUADLOGIC.getSquadDebugState(state, squadState.id);
+      if (!debugState) continue;
+
+      const labelId = `squad:${debugState.squadId}`;
+      activeIds.add(labelId);
+      let label = combatDebugLabels.get(labelId);
+
       if (!label) {
         label = new PIXI.Text({
           text: "",
@@ -6739,42 +6809,30 @@
             fontFamily: "monospace",
             fontSize: 10,
             fill: 0xffffff,
+            align: "center",
             stroke: { color: 0x000000, width: 2 }
           }
         });
         label.anchor.set(0.5, 1);
         combatDebugLayer.addChild(label);
-        combatDebugLabels.set(u.id, label);
+        combatDebugLabels.set(labelId, label);
       }
-      
-      const stateLabel = COMBAT.getStateLabel ? COMBAT.getStateLabel(u) : "?";
-      let targetDist = "";
-      if (u._currentTargetId != null) {
-        const tgt = state.units.get(u._currentTargetId);
-        if (tgt) targetDist = ` d${Math.round(Math.hypot(tgt.x - u.x, tgt.y - u.y))}`;
-      }
-      const targetInfo = u._currentTargetId != null ? `>${u._currentTargetId}${targetDist}` : "";
-      const cityInfo = u._siegeTargetId != null ? `[S]` : "";
-      const cdInfo = u.atkCd > 0 ? ` cd${u.atkCd.toFixed(1)}` : "";
-      // Squad engagement info for leaders
-      const engLabel = (!u.leaderId && COMBAT.getEngagementLabel) ? COMBAT.getEngagementLabel(u) : "";
-      // Phase indicator for followers
-      let phaseTag = "";
-      if (u.leaderId) {
-        const sqLdr = state.units.get(u.leaderId);
-        if (sqLdr && sqLdr._squadCombatPhase) phaseTag = sqLdr._squadCombatPhase === "engaged" ? " E" : " A";
-      }
-      label.text = `${stateLabel}${targetInfo}${cityInfo}${cdInfo}${engLabel}${phaseTag}`;
-      label.position.set(u.x, u.y - 15);
+
+      label.text = [
+        `SQ${debugState.squadId} ${debugState.mode} combat=${debugState.inCombat ? 1 : 0} lock=${debugState.combatLocked ? 1 : 0}`,
+        `zone=${debugState.combatZoneId ?? "-"} targetSq=${debugState.combatTargetSquadId ?? "-"}`,
+        `queue=${formatOrderDebug(debugState.queuedOrder)} resume=${formatOrderDebug(debugState.resumeOrder)}`
+      ].join("\n");
+      label.position.set(leader.x, leader.y - 18);
       label.visible = true;
     }
-    
-    // Remove labels for dead/out-of-view units
-    for (const [uid, label] of combatDebugLabels) {
-      if (!activeIds.has(uid)) {
+
+    // Remove labels for dead/out-of-view squads
+    for (const [labelId, label] of combatDebugLabels) {
+      if (!activeIds.has(labelId)) {
         if (label.parent) label.parent.removeChild(label);
         label.destroy();
-        combatDebugLabels.delete(uid);
+        combatDebugLabels.delete(labelId);
       }
     }
   }
@@ -7446,8 +7504,8 @@
 
       for (const squad of squads) {
         const leader = squad.find(u => !u.leaderId) || squad[0];
-        const lcs = leader._combatState;
-        if (lcs === "acquire" || lcs === "chase" || lcs === "attack" || lcs === "siege") continue;
+        const squadState = getSquadStateFromUnits(squad);
+        if (isAuthoritativeSquadInCombat(squadState)) continue;
         if (squad.length < stagingMinSize) {
           setSquadWaypoint(squad, p.x + rand(-60, 60), p.y + rand(-60, 60));
           continue;
@@ -7520,9 +7578,7 @@
   // ------------------------------------------------------------
   // Input: camera, selection, target click
   // ------------------------------------------------------------
-  let isPanning = false;
-  let panBtn = 0;
-  let lastX = 0, lastY = 0;
+  const selectionPointerState = { isPanning: false, panBtn: 0, lastX: 0, lastY: 0 };
   const HIT_RADIUS = 28;
 
   function unitAtWorld(wx, wy) {
@@ -7660,504 +7716,12 @@
   if (enemyCityPanelCloseEl) enemyCityPanelCloseEl.addEventListener("click", closeEnemyCityPanel);
 
   function unitsInRect(x1, y1, x2, y2) {
-    const lx = Math.min(x1, x2), rx = Math.max(x1, x2);
-    const ly = Math.min(y1, y2), ry = Math.max(y1, y2);
-    const out = [];
-    for (const u of state.units.values()) {
-      if (u.owner !== state.myPlayerId) continue;
-      if (u.x >= lx && u.x <= rx && u.y >= ly && u.y <= ry) out.push(u);
-    }
-    return out;
+    return selectionAndOrdersApi ? selectionAndOrdersApi.unitsInRect(x1, y1, x2, y2) : [];
   }
 
   function getSelectedSquads() {
-    const seen = new Set();
-    const squads = [];
-    for (const id of state.selectedUnitIds) {
-      const u = state.units.get(id);
-      if (!u || u.owner !== state.myPlayerId) continue;
-      const lid = u.leaderId || u.id;
-      if (seen.has(lid)) continue;
-      seen.add(lid);
-      const squad = [];
-      for (const v of state.units.values())
-        if ((v.leaderId || v.id) === lid && v.owner === state.myPlayerId) squad.push(v);
-      if (squad.length) squads.push(squad);
-    }
-    return squads;
+    return selectionAndOrdersApi ? selectionAndOrdersApi.getSelectedSquads() : [];
   }
-
-  app.canvas.addEventListener("contextmenu", (e) => e.preventDefault());
-
-  app.canvas.addEventListener("pointerdown", (e) => {
-    ensureAudio();
-    const btn = e.button;
-    const pt = screenToWorld(e.clientX, e.clientY);
-
-    if (btn === 2 || btn === 1) {
-      if (btn === 2 && state.selectedUnitIds.size > 0) {
-        const enemyUnit = unitAtWorldAny(pt.x, pt.y);
-        const city = cityAtWorld(pt.x, pt.y);
-        if (enemyUnit && enemyUnit.owner !== state.myPlayerId) {
-          state.orderPreview = { type: "attackUnit", targetUnitId: enemyUnit.id, x: enemyUnit.x, y: enemyUnit.y };
-          state.formationPreview = null;
-          return;
-        }
-        if (city && city.id !== state.myPlayerId) {
-          state.orderPreview = { type: "attackCity", targetCityId: city.id, x: city.x, y: city.y };
-          state.formationPreview = null;
-          return;
-        }
-        if (state.pirateBase && state.pirateBase.hp > 0) {
-          const pbd = Math.hypot(pt.x - state.pirateBase.x, pt.y - state.pirateBase.y);
-          if (pbd < 50) {
-            state.orderPreview = { type: "attackPirateBase", x: state.pirateBase.x, y: state.pirateBase.y };
-            state.formationPreview = null;
-            return;
-          }
-        }
-        const clickedMine = mineAtWorld(pt.x, pt.y);
-        if (clickedMine) {
-          state.orderPreview = { type: "capture", mineId: clickedMine.id, x: clickedMine.x, y: clickedMine.y };
-          state.formationPreview = null;
-          return;
-        }
-        const squads = getSelectedSquads();
-        let cx = 0, cy = 0, n = 0;
-        for (const squad of squads) for (const u of squad) { cx += u.x; cy += u.y; n++; }
-        if (n) { cx /= n; cy /= n; }
-        state.orderPreview = { type: "move", x: pt.x, y: pt.y };
-        state._rmbHoldStart = performance.now();
-        state._rmbHoldPt = { x: pt.x, y: pt.y, cx, cy, screenX: e.clientX, screenY: e.clientY };
-        state.formationPreview = null;
-        return;
-      }
-      isPanning = true;
-      panBtn = btn;
-      lastX = e.clientX;
-      lastY = e.clientY;
-      return;
-    }
-
-    if (btn === 0) {
-      if (state._abilityTargeting) return;
-      if (state.rallyPointMode) {
-        state.rallyPoint = { x: pt.x, y: pt.y };
-        state.rallyPointMode = false;
-        if (rallyPointHintEl) rallyPointHintEl.textContent = "Точка сбора: " + Math.round(pt.x) + ", " + Math.round(pt.y);
-        return;
-      }
-      if (state.selectedUnitIds.size > 0) {
-        const clickedMine = mineAtWorld(pt.x, pt.y);
-        if (clickedMine && clickedMine.ownerId !== state.myPlayerId) {
-          const squads = getSelectedSquads();
-          for (const squad of squads) {
-            const leader = squad.find(v => (v.leaderId || v.id) === (squad[0].leaderId || squad[0].id)) || squad[0];
-            leader.chaseTargetUnitId = undefined;
-            leader.chaseTargetCityId = undefined;
-            leader.waypoints = [{ x: clickedMine.x, y: clickedMine.y }];
-            leader.waypointIndex = 0;
-            leader.straightMode = false;
-            for (const u of squad) {
-              if (u !== leader) {
-                u.waypoints = [{ x: clickedMine.x, y: clickedMine.y }];
-                u.waypointIndex = 0;
-              }
-            }
-          }
-          return;
-        }
-      }
-      if (state.selectedUnitIds.size === 0) {
-        const city = cityAtWorld(pt.x, pt.y);
-        if (city && city.id !== state.myPlayerId) {
-          showEnemyCompare(city.id);
-          return;
-        }
-      }
-      const u = unitAtWorld(pt.x, pt.y);
-      if (u) {
-        if (e.ctrlKey || e.metaKey) {
-          if (state.selectedUnitIds.has(u.id)) state.selectedUnitIds.delete(u.id);
-          else state.selectedUnitIds.add(u.id);
-        } else {
-          const lid = u.leaderId || u.id;
-          state.selectedUnitIds.clear();
-          for (const v of state.units.values())
-            if ((v.leaderId || v.id) === lid && v.owner === state.myPlayerId) state.selectedUnitIds.add(v.id);
-        }
-        state.boxStart = null;
-        state.boxEnd = null;
-        return;
-      }
-      state.boxStart = { x: pt.x, y: pt.y };
-      state.boxEnd = { x: pt.x, y: pt.y };
-      if (!e.ctrlKey && !e.metaKey) state.selectedUnitIds.clear();
-      closeEnemyCityPanel();
-      return;
-    }
-  });
-
-  window.addEventListener("pointerup", (e) => {
-    if (e.button === 0 && state.boxStart && state.boxEnd) {
-      const dx = Math.abs(state.boxEnd.x - state.boxStart.x);
-      const dy = Math.abs(state.boxEnd.y - state.boxStart.y);
-      if (dx > 5 || dy > 5) {
-        const inRect = unitsInRect(state.boxStart.x, state.boxStart.y, state.boxEnd.x, state.boxEnd.y);
-        for (const u of inRect) state.selectedUnitIds.add(u.id);
-      }
-      state.boxStart = null;
-      state.boxEnd = null;
-    }
-    if (e.button === 2) {
-      state._rmbHoldStart = null;
-      state._rmbHoldPt = null;
-    }
-    if (e.button === 2 && state.orderPreview) {
-      const order = state.orderPreview;
-      const squads = getSelectedSquads();
-      const leaderIds = [];
-      const clearSquadCombat = (squad) => {
-        if (typeof COMBAT !== "undefined" && COMBAT.clearCombatState) {
-          for (const u of squad) COMBAT.clearCombatState(u);
-        }
-      };
-      if (typeof SQUADLOGIC !== "undefined") {
-        if (order.type === "move" && state.formationPreview) {
-          const fp = state.formationPreview;
-          const addWaypoint = e.shiftKey;
-          for (const squad of squads) {
-            const squadState = getSquadStateFromUnits(squad);
-            if (!squadState) continue;
-            const leader = squad.find(u => (u.leaderId || u.id) === (squad[0].leaderId || squad[0].id)) || squad[0];
-            const fType = leader.formationType || "line";
-            const fRows = fp.dragRows != null ? fp.dragRows : (leader.formationRows || 3);
-            const pigW = fp.dragWidth != null ? fp.dragWidth : (leader.formationPigWidth ?? 1);
-            const baseWaypoints = addWaypoint ? cloneWaypointsSafe(squadState.order?.waypoints) : [];
-            baseWaypoints.push({ x: fp.x, y: fp.y });
-            SQUADLOGIC.setSquadFormation(state, squadState.id, fType, fRows, pigW);
-            SQUADLOGIC.issueMoveOrder(state, squadState.id, baseWaypoints, fp.angle);
-            SQUADLOGIC.recalculateFormation(state, squadState.id, { getFormationOffsets }, true);
-            leaderIds.push(leader.id);
-          }
-          if (state._multiSlots && !state._multiIsHost && state._socket) {
-            state._socket.emit("playerAction", { type: "move", leaderIds, waypoints: [{ x: fp.x, y: fp.y }], x: fp.x, y: fp.y, angle: fp.angle });
-          }
-        } else if (order.type === "move" && !state.formationPreview) {
-          const addWaypoint = e.shiftKey;
-          for (const squad of squads) {
-            const squadState = getSquadStateFromUnits(squad);
-            if (!squadState) continue;
-            const leader = squad.find(u => (u.leaderId || u.id) === (squad[0].leaderId || squad[0].id)) || squad[0];
-            const baseWaypoints = addWaypoint ? cloneWaypointsSafe(squadState.order?.waypoints) : [];
-            baseWaypoints.push({ x: order.x, y: order.y });
-            SQUADLOGIC.issueMoveOrder(state, squadState.id, baseWaypoints, Math.atan2(order.y - leader.y, order.x - leader.x));
-            leaderIds.push(leader.id);
-          }
-          if (state._multiSlots && !state._multiIsHost && state._socket) {
-            state._socket.emit("playerAction", { type: "move", leaderIds, waypoints: [{ x: order.x, y: order.y }], x: order.x, y: order.y });
-          }
-        } else if (order.type === "attackUnit") {
-          const target = state.units.get(order.targetUnitId);
-          if (target) {
-            const addWaypoint = e.shiftKey;
-            for (const squad of squads) {
-              const squadState = getSquadStateFromUnits(squad);
-              if (!squadState) continue;
-              const leader = squad.find(u => (u.leaderId || u.id) === (squad[0].leaderId || squad[0].id)) || squad[0];
-              const baseWaypoints = addWaypoint ? cloneWaypointsSafe(squadState.order?.waypoints) : [];
-              if (addWaypoint) baseWaypoints.push({ x: target.x, y: target.y });
-              SQUADLOGIC.issueAttackUnitOrder(state, squadState.id, target.id, baseWaypoints);
-              leaderIds.push(leader.id);
-            }
-            if (state._multiSlots && !state._multiIsHost && state._socket) {
-              state._socket.emit("playerAction", { type: "chase", leaderIds, targetUnitId: target.id, x: target.x, y: target.y });
-            }
-          }
-        } else if (order.type === "attackCity") {
-          const city = state.players.get(order.targetCityId);
-          if (city) {
-            const addWaypoint = e.shiftKey;
-            for (const squad of squads) {
-              const squadState = getSquadStateFromUnits(squad);
-              if (!squadState) continue;
-              const leader = squad.find(u => (u.leaderId || u.id) === (squad[0].leaderId || squad[0].id)) || squad[0];
-              const baseWaypoints = addWaypoint ? cloneWaypointsSafe(squadState.order?.waypoints) : [];
-              baseWaypoints.push({ x: city.x, y: city.y });
-              SQUADLOGIC.issueSiegeOrder(state, squadState.id, city.id, baseWaypoints);
-              leaderIds.push(leader.id);
-            }
-            if (state._multiSlots && !state._multiIsHost && state._socket) {
-              state._socket.emit("playerAction", { type: "chaseCity", leaderIds, targetCityId: city.id, x: city.x, y: city.y });
-            }
-          }
-        } else if (order.type === "attackPirateBase" && state.pirateBase) {
-          const addWaypoint = e.shiftKey;
-          for (const squad of squads) {
-            const squadState = getSquadStateFromUnits(squad);
-            if (!squadState) continue;
-            const leader = squad.find(u => (u.leaderId || u.id) === (squad[0].leaderId || squad[0].id)) || squad[0];
-            const baseWaypoints = addWaypoint ? cloneWaypointsSafe(squadState.order?.waypoints) : [];
-            baseWaypoints.push({ x: state.pirateBase.x, y: state.pirateBase.y });
-            SQUADLOGIC.issueMoveOrder(state, squadState.id, baseWaypoints, Math.atan2(state.pirateBase.y - leader.y, state.pirateBase.x - leader.x));
-            leaderIds.push(leader.id);
-          }
-        } else if (order.type === "capture") {
-          const addWaypoint = e.shiftKey;
-          for (const squad of squads) {
-            const squadState = getSquadStateFromUnits(squad);
-            if (!squadState) continue;
-            const leader = squad.find(u => (u.leaderId || u.id) === (squad[0].leaderId || squad[0].id)) || squad[0];
-            const baseWaypoints = addWaypoint ? cloneWaypointsSafe(squadState.order?.waypoints) : [];
-            baseWaypoints.push({ x: order.x, y: order.y });
-            SQUADLOGIC.issueCaptureOrder(state, squadState.id, order.mineId, { x: order.x, y: order.y }, baseWaypoints);
-            leaderIds.push(leader.id);
-          }
-          if (state._multiSlots && !state._multiIsHost && state._socket) {
-            state._socket.emit("playerAction", { type: "move", leaderIds, waypoints: [{ x: order.x, y: order.y }], x: order.x, y: order.y, mineId: order.mineId, capture: true });
-          }
-        }
-        state.formationPreview = null;
-        state.orderPreview = null;
-        return;
-      }
-      if (order.type === "move" && state.formationPreview) {
-        const fp = state.formationPreview;
-        const addWaypoint = e.shiftKey;
-        for (const squad of squads) {
-          clearSquadCombat(squad);
-          const leader = squad.find(u => (u.leaderId || u.id) === (squad[0].leaderId || squad[0].id)) || squad[0];
-          const fType = leader.formationType || "line";
-          const fRows = fp.dragRows != null ? fp.dragRows : (leader.formationRows || 1);
-          const pigW = fp.dragWidth != null ? fp.dragWidth : (leader.formationPigWidth ?? 1);
-          const cosA = Math.cos(fp.angle), sinA = Math.sin(fp.angle);
-          const offs = getFormationOffsets(squad.length, fType, fRows, cosA, sinA, pigW, squad);
-          const fc = getFormationCenter(offs);
-          const newPt = { x: fp.x - fc.x, y: fp.y - fc.y };
-          const waypoints = addWaypoint ? [...(leader.waypoints || []), newPt] : [newPt];
-          leader.targetFormationAngle = fp.angle;
-          if (fp.dragRows != null) leader.formationRows = fRows;
-          if (fp.dragWidth != null) leader.formationPigWidth = pigW;
-          leader.chaseTargetUnitId = undefined;
-          leader.chaseTargetCityId = undefined;
-          leader._captureTarget = undefined;
-          for (const u of squad) {
-            u.waypoints = waypoints.map(w => ({ x: w.x, y: w.y }));
-            u.waypointIndex = addWaypoint ? (u.waypointIndex ?? 0) : 0;
-            u.straightMode = false;
-            u.chaseTargetUnitId = undefined;
-            u.chaseTargetCityId = undefined;
-          }
-          leaderIds.push(leader.id);
-        }
-        if (state._multiSlots && !state._multiIsHost && state._socket) {
-          const firstLeader = state.units.get(leaderIds[0]);
-          const waypoints = firstLeader ? firstLeader.waypoints : [{ x: fp.x, y: fp.y }];
-          state._socket.emit("playerAction", { type: "move", leaderIds, waypoints, x: fp.x, y: fp.y, angle: fp.angle });
-        }
-      } else if (order.type === "move" && !state.formationPreview) {
-        const addWaypoint = e.shiftKey;
-        const wp = { x: order.x, y: order.y };
-        for (const squad of squads) {
-          clearSquadCombat(squad);
-          const leader = squad.find(u => (u.leaderId || u.id) === (squad[0].leaderId || squad[0].id)) || squad[0];
-          leader.chaseTargetUnitId = undefined;
-          leader.chaseTargetCityId = undefined;
-          leader._captureTarget = undefined;
-          if (addWaypoint) {
-            leader.waypoints = [...(leader.waypoints || []), wp];
-          } else {
-            leader.waypoints = [wp];
-            leader.waypointIndex = 0;
-          }
-          leader.straightMode = false;
-          for (const u of squad) {
-            u.waypoints = leader.waypoints.map(w => ({ x: w.x, y: w.y }));
-            u.waypointIndex = addWaypoint ? (u.waypointIndex ?? 0) : 0;
-            u.straightMode = false;
-            u.chaseTargetUnitId = undefined;
-            u.chaseTargetCityId = undefined;
-          }
-          leaderIds.push(leader.id);
-        }
-        if (state._multiSlots && !state._multiIsHost && state._socket) {
-          state._socket.emit("playerAction", { type: "move", leaderIds, waypoints: [wp], x: order.x, y: order.y });
-        }
-      } else if (order.type === "attackUnit") {
-        const target = state.units.get(order.targetUnitId);
-        const addWaypoint = e.shiftKey;
-        if (target) {
-          for (const squad of squads) {
-            if (!addWaypoint) clearSquadCombat(squad);
-            const leader = squad.find(u => (u.leaderId || u.id) === (squad[0].leaderId || squad[0].id)) || squad[0];
-            leader.chaseTargetUnitId = target.id;
-            leader.chaseTargetCityId = undefined;
-            leader._captureTarget = undefined;
-            if (addWaypoint) {
-              leader.waypoints = [...(leader.waypoints || []), { x: target.x, y: target.y }];
-            } else {
-              leader.waypoints = [{ x: target.x, y: target.y }];
-              leader.waypointIndex = 0;
-            }
-            leader.straightMode = false;
-            leaderIds.push(leader.id);
-          }
-          if (state._multiSlots && !state._multiIsHost && state._socket) {
-            state._socket.emit("playerAction", { type: "chase", leaderIds, targetUnitId: target.id, x: target.x, y: target.y });
-          }
-        }
-      } else if (order.type === "attackCity") {
-        const city = state.players.get(order.targetCityId);
-        const addWaypoint = e.shiftKey;
-        if (city) {
-          const minStopR = shieldRadius(city) + 6;
-          for (const squad of squads) {
-            if (!addWaypoint) clearSquadCombat(squad);
-            const leader = squad.find(u => (u.leaderId || u.id) === (squad[0].leaderId || squad[0].id)) || squad[0];
-            leader.chaseTargetCityId = city.id;
-            leader.chaseTargetUnitId = undefined;
-            leader._captureTarget = undefined;
-            const stopR = Math.max(getUnitAtkRange(leader) * 0.85, minStopR);
-            const ddx = leader.x - city.x, ddy = leader.y - city.y;
-            const dl = Math.hypot(ddx, ddy) || 1;
-            const wp = { x: city.x + (ddx / dl) * stopR, y: city.y + (ddy / dl) * stopR };
-            if (addWaypoint) {
-              leader.waypoints = [...(leader.waypoints || []), wp];
-            } else {
-              leader.waypoints = [wp];
-              leader.waypointIndex = 0;
-            }
-            leader.straightMode = false;
-            leaderIds.push(leader.id);
-          }
-          if (state._multiSlots && !state._multiIsHost && state._socket) {
-            state._socket.emit("playerAction", { type: "chaseCity", leaderIds, targetCityId: city.id, x: city.x, y: city.y });
-          }
-        }
-      } else if (order.type === "capture") {
-        const addWaypoint = e.shiftKey;
-        for (const squad of squads) {
-          if (!addWaypoint) clearSquadCombat(squad);
-          const leader = squad.find(u => (u.leaderId || u.id) === (squad[0].leaderId || squad[0].id)) || squad[0];
-          leader.chaseTargetUnitId = undefined;
-          leader.chaseTargetCityId = undefined;
-          leader._captureTarget = true;
-          const capWp = { x: order.x, y: order.y };
-          if (addWaypoint) {
-            leader.waypoints = [...(leader.waypoints || []), capWp];
-          } else {
-            leader.waypoints = [capWp];
-            leader.waypointIndex = 0;
-          }
-          leader.straightMode = false;
-          for (const u of squad) {
-            if (addWaypoint) {
-              u.waypoints = [...(u.waypoints || []), capWp];
-            } else {
-              u.waypoints = [capWp];
-              u.waypointIndex = 0;
-            }
-            u.straightMode = false;
-            u.chaseTargetUnitId = undefined;
-            u.chaseTargetCityId = undefined;
-          }
-          leaderIds.push(leader.id);
-        }
-        if (state._multiSlots && !state._multiIsHost && state._socket) {
-          state._socket.emit("playerAction", { type: "move", leaderIds, waypoints: [{ x: order.x, y: order.y }], x: order.x, y: order.y });
-        }
-      }
-      state.formationPreview = null;
-      state.orderPreview = null;
-    }
-    if (e.button === panBtn) {
-      isPanning = false;
-      panBtn = 0;
-    }
-  });
-
-  window.addEventListener("pointermove", (e) => {
-    state._mouseScreenX = e.clientX;
-    state._mouseScreenY = e.clientY;
-    if (state.boxStart && e.buttons === 1 && !state._abilityTargeting) {
-      state.boxEnd = screenToWorld(e.clientX, e.clientY);
-    }
-    if (state._rmbHoldStart && (e.buttons & 2) && !state.formationPreview) {
-      const held = performance.now() - state._rmbHoldStart;
-      if (held >= 150) {
-        const hp = state._rmbHoldPt;
-        state.formationPreview = {
-          x: hp.x, y: hp.y,
-          angle: Math.atan2(hp.y - hp.cy, hp.x - hp.cx),
-          startX: hp.screenX, startY: hp.screenY,
-          dragRows: null, dragWidth: null
-        };
-        state._rmbHoldStart = null;
-        state._rmbHoldPt = null;
-      }
-    }
-    if (state.formationPreview && (e.buttons & 2)) {
-      const w = screenToWorld(e.clientX, e.clientY);
-      const fp = state.formationPreview;
-      fp.angle = Math.atan2(w.y - fp.y, w.x - fp.x);
-      const screenDx = e.clientX - fp.startX;
-      const screenDy = e.clientY - fp.startY;
-      const dragDist = Math.hypot(screenDx, screenDy);
-      if (dragDist > 20) {
-        const cosA = Math.cos(fp.angle), sinA = Math.sin(fp.angle);
-        const along = Math.abs(screenDx * cosA + screenDy * sinA);
-        const perp = Math.abs(-screenDx * sinA + screenDy * cosA);
-        fp.dragRows = Math.max(1, Math.min(10, Math.round(along / 40)));
-        fp.dragWidth = Math.max(0.8, Math.min(3, 0.8 + perp / 80));
-      }
-    }
-    if (isPanning) {
-      const dx = e.clientX - lastX;
-      const dy = e.clientY - lastY;
-      lastX = e.clientX;
-      lastY = e.clientY;
-      cam.x += dx;
-      cam.y += dy;
-      applyCamera();
-    }
-    const pt = screenToWorld(e.clientX, e.clientY);
-    const enemyU = unitAtWorldAny(pt.x, pt.y);
-    const enemyC = cityAtWorld(pt.x, pt.y);
-    const isEnemyUnit = enemyU && enemyU.owner !== state.myPlayerId;
-    const isEnemyCity = enemyC && enemyC.id !== state.myPlayerId;
-    if (isEnemyUnit || isEnemyCity) {
-      app.canvas.style.cursor = "crosshair";
-    } else {
-      app.canvas.style.cursor = "default";
-    }
-    state._hoverTarget = isEnemyUnit ? enemyU : (isEnemyCity ? enemyC : null);
-    state._hoverWorld = pt;
-    let attackCursorEl = document.getElementById("attackCursorEmoji");
-    if (!attackCursorEl) {
-      attackCursorEl = document.createElement("div");
-      attackCursorEl.id = "attackCursorEmoji";
-      attackCursorEl.style.cssText = "position:fixed;pointer-events:none;z-index:9999;font-size:28px;text-shadow:0 0 4px #000, 0 0 8px #000;";
-      document.body.appendChild(attackCursorEl);
-    }
-    if (state.selectedUnitIds.size > 0 && state._hoverTarget) {
-      attackCursorEl.textContent = "⚔️";
-      attackCursorEl.style.display = "block";
-      attackCursorEl.style.left = (e.clientX - 14) + "px";
-      attackCursorEl.style.top = (e.clientY - 36) + "px";
-    } else {
-      attackCursorEl.style.display = "none";
-    }
-  });
-
-  app.canvas.addEventListener("pointerleave", () => {
-    if (state.boxStart) { state.boxStart = null; state.boxEnd = null; }
-    state._rmbHoldStart = null;
-    state._rmbHoldPt = null;
-    if (state.formationPreview) state.formationPreview = null;
-    if (state.orderPreview) state.orderPreview = null;
-    const attackCursorEl = document.getElementById("attackCursorEmoji");
-    if (attackCursorEl) attackCursorEl.style.display = "none";
-  });
 
   app.canvas.addEventListener("wheel", (e) => {
     e.preventDefault();
@@ -8182,6 +7746,37 @@
     const x = (sx - cam.x) / cam.zoom;
     const y = (sy - cam.y) / cam.zoom;
     return { x, y };
+  }
+
+  if (window.SelectionAndOrders && window.SelectionAndOrders.install) {
+    selectionAndOrdersApi = window.SelectionAndOrders.install({
+      state,
+      app,
+      cam,
+      panState: selectionPointerState,
+      applyCamera,
+      ensureAudio,
+      screenToWorld,
+      unitAtWorld,
+      unitAtWorldAny,
+      cityAtWorld,
+      mineAtWorld,
+      getSquadStateFromUnits,
+      cloneWaypointsSafe,
+      getFormationOffsets,
+      getFormationCenter,
+      getUnitAtkRange,
+      getUnitHitRadius,
+      shieldRadius,
+      closeEnemyCityPanel,
+      showEnemyCompare,
+      drawDashedSegment,
+      destroyChildren,
+      pathPreviewLayer,
+      drawShipShape,
+      getSquads,
+      rallyPointHintEl
+    });
   }
 
   // UI buttons
@@ -8814,9 +8409,10 @@
   const STORM_DIR_CHANGE = 10;
   const STORM_SPEED = 30;
   const STORM_DMG_INTERVAL = 0.5;
+  const STORM_STARTUP_DELAY = 30;
 
   state.storm = null;
-  state._nextStormAt = 5;
+  state._nextStormAt = STORM_STARTUP_DELAY;
 
   function isInsideAnyZone(x, y) {
     const owner = getZoneOwnerFast(x, y);
@@ -8859,7 +8455,8 @@
       rotAngle,
       stretch,
       blobs,
-      particles: []
+      particles: [],
+      _finalBurstDone: false
     };
     for (let i = 0; i < 35; i++) {
       state.storm.particles.push({
@@ -8868,6 +8465,49 @@
         phase: Math.random() * Math.PI * 2,
         speed: 2 + Math.random() * 4
       });
+    }
+  }
+
+  function isUnitInsideStormShape(u, s, cosA, sinA) {
+    const rx = (u.x - s.x) * cosA + (u.y - s.y) * sinA;
+    const ry = -(u.x - s.x) * sinA + (u.y - s.y) * cosA;
+    for (const b of s.blobs) {
+      if ((rx - b.ox) ** 2 + (ry - b.oy) ** 2 <= b.r * b.r) return true;
+    }
+    return false;
+  }
+
+  function applyStormFinalBurst(s, pct, glyph, color) {
+    if (!s || s._finalBurstDone) return;
+    s._finalBurstDone = true;
+    const cosA = Math.cos(s.rotAngle), sinA = Math.sin(s.rotAngle);
+    for (const u of state.units.values()) {
+      if (!u || u.hp <= 0) continue;
+      if (!isUnitInsideStormShape(u, s, cosA, sinA)) continue;
+      const maxHp = Math.max(1, u.maxHp || u.hp || 1);
+      const dmg = Math.max(1, Math.round(maxHp * pct));
+      u.hp = Math.max(0, u.hp - dmg);
+      u.lastDamagedBy = s.ownerId;
+      u._hitFlashT = state.t;
+      state.floatingDamage.push({ x: u.x, y: u.y - 22, text: "-" + dmg + glyph, color, ttl: 0.85 });
+    }
+  }
+
+  function applyBlackHoleFinalBurst(bh) {
+    if (!bh || bh._finalBurstDone) return;
+    bh._finalBurstDone = true;
+    const burstRadius = Math.max(1, bh.radius || 0);
+    for (const u of state.units.values()) {
+      if (!u || u.hp <= 0) continue;
+      const dx = u.x - bh.x;
+      const dy = u.y - bh.y;
+      if (dx * dx + dy * dy > burstRadius * burstRadius) continue;
+      const maxHp = Math.max(1, u.maxHp || u.hp || 1);
+      const dmg = Math.max(1, Math.round(maxHp * 0.10));
+      u.hp = Math.max(0, u.hp - dmg);
+      u.lastDamagedBy = bh.ownerId;
+      u._hitFlashT = state.t;
+      state.floatingDamage.push({ x: u.x, y: u.y - 22, text: "-" + dmg + "🕳️", color: 0xff8855, ttl: 0.95 });
     }
   }
 
@@ -8880,8 +8520,8 @@
     }
     const s = state.storm;
     if (state.t - s.spawnedAt > STORM_DURATION) {
-      if (s.gfx) { s.gfx.parent?.removeChild(s.gfx); s.gfx.destroy(true); }
-      if (s.emojiContainer) { s.emojiContainer.parent?.removeChild(s.emojiContainer); s.emojiContainer.destroy({ children: true }); }
+      applyStormFinalBurst(s, 0.02, "⚡", 0x66ccff);
+      destroyIonStormVisual(s);
       state.storm = null;
       state._nextStormAt = state.t + STORM_INTERVAL;
       return;
@@ -8932,13 +8572,7 @@
       const cosA = Math.cos(s.rotAngle), sinA = Math.sin(s.rotAngle);
       for (const u of state.units.values()) {
         if (u.hp <= 1) continue;
-        const rx = (u.x - s.x) * cosA + (u.y - s.y) * sinA;
-        const ry = -(u.x - s.x) * sinA + (u.y - s.y) * cosA;
-        let inside = false;
-        for (const b of s.blobs) {
-          if ((rx - b.ox) ** 2 + (ry - b.oy) ** 2 <= b.r * b.r) { inside = true; break; }
-        }
-        if (inside) {
+        if (isUnitInsideStormShape(u, s, cosA, sinA)) {
           const dmg = Math.max(1, Math.floor(u.hp * 0.1));
           if (u.hp - dmg < 1) { u.hp = 1; } else { u.hp -= dmg; }
           u._hitFlashT = state.t;
@@ -8946,6 +8580,26 @@
         }
       }
     }
+  }
+
+  function destroyIonStormVisual(s) {
+    if (!s) return;
+    if (typeof IonStormRenderer !== "undefined" && IonStormRenderer && typeof IonStormRenderer.destroy === "function") {
+      IonStormRenderer.destroy(s);
+      return;
+    }
+    if (s.gfx) { s.gfx.parent?.removeChild(s.gfx); s.gfx.destroy(true); s.gfx = null; }
+    if (s.emojiContainer) { s.emojiContainer.parent?.removeChild(s.emojiContainer); s.emojiContainer.destroy({ children: true }); s.emojiContainer = null; }
+  }
+
+  function hideIonStormVisual(s) {
+    if (!s) return;
+    if (typeof IonStormRenderer !== "undefined" && IonStormRenderer && typeof IonStormRenderer.hide === "function") {
+      IonStormRenderer.hide(s);
+      return;
+    }
+    if (s.gfx) s.gfx.visible = false;
+    if (s.emojiContainer) s.emojiContainer.visible = false;
   }
 
   function stormContourPoints(s) {
@@ -9052,68 +8706,20 @@
     const s = state.storm;
     if (!s) return;
     if (!inView(s.x, s.y)) {
-      if (s.gfx) s.gfx.visible = false;
-      if (s.emojiContainer) s.emojiContainer.visible = false;
+      hideIonStormVisual(s);
       return;
     }
-    if (!s.gfx || s.gfx.destroyed) {
-      s.gfx = new PIXI.Graphics();
-      world.addChild(s.gfx);
-    }
-    if (!s.emojiContainer || s.emojiContainer.destroyed) {
-      s.emojiContainer = new PIXI.Container();
-      world.addChild(s.emojiContainer);
-      for (let i = 0; i < 20; i++) {
-        const txt = new PIXI.Text({ text: "⚡", style: { fontSize: 22 + Math.random() * 16, fill: 0xffffff } });
-        txt.anchor.set(0.5);
-        txt._stormOx = rand(-STORM_RADIUS * s.stretch * 0.55, STORM_RADIUS * s.stretch * 0.55);
-        txt._stormOy = rand(-STORM_RADIUS * 0.4, STORM_RADIUS * 0.4);
-        txt._stormPhase = Math.random() * Math.PI * 2;
-        txt._stormCycle = 0.4 + Math.random() * 0.6;
-        s.emojiContainer.addChild(txt);
-      }
-    }
-    s.gfx.visible = true;
-    s.emojiContainer.visible = true;
-    s.gfx.clear();
-
     const contour = stormContourPoints(s);
-    const t = state.t;
-    const shimmer = 0.5 + 0.12 * Math.sin(t * 1.5);
-
-    // Outer glow layer
-    const outerContour = contour.map(pt => ({
-      x: s.x + (pt.x - s.x) * 1.12,
-      y: s.y + (pt.y - s.y) * 1.12
-    }));
-    s.gfx.beginFill(0x161640, shimmer * 0.2);
-    s.gfx.moveTo(outerContour[0].x, outerContour[0].y);
-    for (let i = 1; i < outerContour.length; i++) s.gfx.lineTo(outerContour[i].x, outerContour[i].y);
-    s.gfx.closePath();
-    s.gfx.endFill();
-
-    // Core nebula fill
-    s.gfx.beginFill(0x1e1e55, shimmer * 0.45);
-    s.gfx.moveTo(contour[0].x, contour[0].y);
-    for (let i = 1; i < contour.length; i++) s.gfx.lineTo(contour[i].x, contour[i].y);
-    s.gfx.closePath();
-    s.gfx.endFill();
-
-    // Soft nebula edge
-    s.gfx.lineStyle(6, 0x3355aa, 0.18 * shimmer);
-    s.gfx.moveTo(contour[0].x, contour[0].y);
-    for (let i = 1; i < contour.length; i++) s.gfx.lineTo(contour[i].x, contour[i].y);
-    s.gfx.closePath();
-
-    // Emoji lightning
-    const cosA = Math.cos(s.rotAngle), sinA = Math.sin(s.rotAngle);
-    for (const ch of s.emojiContainer.children) {
-      const lx = ch._stormOx * cosA - ch._stormOy * sinA;
-      const ly = ch._stormOx * sinA + ch._stormOy * cosA;
-      ch.x = s.x + lx + Math.sin(t * 1.8 + ch._stormPhase) * 6;
-      ch.y = s.y + ly + Math.cos(t * 1.8 + ch._stormPhase) * 6;
-      const cycle = ((t + ch._stormPhase * 2) % ch._stormCycle) / ch._stormCycle;
-      ch.alpha = cycle < 0.5 ? Math.min(1, cycle * 4) : Math.max(0, 1 - (cycle - 0.5) * 4);
+    if (typeof IonStormRenderer !== "undefined" && IonStormRenderer && typeof IonStormRenderer.renderStorm === "function") {
+      IonStormRenderer.renderStorm(s, {
+        layer: world,
+        contour,
+        simTimeSec: state.t,
+        animTimeSec: performance.now() / 1000,
+        zoom: cam.zoom || 0.22,
+        multiplayerRemote: !!(state._multiSlots && !state._multiIsHost),
+        durationSec: STORM_DURATION
+      });
     }
   }
 
@@ -9121,7 +8727,7 @@
   // Abilities
   // ------------------------------------------------------------
   const ABILITY_DEFS = [
-    { id: "ionNebula", name: "Ионная туманность", desc: "Гроза в зоне 10с: урон + замедление", cooldown: 120, icon: "🌩️", targeting: "point" },
+    { id: "ionNebula", name: "Ионная туманность", desc: "Гроза в зоне 15с: урон + замедление", cooldown: 120, icon: "🌩️", targeting: "point" },
     { id: "meteor", name: "Сверхбыстрый метеор", desc: "Метеор сквозь карту, 25% по планете", cooldown: 120, icon: "☄️", targeting: "angle" },
     { id: "timeJump", name: "Временной скачок", desc: "Отмотка на 1 мин назад (разово)", cooldown: 0, oneTime: true, icon: "⏪" },
     { id: "blackHole", name: "Чёрная дыра", desc: "Засасывает и повреждает юнитов " + CFG.BLACKHOLE_DURATION + "с", cooldown: CFG.BLACKHOLE_COOLDOWN, icon: "🕳️", targeting: "point" },
@@ -9156,6 +8762,8 @@
   state._abilityTargeting = null;
   state._timeSnapshots = state._timeSnapshots || [];
   state._lastTimeSnapshotAt = state._lastTimeSnapshotAt ?? 0;
+  state._timeRewindFx = state._timeRewindFx || null;
+  state._timeRewindFxToken = state._timeRewindFxToken || 0;
   state._abilityStorms = [];
   state._meteorTargeting = null; // {phase:'point'|'angle', x, y, angle}
   state._activeMeteors = [];
@@ -9277,7 +8885,7 @@
     app.canvas.style.cursor = "";
   }
 
-  function _spawnIonNebulaLocal(wx, wy) {
+  function _spawnIonNebulaLocal(wx, wy, ownerId) {
     const stretch = 0.8 + Math.random() * 0.6;
     const rotAngle = Math.random() * Math.PI * 2;
     const blobCount = 4 + Math.floor(Math.random() * 3);
@@ -9294,9 +8902,9 @@
     for (const b of blobs) { b._baseOx = b.ox; b._baseOy = b.oy; b._baseR = b.r; }
     state._abilityStorms.push({
       x: wx, y: wy, vx: 0, vy: 0,
-      spawnedAt: state.t, duration: 10, lastDmgTick: state.t,
+      spawnedAt: state.t, duration: ION_NEBULA_DURATION_SEC, lastDmgTick: state.t,
       gfx: null, emojiContainer: null,
-      rotAngle, stretch, blobs, lastDirChange: state.t
+      rotAngle, stretch, blobs, lastDirChange: state.t, _finalBurstDone: false, ownerId
     });
   }
 
@@ -9309,7 +8917,7 @@
     if (state._multiSlots && !state._multiIsHost && state._socket) {
       state._socket.emit("playerAction", { type: "useAbility", abilityId: "ionNebula", pid: state.myPlayerId, x: wx, y: wy });
     } else {
-      _spawnIonNebulaLocal(wx, wy);
+      _spawnIonNebulaLocal(wx, wy, state.myPlayerId);
       setAbilityCooldown(state.myPlayerId, "ionNebula", def.cooldown);
       pushAbilityAnnouncement(state.myPlayerId, "ionNebula");
     }
@@ -9357,6 +8965,17 @@
   const TIME_JUMP_REWIND_SEC = 60;
   const TIME_SNAPSHOT_INTERVAL = 5;
   const TIME_SNAPSHOT_MAX = 15;
+  const TIME_REWIND_FREEZE_ENTER_SEC = 1.0;
+  const TIME_REWIND_PULSE_SEQ_SEC = 2.3;
+  const TIME_REWIND_ANIM_SEC = 2.0;
+  const TIME_REWIND_RESUME_SEC = 1.5;
+  const TIME_REWIND_APPLY_AT_SEC = TIME_REWIND_FREEZE_ENTER_SEC + TIME_REWIND_PULSE_SEQ_SEC;
+  const TIME_REWIND_TOTAL_SEC = TIME_REWIND_APPLY_AT_SEC + TIME_REWIND_ANIM_SEC + TIME_REWIND_RESUME_SEC;
+  const ION_NEBULA_DURATION_SEC = 15;
+  const MAX_RENDERED_BLACKHOLES = 4;
+  const MAX_RENDERED_BLACKHOLES_REMOTE = 2;
+  const MAX_RENDERED_ABILITY_STORMS = 5;
+  const MAX_RENDERED_ABILITY_STORMS_REMOTE = 3;
   const SKIP_KEYS = new Set(["gfx", "cityGfx", "zoneGfx", "zoneGlow", "zoneLightGfx", "label", "shieldGfx", "labelGfx", "radiusGfx", "emojiContainer", "trajGfx", "_polyBuf", "zoneGfx", "zoneGlow"]);
 
   function cloneForSnapshot(obj) {
@@ -9370,6 +8989,103 @@
     } catch (_) {
       return out;
     }
+  }
+
+  function snapshotStormLike(s) {
+    if (!s) return null;
+    return {
+      x: s.x, y: s.y,
+      vx: s.vx || 0, vy: s.vy || 0,
+      spawnedAt: s.spawnedAt,
+      duration: s.duration,
+      lastDirChange: s.lastDirChange,
+      lastDmgTick: s.lastDmgTick,
+      rotAngle: s.rotAngle,
+      stretch: s.stretch,
+      _finalBurstDone: !!s._finalBurstDone,
+      blobs: (s.blobs || []).map((b) => ({
+        ox: b.ox, oy: b.oy, r: b.r,
+        _baseOx: b._baseOx, _baseOy: b._baseOy, _baseR: b._baseR, _phase: b._phase
+      }))
+    };
+  }
+
+  function restoreStormLikeSnapshot(s) {
+    if (!s) return null;
+    return {
+      x: s.x, y: s.y,
+      vx: s.vx || 0, vy: s.vy || 0,
+      spawnedAt: s.spawnedAt,
+      duration: s.duration,
+      lastDirChange: s.lastDirChange,
+      lastDmgTick: s.lastDmgTick,
+      rotAngle: s.rotAngle,
+      stretch: s.stretch,
+      _finalBurstDone: !!s._finalBurstDone,
+      blobs: (s.blobs || []).map((b) => ({
+        ox: b.ox, oy: b.oy, r: b.r,
+        _baseOx: b._baseOx != null ? b._baseOx : b.ox,
+        _baseOy: b._baseOy != null ? b._baseOy : b.oy,
+        _baseR: b._baseR != null ? b._baseR : b.r,
+        _phase: b._phase != null ? b._phase : 0
+      })),
+      gfx: null,
+      emojiContainer: null
+    };
+  }
+
+  function snapshotBlackHole(bh) {
+    if (!bh) return null;
+    return {
+      x: bh.x, y: bh.y, ownerId: bh.ownerId,
+      spawnedAt: bh.spawnedAt,
+      duration: bh.duration,
+      radius: bh.radius,
+      phase: bh.phase || 0,
+      _finalBurstDone: !!bh._finalBurstDone
+    };
+  }
+
+  function restoreBlackHoleSnapshot(bh) {
+    if (!bh) return null;
+    return {
+      x: bh.x, y: bh.y, ownerId: bh.ownerId,
+      spawnedAt: bh.spawnedAt,
+      duration: bh.duration,
+      radius: bh.radius,
+      phase: bh.phase || 0,
+      _finalBurstDone: !!bh._finalBurstDone,
+      gfx: null,
+      debris: []
+    };
+  }
+
+  function snapshotMeteor(m) {
+    if (!m) return null;
+    return {
+      x: m.x, y: m.y,
+      vx: m.vx, vy: m.vy,
+      angle: m.angle,
+      radius: m.radius,
+      aoeR: m.aoeR,
+      ownerId: m.ownerId,
+      alive: m.alive !== false
+    };
+  }
+
+  function restoreMeteorSnapshot(m) {
+    if (!m) return null;
+    return {
+      x: m.x, y: m.y,
+      vx: m.vx, vy: m.vy,
+      angle: m.angle,
+      radius: m.radius,
+      aoeR: m.aoeR,
+      ownerId: m.ownerId,
+      alive: m.alive !== false,
+      gfx: null,
+      trajGfx: null
+    };
   }
 
   function saveTimeSnapshot() {
@@ -9401,11 +9117,24 @@
       t: now,
       nextUnitId: state.nextUnitId,
       nextResId: state.nextResId,
+      nextSquadId: state.nextSquadId,
+      nextEngagementZoneId: state.nextEngagementZoneId,
       players,
       units,
       turrets,
       bullets,
-      res
+      res,
+      squads: state.squads ? [...state.squads.values()].map(cloneForSnapshot) : [],
+      engagementZones: state.engagementZones ? [...state.engagementZones.values()].map(cloneForSnapshot) : [],
+      storm: snapshotStormLike(state.storm),
+      abilityStorms: (state._abilityStorms || []).map(snapshotStormLike),
+      blackHoles: (state._blackHoles || []).map(snapshotBlackHole),
+      meteors: (state._activeMeteors || []).map(snapshotMeteor),
+      abilityZoneEffects: (state._abilityZoneEffects || []).map(cloneForSnapshot),
+      nextStormAt: state._nextStormAt,
+      randomBlackHoleNextAt: state._randomBlackHoleNextAt,
+      randomMeteorNextAt: state._randomMeteorNextAt,
+      randomMeteorScheduled: (state._randomMeteorScheduled || []).map(cloneForSnapshot)
     });
     while (state._timeSnapshots.length > TIME_SNAPSHOT_MAX) state._timeSnapshots.shift();
   }
@@ -9434,15 +9163,23 @@
       if (t.radiusGfx && t.radiusGfx.parent) t.radiusGfx.parent.removeChild(t.radiusGfx);
     }
     for (const r of state.res.values()) destroyGfx(r);
+    if (state.storm) destroyIonStormVisual(state.storm);
+    for (const s of state._abilityStorms || []) destroyIonStormVisual(s);
+    for (const bh of state._blackHoles || []) destroyBlackHoleVisual(bh);
+    for (const m of state._activeMeteors || []) removeMeteorGfx(m);
 
     state.players.clear();
     state.units.clear();
     state.turrets.clear();
     state.bullets.length = 0;
     state.res.clear();
+    state.squads = new Map();
+    state.engagementZones = new Map();
     state.t = snap.t;
     state.nextUnitId = snap.nextUnitId;
     state.nextResId = snap.nextResId;
+    state.nextSquadId = snap.nextSquadId ?? 1;
+    state.nextEngagementZoneId = snap.nextEngagementZoneId ?? 1;
 
     for (const o of snap.players) {
       const p = { ...o, cityGfx: null, zoneGfx: null, zoneGlow: null, zoneLightGfx: null, shieldGfx: null, label: null };
@@ -9470,9 +9207,26 @@
       state.res.set(r.id, r);
       makeResVisual(r);
     }
+    for (const sq of (snap.squads || [])) {
+      state.squads.set(sq.id, cloneForSnapshot(sq));
+    }
+    for (const z of (snap.engagementZones || [])) {
+      state.engagementZones.set(z.id, cloneForSnapshot(z));
+    }
+    state.storm = restoreStormLikeSnapshot(snap.storm);
+    state._abilityStorms = (snap.abilityStorms || []).map(restoreStormLikeSnapshot);
+    state._blackHoles = (snap.blackHoles || []).map(restoreBlackHoleSnapshot);
+    state._activeMeteors = (snap.meteors || []).map(restoreMeteorSnapshot);
+    state._abilityZoneEffects = (snap.abilityZoneEffects || []).map(cloneForSnapshot);
+    state._meteorImpactEffects = [];
+    state._nextStormAt = snap.nextStormAt != null ? snap.nextStormAt : STORM_STARTUP_DELAY;
+    state._randomBlackHoleNextAt = snap.randomBlackHoleNextAt != null ? snap.randomBlackHoleNextAt : (state.t + 300);
+    state._randomMeteorNextAt = snap.randomMeteorNextAt != null ? snap.randomMeteorNextAt : (state.t + 240);
+    state._randomMeteorScheduled = (snap.randomMeteorScheduled || []).map(cloneForSnapshot);
+    if (typeof SQUADLOGIC !== "undefined" && SQUADLOGIC && typeof SQUADLOGIC.syncSquadsFromState === "function") {
+      SQUADLOGIC.syncSquadsFromState(state);
+    }
     markAbilityUsed(usedByPid, "timeJump");
-    state._abilityStorms = [];
-    state._activeMeteors = [];
     rebuildGrid();
     for (const p of state.players.values()) {
       redrawZone(p);
@@ -9480,9 +9234,126 @@
     }
   }
 
+  function beginTimeRewindSequence(usedByPid, snap, eliminatedBeforeRewind, opts) {
+    const options = opts || {};
+    const existing = state._timeRewindFx;
+    if (existing && existing.active) {
+      if (options.token != null && existing.token === options.token) return existing;
+      return null;
+    }
+    const nowSec = (typeof performance !== "undefined" ? performance.now() : Date.now()) / 1000;
+    const token = options.token != null ? options.token : ((state._timeRewindFxToken || 0) + 1);
+    state._timeRewindFxToken = Math.max(state._timeRewindFxToken || 0, token);
+    state._timeRewindFx = {
+      active: true,
+      token,
+      usedByPid,
+      startedAtReal: nowSec,
+      rewindSeconds: TIME_JUMP_REWIND_SEC,
+      freezeEnterSec: TIME_REWIND_FREEZE_ENTER_SEC,
+      pulseSeqSec: TIME_REWIND_PULSE_SEQ_SEC,
+      rewindSec: TIME_REWIND_ANIM_SEC,
+      resumeSec: TIME_REWIND_RESUME_SEC,
+      applyAtSec: TIME_REWIND_APPLY_AT_SEC,
+      totalSec: TIME_REWIND_TOTAL_SEC,
+      snapshot: snap || null,
+      eliminatedBeforeRewind: Array.isArray(eliminatedBeforeRewind) ? eliminatedBeforeRewind.slice() : [],
+      applied: false,
+      appliedAtReal: null,
+      remoteOnly: !!options.remoteOnly,
+      resumeTimeScale: options.remoteOnly ? null : (state.timeScale || 1)
+    };
+    state.timeScale = 0;
+    if (!options.remoteOnly) pushAbilityAnnouncement(usedByPid, "timeJump");
+    return state._timeRewindFx;
+  }
+
+  function stepTimeRewindSequence(nowSec) {
+    const fx = state._timeRewindFx;
+    if (!fx || !fx.active) return;
+    const elapsed = nowSec - (fx.startedAtReal || nowSec);
+    if (!fx.applied && elapsed >= (fx.applyAtSec || TIME_REWIND_APPLY_AT_SEC)) {
+      fx.applied = true;
+      fx.appliedAtReal = nowSec;
+      if (fx.snapshot && (!state._multiSlots || state._multiIsHost)) {
+        restoreFromTimeSnapshot(fx.snapshot, fx.eliminatedBeforeRewind || [], fx.usedByPid);
+      }
+    }
+    if (elapsed >= (fx.totalSec || TIME_REWIND_TOTAL_SEC)) {
+      if (typeof TimeRewindRenderer !== "undefined" && TimeRewindRenderer && typeof TimeRewindRenderer.destroy === "function") {
+        TimeRewindRenderer.destroy(fx);
+      }
+      if (fx.resumeTimeScale != null) state.timeScale = fx.resumeTimeScale;
+      state._timeRewindFx = null;
+    }
+  }
+
+  function syncTimeRewindFromSnapshot(snap) {
+    if (!state._multiSlots || state._multiIsHost) return;
+    const incoming = snap && snap.timeRewindFx ? snap.timeRewindFx : null;
+    const active = state._timeRewindFx;
+    if (incoming) {
+      if (!active || active.token !== incoming.token) {
+        beginTimeRewindSequence(incoming.triggeredByPid ?? state.myPlayerId, null, null, {
+          remoteOnly: true,
+          token: incoming.token
+        });
+      } else if (incoming.applied && !active.applied) {
+        active.applied = true;
+        active.appliedAtReal = (typeof performance !== "undefined" ? performance.now() : Date.now()) / 1000;
+      }
+      return;
+    }
+    if (active && active.remoteOnly && active.applied && active.startedAtReal != null) {
+      const localNowSec = (typeof performance !== "undefined" ? performance.now() : Date.now()) / 1000;
+      const keepUntil = (active.applyAtSec || TIME_REWIND_APPLY_AT_SEC) + 0.75;
+      if (localNowSec - active.startedAtReal >= keepUntil) {
+        if (typeof TimeRewindRenderer !== "undefined" && TimeRewindRenderer && typeof TimeRewindRenderer.destroy === "function") {
+          TimeRewindRenderer.destroy(active);
+        }
+        state._timeRewindFx = null;
+      }
+    }
+  }
+
+  function drawTimeRewindFx(nowSec) {
+    const fx = state._timeRewindFx;
+    if (!fx || !fx.active) {
+      if (typeof TimeRewindRenderer !== "undefined" && TimeRewindRenderer && typeof TimeRewindRenderer.hide === "function") {
+        TimeRewindRenderer.hide(fx);
+      }
+      return;
+    }
+    if (typeof TimeRewindRenderer === "undefined" || !TimeRewindRenderer || typeof TimeRewindRenderer.render !== "function") return;
+    const units = [];
+    for (const u of state.units.values()) {
+      if (!u || u.hp <= 0) continue;
+      units.push({
+        id: u.id,
+        x: u.x,
+        y: u.y,
+        vx: u.vx || 0,
+        vy: u.vy || 0,
+        hp: u.hp,
+        a: Math.atan2(u.vy || 0, u.vx || 1),
+        _rewindColor: "#" + colorForId(u.owner).toString(16).padStart(6, "0")
+      });
+      if (units.length >= 28) break;
+    }
+    TimeRewindRenderer.render(fx, {
+      layer: screenFxLayer,
+      width: app.screen.width,
+      height: app.screen.height,
+      nowSec,
+      camera: { x: cam.x, y: cam.y, zoom: cam.zoom || 1 },
+      units
+    });
+  }
+
   function useTimeJump() {
     const def = ABILITY_DEFS.find(d => d.id === "timeJump");
     if (!def || def.oneTime && (state._abilityUsedByPlayer[state.myPlayerId] || []).includes("timeJump")) return;
+    if (state._timeRewindFx && state._timeRewindFx.active) return;
     if (state._multiSlots && !state._multiIsHost && state._socket) {
       state._socket.emit("playerAction", { type: "useAbility", abilityId: "timeJump", pid: state.myPlayerId });
       cancelAbilityTargeting();
@@ -9514,8 +9385,7 @@
       return;
     }
     const eliminatedBeforeRewind = [...state.players.values()].filter(p => p.eliminated).map(p => p.id);
-    restoreFromTimeSnapshot(snap, eliminatedBeforeRewind, state.myPlayerId);
-    pushAbilityAnnouncement(state.myPlayerId, "timeJump");
+    beginTimeRewindSequence(state.myPlayerId, snap, eliminatedBeforeRewind);
     cancelAbilityTargeting();
     hideAbilityPicker();
   }
@@ -9704,6 +9574,8 @@
     if (!state._multiIsHost && state._multiSlots) return;
     const W = CFG.WORLD_W, H = CFG.WORLD_H;
     const margin = 200;
+    if (state._randomBlackHoleNextAt == null) state._randomBlackHoleNextAt = state.t + 300;
+    if (state._randomMeteorNextAt == null) state._randomMeteorNextAt = state.t + 240;
     if (state.t >= (state._randomBlackHoleNextAt ?? 0)) {
       state._randomBlackHoleNextAt = state.t + 300;
       const x = margin + Math.random() * (W - 2 * margin);
@@ -9810,8 +9682,8 @@
     for (let i = state._abilityStorms.length - 1; i >= 0; i--) {
       const s = state._abilityStorms[i];
       if (state.t - s.spawnedAt > s.duration) {
-        if (s.gfx) { s.gfx.parent?.removeChild(s.gfx); s.gfx.destroy(true); }
-        if (s.emojiContainer) { s.emojiContainer.parent?.removeChild(s.emojiContainer); s.emojiContainer.destroy({ children: true }); }
+        applyStormFinalBurst(s, 0.02, "⚡", 0x66ccff);
+        destroyIonStormVisual(s);
         state._abilityStorms.splice(i, 1);
         continue;
       }
@@ -9828,16 +9700,11 @@
         const cosA = Math.cos(s.rotAngle), sinA = Math.sin(s.rotAngle);
         for (const u of state.units.values()) {
           if (u.hp <= 1) continue;
-          const rx = (u.x - s.x) * cosA + (u.y - s.y) * sinA;
-          const ry = -(u.x - s.x) * sinA + (u.y - s.y) * cosA;
-          for (const b of s.blobs) {
-            if ((rx - b.ox) ** 2 + (ry - b.oy) ** 2 <= b.r * b.r) {
-              const dmg = Math.max(1, Math.floor(u.hp * 0.1));
-              if (u.hp - dmg < 1) u.hp = 1; else u.hp -= dmg;
-              u._hitFlashT = state.t;
-              state.floatingDamage.push({ x: u.x, y: u.y - 22, text: "-" + dmg + "⚡", color: 0x8888ff, ttl: 0.8 });
-              break;
-            }
+          if (isUnitInsideStormShape(u, s, cosA, sinA)) {
+            const dmg = Math.max(1, Math.floor(u.hp * 0.1));
+            if (u.hp - dmg < 1) u.hp = 1; else u.hp -= dmg;
+            u._hitFlashT = state.t;
+            state.floatingDamage.push({ x: u.x, y: u.y - 22, text: "-" + dmg + "⚡", color: 0x8888ff, ttl: 0.8 });
           }
         }
       }
@@ -10061,7 +9928,8 @@
       duration: CFG.BLACKHOLE_DURATION,
       radius: CFG.BLACKHOLE_RADIUS,
       gfx: null, phase: 0,
-      debris: []
+      debris: [],
+      _finalBurstDone: false
     });
   }
 
@@ -10181,23 +10049,46 @@
     state.floatingDamage.push({ x: p.x, y: p.y - 40, text: "+" + steal + " нас.", color: 0x44ff44, ttl: 2 });
   }
 
+  function destroyBlackHoleVisual(bh) {
+    if (!bh) return;
+    if (typeof BlackHoleRenderer !== "undefined" && BlackHoleRenderer && typeof BlackHoleRenderer.destroy === "function") {
+      BlackHoleRenderer.destroy(bh);
+      return;
+    }
+    if (bh._bodyContainer && !bh._bodyContainer.destroyed) { bh._bodyContainer.parent?.removeChild(bh._bodyContainer); bh._bodyContainer.destroy({ children: true }); }
+    if (bh._debrisGfx && !bh._debrisGfx.destroyed) { bh._debrisGfx.parent?.removeChild(bh._debrisGfx); bh._debrisGfx.destroy(true); }
+    bh._bodyContainer = null;
+    bh._debrisGfx = null;
+  }
+
+  function hideBlackHoleVisual(bh) {
+    if (!bh) return;
+    if (typeof BlackHoleRenderer !== "undefined" && BlackHoleRenderer && typeof BlackHoleRenderer.hide === "function") {
+      BlackHoleRenderer.hide(bh);
+      return;
+    }
+    if (bh._bodyContainer) bh._bodyContainer.visible = false;
+    if (bh._debrisGfx) bh._debrisGfx.visible = false;
+  }
+
   function stepBlackHoles(dt) {
-    const growT = CFG.BLACKHOLE_GROWTH_TIME || 3;
-    const holdT = CFG.BLACKHOLE_HOLD_TIME || 10;
-    const fadeT = CFG.BLACKHOLE_FADE_TIME || 4;
+    const growTBase = CFG.BLACKHOLE_GROWTH_TIME || 3;
+    const fadeTBase = CFG.BLACKHOLE_FADE_TIME || 4;
     for (let i = state._blackHoles.length - 1; i >= 0; i--) {
       const bh = state._blackHoles[i];
       const elapsed = state.t - bh.spawnedAt;
       if (elapsed > bh.duration) {
-        if (bh._bodyContainer && !bh._bodyContainer.destroyed) { bh._bodyContainer.parent?.removeChild(bh._bodyContainer); bh._bodyContainer.destroy({ children: true }); }
-        if (bh._debrisGfx && !bh._debrisGfx.destroyed) { bh._debrisGfx.parent?.removeChild(bh._debrisGfx); bh._debrisGfx.destroy(true); }
-        bh._bodyContainer = null;
-        bh._debrisGfx = null;
+        applyBlackHoleFinalBurst(bh);
+        destroyBlackHoleVisual(bh);
         state._blackHoles.splice(i, 1);
         continue;
       }
       bh.phase += dt;
 
+      const totalT = Math.max(0.1, bh.duration || CFG.BLACKHOLE_DURATION || 10);
+      const growT = Math.min(growTBase, totalT * 0.35);
+      const fadeT = Math.min(fadeTBase, totalT * 0.35);
+      const holdT = Math.max(0, totalT - growT - fadeT);
       let sizeFrac;
       if (elapsed < growT) {
         sizeFrac = elapsed / growT;
@@ -10239,13 +10130,21 @@
         const dist = Math.hypot(dx, dy);
         if (dist > curR || dist < 1) continue;
 
-        const pull = CFG.BLACKHOLE_GRAVITY * (1 - dist / curR) * gravMul * dt;
-        u.x += (dx / dist) * pull;
-        u.y += (dy / dist) * pull;
+        const influence = Math.max(0, 1 - dist / Math.max(1, curR));
+        const pullSpeed = Math.max(
+          CFG.BLACKHOLE_GRAVITY * 2.4,
+          (bh.radius || curR) * (0.35 + influence * 1.35)
+        ) * Math.max(0.55, gravMul);
+        if (!u._blackHolePullUntil || u._blackHolePullUntil < state.t + 0.18 || pullSpeed > (u._blackHolePullSpeed || 0)) {
+          u._blackHolePullUntil = state.t + 0.18;
+          u._blackHolePullX = bh.x;
+          u._blackHolePullY = bh.y;
+          u._blackHolePullSpeed = pullSpeed;
+        }
 
-        const dmgT = dist / curR;
-        const dmg = (CFG.BLACKHOLE_MAX_DPS * (1 - dmgT) + CFG.BLACKHOLE_MIN_DPS * dmgT) * sizeFrac * dt;
-        u.hp -= dmg;
+        const maxHp = Math.max(1, u.maxHp || u.hp || 1);
+        const dmg = maxHp * 0.10 * dt;
+        u.hp = Math.max(0, u.hp - dmg);
         u.lastDamagedBy = bh.ownerId;
         if (Math.random() < dt * 2) {
           const showDmg = Math.max(1, Math.round(dmg));
@@ -10365,172 +10264,74 @@
   }
 
   function drawBlackHoles() {
-    const growT = CFG.BLACKHOLE_GROWTH_TIME || 3;
-    const holdT = CFG.BLACKHOLE_HOLD_TIME || 10;
-    const fadeT = CFG.BLACKHOLE_FADE_TIME || 4;
+    const growTBase = CFG.BLACKHOLE_GROWTH_TIME || 3;
+    const fadeTBase = CFG.BLACKHOLE_FADE_TIME || 4;
     const smoothTime = (typeof performance !== "undefined" ? performance.now() / 1000 : state.t);
+    const remote = !!(state._multiSlots && !state._multiIsHost);
+    const renderBudget = remote ? MAX_RENDERED_BLACKHOLES_REMOTE : MAX_RENDERED_BLACKHOLES;
+    const visible = [];
     for (const bh of state._blackHoles) {
       if (!inView(bh.x, bh.y)) {
-        if (bh._bodyContainer) bh._bodyContainer.visible = false;
-        if (bh._debrisGfx) bh._debrisGfx.visible = false;
+        hideBlackHoleVisual(bh);
         continue;
       }
-      const elapsed = state.t - bh.spawnedAt;
-      let sizeFracTarget;
-      if (elapsed < growT) sizeFracTarget = elapsed / growT;
-      else if (elapsed < growT + holdT) sizeFracTarget = 1;
-      else sizeFracTarget = Math.max(0, 1 - (elapsed - growT - holdT) / fadeT);
-      bh._drawSizeFrac = (bh._drawSizeFrac != null ? bh._drawSizeFrac * 0.92 + sizeFracTarget * 0.08 : sizeFracTarget);
-      const sizeFrac = bh._drawSizeFrac;
-      const alpha = sizeFrac;
-      const R = (bh._curRadius != null ? bh._curRadius : bh.radius * sizeFrac);
-      if (R < 2) continue;
-
-      if (!bh._bodyContainer || bh._bodyContainer.destroyed) {
-        const c = new PIXI.Container();
-        c.position.set(bh.x, bh.y);
-        const g = new PIXI.Graphics();
-        const numArms = 8;
-        for (let arm = 0; arm < numArms; arm++) {
-          const baseAngle = (arm / numArms) * Math.PI * 2;
-          const spiralSegs = 48;
-          const armLen = 0.55 + (arm % 3) * 0.18;
-          const armColor = arm % 2 === 0 ? 0xaaccff : 0xffccaa;
-          const armColorDim = arm % 2 === 0 ? 0x6688bb : 0xbb8866;
-          for (let s = 0; s < spiralSegs; s++) {
-            const frac = s / spiralSegs;
-            const tightness = 4 + (arm % 2) * 1.2;
-            const sAngle = baseAngle + frac * tightness;
-            const sR = 0.18 + frac * armLen;
-            const x1 = Math.cos(sAngle) * sR, y1 = Math.sin(sAngle) * sR;
-            const frac2 = (s + 1) / spiralSegs;
-            const sAngle2 = baseAngle + frac2 * tightness;
-            const sR2 = 0.18 + frac2 * armLen;
-            const x2 = Math.cos(sAngle2) * sR2, y2 = Math.sin(sAngle2) * sR2;
-            const w = Math.max(0.5, 3 * (1 - frac * 0.85)) / 80;
-            const armAlpha = 0.5 * (1 - frac * 0.88);
-            g.moveTo(x1, y1); g.lineTo(x2, y2);
-            g.stroke({ color: armColorDim, width: w + 2 / 80, alpha: armAlpha * 0.35 });
-            g.moveTo(x1, y1); g.lineTo(x2, y2);
-            g.stroke({ color: armColor, width: w, alpha: armAlpha });
-          }
-        }
-        for (let ring = 3; ring >= 0; ring--) {
-          const rr = 0.22 + ring * 0.06;
-          const ringA = ring === 0 ? 0.8 : (0.4 - ring * 0.08);
-          const col = ring === 0 ? 0xffeedd : ring === 1 ? 0xccddee : ring === 2 ? 0xeecc99 : 0x886644;
-          g.circle(0, 0, rr);
-          g.stroke({ color: col, width: (ring === 0 ? 4 : 2.5) / 80, alpha: ringA });
-        }
-        g.circle(0, 0, 0.18);
-        g.fill({ color: 0x000000, alpha: 1 });
-        g.circle(0, 0, 0.2);
-        g.stroke({ color: 0xccddee, width: 2.5 / 80, alpha: 0.85 });
-        for (let wi = 0; wi < 16; wi++) {
-          const wAngle = (wi / 16) * Math.PI * 2 + wi * 0.25;
-          const wLen = 0.75 + (wi % 4) * 0.18;
-          const stR = 0.32;
-          const sx = Math.cos(wAngle) * stR, sy = Math.sin(wAngle) * stR;
-          const ex = Math.cos(wAngle + 0.35) * wLen, ey = Math.sin(wAngle + 0.35) * wLen;
-          const wispColor = wi % 3 === 0 ? 0xaaccff : (wi % 3 === 1 ? 0xffccaa : 0xddccbb);
-          g.moveTo(sx, sy); g.lineTo(ex, ey);
-          g.stroke({ color: wispColor, width: 1 / 80, alpha: 0.18 });
-        }
-        c.addChild(g);
-        combatLayer.addChild(c);
-        bh._bodyContainer = c;
-        bh._debrisGfx = new PIXI.Graphics();
-        combatLayer.addChild(bh._debrisGfx);
+      visible.push(bh);
+    }
+    visible.sort((a, b) => ((a.x - cam.x) ** 2 + (a.y - cam.y) ** 2) - ((b.x - cam.x) ** 2 + (b.y - cam.y) ** 2));
+    for (let idx = 0; idx < visible.length; idx++) {
+      const bh = visible[idx];
+      if (idx >= renderBudget) {
+        hideBlackHoleVisual(bh);
+        continue;
       }
-
-      bh._bodyContainer.visible = true;
-      if (bh._drawX == null) { bh._drawX = bh.x; bh._drawY = bh.y; }
-      bh._drawX = bh._drawX * 0.9 + bh.x * 0.1;
-      bh._drawY = bh._drawY * 0.9 + bh.y * 0.1;
-      bh._bodyContainer.position.set(bh._drawX, bh._drawY);
-      bh._bodyContainer.scale.set(R);
-      bh._bodyContainer.rotation = smoothTime * 0.25;
-      bh._bodyContainer.alpha = alpha;
-
-      bh._debrisGfx.visible = true;
-      bh._debrisGfx.clear();
-      if (bh.debris && bh.debris.length) {
-        for (const d of bh.debris) {
-          const lifeFrac = d.life / d.maxLife;
-          bh._debrisGfx.circle(d.x, d.y, d.size ?? 1.5);
-          bh._debrisGfx.fill({ color: (d.x + d.y < bh.x + bh.y ? 0x88aacc : 0xccaa88), alpha: 0.4 * lifeFrac * alpha });
-        }
-      }
-      const spawnFrac = Math.min(1, elapsed / growT);
-      if (spawnFrac < 1) {
-        const tearSpan = R * 3.0 * (1 - spawnFrac);
-        const tearA = alpha * (1 - spawnFrac * 0.6);
-        if (tearSpan > 3) {
-          const slowPhase = smoothTime * 0.25;
-          for (let h = 0; h < 8; h++) {
-            const ang = (h / 8) * Math.PI * 2 + slowPhase * 0.15;
-            const tipR = tearSpan * (0.8 + (h % 3) * 0.15);
-            const c1A = ang + 0.3 * ((h % 2) * 2 - 1), c2A = ang + 0.15 * ((h % 2) * 2 - 1);
-            const c1R = tipR * 0.4, c2R = tipR * 0.75;
-            bh._debrisGfx.moveTo(bh.x, bh.y);
-            bh._debrisGfx.bezierCurveTo(bh.x + Math.cos(c1A) * c1R, bh.y + Math.sin(c1A) * c1R, bh.x + Math.cos(c2A) * c2R, bh.y + Math.sin(c2A) * c2R, bh.x + Math.cos(ang) * tipR, bh.y + Math.sin(ang) * tipR);
-            bh._debrisGfx.stroke({ color: h % 2 === 0 ? 0x7799bb : 0xbb9977, width: 2, alpha: tearA * 0.5 });
-          }
-        }
+      const totalT = Math.max(0.1, bh.duration || CFG.BLACKHOLE_DURATION || 10);
+      const growT = Math.min(growTBase, totalT * 0.35);
+      const fadeT = Math.min(fadeTBase, totalT * 0.35);
+      const holdT = Math.max(0, totalT - growT - fadeT);
+      if (typeof BlackHoleRenderer !== "undefined" && BlackHoleRenderer && typeof BlackHoleRenderer.render === "function") {
+        BlackHoleRenderer.render(bh, {
+          layer: abilityFxLayer,
+          simTimeSec: state.t,
+          animTimeSec: smoothTime,
+          zoom: cam.zoom || 0.22,
+          multiplayerRemote: remote,
+          growthTime: growT,
+          holdTime: holdT,
+          fadeTime: fadeT
+        });
       }
     }
   }
 
   function drawAbilityStorms() {
-    const t = state.t;
+    const remote = !!(state._multiSlots && !state._multiIsHost);
+    const renderBudget = remote ? MAX_RENDERED_ABILITY_STORMS_REMOTE : MAX_RENDERED_ABILITY_STORMS;
+    const visible = [];
     for (const s of state._abilityStorms) {
       if (!inView(s.x, s.y)) {
-        if (s.gfx) s.gfx.visible = false;
-        if (s.emojiContainer) s.emojiContainer.visible = false;
+        hideIonStormVisual(s);
         continue;
       }
-      if (!s.gfx || s.gfx.destroyed) {
-        s.gfx = new PIXI.Graphics();
-        world.addChild(s.gfx);
+      visible.push(s);
+    }
+    visible.sort((a, b) => ((a.x - cam.x) ** 2 + (a.y - cam.y) ** 2) - ((b.x - cam.x) ** 2 + (b.y - cam.y) ** 2));
+    for (let idx = 0; idx < visible.length; idx++) {
+      const s = visible[idx];
+      if (idx >= renderBudget) {
+        hideIonStormVisual(s);
+        continue;
       }
-      if (!s.emojiContainer || s.emojiContainer.destroyed) {
-        s.emojiContainer = new PIXI.Container();
-        world.addChild(s.emojiContainer);
-        for (let i = 0; i < 16; i++) {
-          const txt = new PIXI.Text({ text: "⚡", style: { fontSize: 18 + Math.random() * 14, fill: 0xffffff } });
-          txt.anchor.set(0.5);
-          txt._stormPhase = Math.random() * Math.PI * 2;
-          txt._stormCycle = 0.6 + Math.random() * 0.8;
-          txt._seed = i * 7919 + 1;
-          s.emojiContainer.addChild(txt);
-        }
-      }
-      s.gfx.visible = true;
-      s.emojiContainer.visible = true;
-      s.gfx.clear();
       const contour = stormContourPoints(s);
-      const shimmer = 0.5 + 0.12 * Math.sin(t * 1.2);
-      const outerContour = contour.map(pt => ({ x: s.x + (pt.x - s.x) * 1.06, y: s.y + (pt.y - s.y) * 1.06 }));
-      s.gfx.beginFill(0x1e1e55, shimmer * 0.45);
-      s.gfx.moveTo(outerContour[0].x, outerContour[0].y);
-      for (let j = 1; j < outerContour.length; j++) s.gfx.lineTo(outerContour[j].x, outerContour[j].y);
-      s.gfx.closePath();
-      s.gfx.endFill();
-      s.gfx.lineStyle(6, 0x3355aa, 0.18 * shimmer);
-      s.gfx.moveTo(contour[0].x, contour[0].y);
-      for (let j = 1; j < contour.length; j++) s.gfx.lineTo(contour[j].x, contour[j].y);
-      s.gfx.closePath();
-      const R = STORM_RADIUS * s.stretch;
-      for (const ch of s.emojiContainer.children) {
-        const smoothSlot = (t * 0.4 + ch._stormPhase * 10 + ch._seed) % 24;
-        const ang = (smoothSlot / 24) * Math.PI * 2 + (ch._seed % 7) * 0.9;
-        const r = R * (0.25 + ((ch._seed * 13) % 70) / 100);
-        const targetX = s.x + Math.cos(ang) * r + Math.sin(t * 2 + ch._seed * 0.1) * 8;
-        const targetY = s.y + Math.sin(ang) * r * 0.5 + Math.cos(t * 1.7 + ch._seed * 0.07) * 8;
-        ch.x = ch.x * 0.85 + targetX * 0.15;
-        ch.y = ch.y * 0.85 + targetY * 0.15;
-        const cycle = ((t + ch._stormPhase * 2) % ch._stormCycle) / ch._stormCycle;
-        ch.alpha = 0.5 + 0.5 * (cycle < 0.5 ? Math.min(1, cycle * 2.5) : Math.max(0, 1 - (cycle - 0.5) * 2.5));
+      if (typeof IonStormRenderer !== "undefined" && IonStormRenderer && typeof IonStormRenderer.renderStorm === "function") {
+        IonStormRenderer.renderStorm(s, {
+          layer: world,
+          contour,
+          simTimeSec: state.t,
+          animTimeSec: performance.now() / 1000,
+          zoom: cam.zoom || 0.22,
+          multiplayerRemote: remote,
+          durationSec: s.duration || 10
+        });
       }
     }
   }
@@ -10633,8 +10434,8 @@
     }
     const g = state._abilityPreviewGfx;
     g.clear();
-    const msx = state._mouseScreenX ?? lastX;
-    const msy = state._mouseScreenY ?? lastY;
+    const msx = state._mouseScreenX ?? selectionPointerState.lastX;
+    const msy = state._mouseScreenY ?? selectionPointerState.lastY;
     const mx = (msx - cam.x) / cam.zoom;
     const my = (msy - cam.y) / cam.zoom;
 
@@ -10740,21 +10541,14 @@
     if (state._abilityTargeting === "blackHole") {
       const R = CFG.BLACKHOLE_RADIUS || 400;
       const t = performance.now() / 1000;
-      const pulse = 0.5 + 0.3 * Math.sin(t * 1.5);
-      g.circle(mx, my, R);
-      g.fill({ color: 0x110022, alpha: 0.08 + 0.03 * Math.sin(t) });
-      g.circle(mx, my, R);
-      g.stroke({ color: 0x8844cc, width: 2.5, alpha: 0.3 + 0.2 * pulse });
-      g.circle(mx, my, R * 0.6);
-      g.stroke({ color: 0xaa66ee, width: 1.5, alpha: 0.15 });
-      g.circle(mx, my, R * 0.3);
-      g.fill({ color: 0x220044, alpha: 0.12 });
-      for (let i = 0; i < 12; i++) {
-        const a = (i / 12) * Math.PI * 2 + t * 0.8;
-        const d = R * (0.4 + 0.5 * ((i % 3) / 3));
-        const px = mx + Math.cos(a) * d, py = my + Math.sin(a) * d;
-        g.circle(px, py, 2.5);
-        g.fill({ color: 0xaa88ff, alpha: 0.25 + 0.15 * Math.sin(t * 3 + i) });
+      if (typeof BlackHoleRenderer !== "undefined" && BlackHoleRenderer && typeof BlackHoleRenderer.drawPreview === "function") {
+        BlackHoleRenderer.drawPreview(g, mx, my, R, t, cam.zoom || 0.22);
+      } else {
+        const pulse = 0.5 + 0.3 * Math.sin(t * 1.5);
+        g.circle(mx, my, R);
+        g.fill({ color: 0x110022, alpha: 0.08 + 0.03 * Math.sin(t) });
+        g.circle(mx, my, R);
+        g.stroke({ color: 0x8844cc, width: 2.5, alpha: 0.3 + 0.2 * pulse });
       }
     }
     if (state._abilityTargeting === "activeShield") {
@@ -11268,44 +11062,8 @@
   })();
 
   function refreshLobbyList() {
-    if (!socket) return;
-    socket.emit("listRooms", (list) => {
-      state._lobbyList = list || [];
-      console.log("[Лобби] Список комнат:", (list || []).length, list);
-      renderLobbyList();
-    });
-  }
-
-  function renderLobbyList() {
-    const listEl = document.getElementById("lobbyList");
-    if (!listEl) return;
-    const list = state._lobbyList || [];
-    listEl.innerHTML = "";
-    for (const r of list) {
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "menu-btn lobby-list-item";
-      btn.textContent = r.code + " — " + r.hostName + " (" + r.slotsUsed + "/" + r.slotsTotal + ")";
-      btn.addEventListener("click", () => {
-        if (!socket) return;
-        const nick = (state._myNickname || (typeof window !== "undefined" && window._myNickname) || "Игрок").trim().slice(0, 24) || "Игрок";
-        socket.emit("join", r.roomId, nick, (data) => {
-          if (data.error) { alert(data.error); return; }
-          state._lobbySlots = data.slots;
-          state._mySlot = data.mySlot;
-          state._isHost = data.isHost;
-          state._roomId = data.roomId;
-          renderLobby();
-          showScreen("lobbyScreen");
-        });
-      });
-      listEl.appendChild(btn);
-    }
-    if (list.length === 0) {
-      const p = document.createElement("p");
-      p.className = "muted";
-      p.textContent = "Нет открытых комнат. Создайте свою.";
-      listEl.appendChild(p);
+    if (lobbyUiApi && lobbyUiApi.refreshLobbyList) {
+      lobbyUiApi.refreshLobbyList();
     }
   }
 
@@ -11314,6 +11072,8 @@
     state._multiIsHost = false;
     state._multiSlots = null;
     state._slotToPid = null;
+    state._pendingFullSnap = null;
+    state._pendingSnap = null;
     PLAYER_NAMES[1] = (nickname || "Игрок").trim().slice(0, 24) || "Игрок";
     state.myPlayerId = 1;
     state.botPlayerIds = null;
@@ -11351,6 +11111,11 @@
     const slotToPid = {};
     for (const i of filledSlots) slotToPid[i] = i + 1;
     state.myPlayerId = slotToPid[mySlot] || (mySlot + 1);
+    state._multiIsHost = !!state._isHost;
+    state._multiSlots = slots;
+    state._slotToPid = slotToPid;
+    state._pendingFullSnap = null;
+    state._pendingSnap = null;
     console.log("[MP-INIT] mySlot=", mySlot, "myPlayerId=", state.myPlayerId, "isHost=", state._isHost, "filledSlots=", filledSlots, "slotToPid=", JSON.stringify(slotToPid));
     console.log("[MP-INIT] slots=", JSON.stringify(slots));
     for (const i of filledSlots) {
@@ -11379,9 +11144,6 @@
       state.rallyPoint = { x: me.x + (dx / len) * 180, y: me.y + (dy / len) * 180 };
     }
     document.getElementById("net").textContent = "мультиплеер";
-    state._multiIsHost = state._isHost;
-    state._multiSlots = slots;
-    state._slotToPid = slotToPid;
     state._gameChatUnread = 0;
     const gameChatWrap = document.getElementById("gameChatWrap");
     if (gameChatWrap) gameChatWrap.style.display = "flex";
@@ -11464,879 +11226,222 @@
   // ─── Networking: use NET module (net.js) ───
   const PLAYER_LIGHT_SYNC_KEYS = NET.PLAYER_LIGHT_KEYS;
   const PLAYER_FULL_SYNC_KEYS  = NET.PLAYER_FULL_KEYS;
-  const UNIT_SYNC_KEYS         = NET.UNIT_LIGHT_KEYS;
   const UNIT_FULL_SYNC_KEYS    = NET.UNIT_FULL_KEYS;
 
   const _netSerializer = new NET.SnapshotSerializer();
   const _netSendScheduler = new NET.SendScheduler();
   const _netPing = new NET.PingTracker();
+  let snapshotSyncApi = null;
+  let socketActionDispatchApi = null;
+  let lobbyUiApi = null;
+  let remoteClientRuntimeApi = null;
+  let hostNetworkRuntimeApi = null;
+  let hostSimRuntimeApi = null;
+  let visualTickRuntimeApi = null;
+
+  function installRuntime(runtimeGlobal, deps) {
+    return runtimeGlobal && runtimeGlobal.install ? runtimeGlobal.install(deps) : null;
+  }
+
+  function requireRuntime(api, runtimeName) {
+    if (!api) throw new Error(`${runtimeName} is unavailable`);
+    return api;
+  }
 
   function serializeGameState() {
     return _netSerializer.serialize(state);
   }
 
   function applyGameState(snap) {
-    if (!snap || state._multiIsHost) return;
-    try { _applyGameStateInner(snap); } catch(e) { console.error("[MP-SYNC] ERROR in applyGameState:", e); }
-  }
-  function _applyGameStateInner(snap) {
-    if (state._frameCtr % 300 === 0) {
-      console.log("[MP-SYNC] snap seq=", snap._seq ?? "?",
-        "players=", (snap.players||[]).length,
-        "units=", (snap.units||[]).length,
-        snap._fullSync ? "FULL" : "delta");
-    }
-
-    state.t = snap.t;
-    state._lastSnapT = snap.t;
-    state._lastSnapRealTime = Date.now();
-    if (snap.timeScale != null) state.timeScale = snap.timeScale;
-    if (snap.nextUnitId != null) state.nextUnitId = snap.nextUnitId;
-    if (snap.nextResId != null) state.nextResId = snap.nextResId;
-
-    const isRemote = !!(state._multiSlots && !state._multiIsHost);
-    const isFull = !!snap._fullSync;
-
-    // ── Players ──
-    const wantPlayerIds = new Set((snap.players || []).map((p) => p.id));
-    const oldPlayerColors = new Map();
-    for (const [id, pl] of state.players) oldPlayerColors.set(id, pl.color);
-
-    for (const p of snap.players || []) {
-      let pl = state.players.get(p.id);
-      if (!pl) {
-        pl = makePlayer(p.id, p.name, p.x, p.y, p.pop ?? CFG.POP_START);
-        if (p.color != null) pl.color = p.color;
-        state.players.set(pl.id, pl);
-        makeCityVisual(pl);
-        makeZoneVisual(pl);
-      }
-      const pKeys = isFull ? PLAYER_FULL_SYNC_KEYS : PLAYER_LIGHT_SYNC_KEYS;
-      for (const k of pKeys) {
-        if (k === "influenceRayDistances" && isRemote && p.influenceRayDistances) {
-          NET.Interp.setZoneTarget(pl, p.influenceRayDistances);
-          continue;
-        }
-        if (k === "_patrols" && isRemote && Array.isArray(p._patrols)) {
-          pl._patrols = pl._patrols || [];
-          for (let i = 0; i < p._patrols.length; i++) {
-            const src = p._patrols[i];
-            let dst = pl._patrols[i];
-            if (!dst) { dst = { t: 0 }; pl._patrols.push(dst); }
-            dst._interpFromT = dst._interpDisplayT ?? dst.t ?? 0;
-            dst._interpToT = (src && typeof src.t === "number") ? src.t : dst.t;
-            dst._interpStart = performance.now();
-            dst.t = dst._interpToT;
-            if (src && src.atkCd != null) dst.atkCd = src.atkCd;
-          }
-          continue;
-        }
-        if (p[k] !== undefined) pl[k] = p[k];
-      }
-      if (isFull) {
-        if (p.influencePolygon) pl.influencePolygon = p.influencePolygon;
-        if (p.color != null) PLAYER_COLORS[p.id] = p.color;
-      }
-    }
-
-    for (const p of snap.players || []) {
-      const pl = state.players.get(p.id);
-      if (!pl || p.color == null) continue;
-      if (oldPlayerColors.get(pl.id) === p.color) continue;
-      if (pl.cityGfx) { cityLayer.removeChild(pl.cityGfx); pl.cityGfx = null; }
-      if (pl.zoneGfx) { zonesLayer.removeChild(pl.zoneGfx); pl.zoneGfx = null; }
-      if (pl.zoneGlow) { zonesLayer.removeChild(pl.zoneGlow); pl.zoneGlow = null; }
-      if (pl.zoneLightGfx) { zoneEffectsLayer.removeChild(pl.zoneLightGfx); pl.zoneLightGfx = null; }
-      makeCityVisual(pl);
-      makeZoneVisual(pl);
-    }
-
-    for (const id of [...state.players.keys()]) {
-      if (!wantPlayerIds.has(id)) {
-        const pl = state.players.get(id);
-        if (pl && pl.cityGfx) { cityLayer.removeChild(pl.cityGfx); pl.cityGfx = null; }
-        if (pl && pl.zoneGfx) { zonesLayer.removeChild(pl.zoneGfx); zonesLayer.removeChild(pl.zoneGlow); pl.zoneGfx = null; pl.zoneGlow = null; }
-        if (pl && pl.zoneLightGfx) { zoneEffectsLayer.removeChild(pl.zoneLightGfx); pl.zoneLightGfx = null; }
-        state.players.delete(id);
-      }
-    }
-
-    const numRays = CFG.TERRAIN_RAYS ?? 96;
-    for (const pl of state.players.values()) {
-      if (pl.influenceRayDistances && pl.influenceRayDistances.length === numRays) {
-        if (!pl._polyBuf || pl._polyBuf.length !== numRays) {
-          pl._polyBuf = [];
-          for (let i = 0; i < numRays; i++) pl._polyBuf.push({ x: 0, y: 0 });
-        }
-        for (let i = 0; i < numRays; i++) {
-          const angle = (i / numRays) * Math.PI * 2;
-          const d = pl.influenceRayDistances[i] ?? 0;
-          pl._polyBuf[i].x = pl.x + Math.cos(angle) * d;
-          pl._polyBuf[i].y = pl.y + Math.sin(angle) * d;
-        }
-        pl.influencePolygon = pl._polyBuf;
-      } else if (!pl.influencePolygon || pl.influencePolygon.length < 3) {
-        const popFloat = pl.popFloat != null ? pl.popFloat : pl.pop;
-        const poly = computeInfluencePolygon(pl.x, pl.y, popFloat);
-        if (poly && poly.length >= 3) {
-          pl.influencePolygon = poly;
-          pl.influenceRayDistances = poly.map((pt) => Math.hypot(pt.x - pl.x, pt.y - pl.y));
-        }
-      }
-    }
-
-    // ── Units ──
-    const wantUnitIds = new Set();
-    for (const raw of snap.units || []) {
-      const isCompact = Array.isArray(raw);
-      const uid = isCompact ? raw[0] : raw.id;
-
-      if (isCompact && raw.length === 2 && raw[1] === NET.DESTROYED_SENTINEL) {
-        const dead = state.units.get(uid);
-        if (dead) {
-          if (dead.gfx) unitsLayer.removeChild(dead.gfx);
-          state.units.delete(uid);
-        }
-        continue;
-      }
-
-      wantUnitIds.add(uid);
-      let un = state.units.get(uid);
-
-      if (isCompact) {
-        const sx = raw[1], sy = raw[2], svx = raw[3], svy = raw[4], shp = raw[5];
-        if (!un) continue;
-        if (isRemote) {
-          NET.Interp.setTarget(un, sx, sy, svx, svy, shp);
-        } else {
-          un.x = sx; un.y = sy; un.vx = svx; un.vy = svy; un.hp = shp;
-        }
-      } else {
-        if (!un) {
-          un = { ...raw, gfx: null };
-          state.units.set(un.id, un);
-          if (isRemote) {
-            NET.Interp.setTarget(un, raw.x, raw.y, raw.vx || 0, raw.vy || 0, raw.hp);
-          }
-        } else if (isRemote) {
-          NET.Interp.setTarget(un, raw.x, raw.y, raw.vx || 0, raw.vy || 0, raw.hp);
-          for (const k of UNIT_FULL_SYNC_KEYS) {
-            if (k === "x" || k === "y") continue;
-            if (raw[k] !== undefined) un[k] = raw[k];
-          }
-        } else {
-          for (const k of UNIT_FULL_SYNC_KEYS) if (raw[k] !== undefined) un[k] = raw[k];
-        }
-        if (!un.gfx) makeUnitVisual(un);
-      }
-    }
-
-    if (isFull) {
-      for (const id of [...state.units.keys()]) {
-        if (!wantUnitIds.has(id)) {
-          const u = state.units.get(id);
-          if (u && u.gfx) unitsLayer.removeChild(u.gfx);
-          state.units.delete(id);
-        }
-      }
-    }
-
-    if (snap.bullets) state.bullets = snap.bullets;
-
-    if (snap.shieldHitEffects) {
-      if (!state._shieldHitEffects) state._shieldHitEffects = [];
-      for (const e of snap.shieldHitEffects) {
-        const exists = state._shieldHitEffects.some(ex =>
-          Math.abs(ex.t0 - e.t0) < 0.05 && Math.abs(ex.hitX - e.hitX) < 2 && Math.abs(ex.hitY - e.hitY) < 2);
-        if (!exists) state._shieldHitEffects.push({ ...e });
-      }
-    }
-    if (snap.abilityAnnouncements) {
-      if (!state._abilityAnnouncements) state._abilityAnnouncements = [];
-      for (const a of snap.abilityAnnouncements) {
-        const dup = state._abilityAnnouncements.some(ex => ex.text === a.text && (ex.t0 || 0) > state.t - 3);
-        if (!dup) state._abilityAnnouncements.push({ text: a.text, ttl: a.ttlRemaining ?? 4, t0: state.t });
-      }
-      while (state._abilityAnnouncements.length > 8) state._abilityAnnouncements.shift();
-    }
-
-    // ── Resources: full sync = spawn/despawn; zone sync = position update ──
-    if (snap.resDelta && !snap.resources) {
-      for (const entry of snap.resDelta) {
-        const [id, x, y, targetCity] = entry;
-        const res = state.res.get(id);
-        if (res) {
-          NET.Interp.setResTarget(res, x, y);
-          if (targetCity !== undefined) res._targetCity = targetCity;
-        }
-      }
-    }
-    if (snap.resources) {
-      const wantResIds = new Set(snap.resources.map(r => r.id));
-      for (const r of snap.resources) {
-        let res = state.res.get(r.id);
-        if (!res) {
-          res = { ...r, gfx: null };
-          state.res.set(res.id, res);
-          makeResVisual(res);
-        } else {
-          NET.Interp.setResTarget(res, r.x, r.y);
-          res.xp = r.xp; res.type = r.type; res.color = r.color;
-          if (r.value != null) res.value = r.value;
-          if (r._targetCity !== undefined) res._targetCity = r._targetCity;
-          if (r._interceptProtectUntil !== undefined) res._interceptProtectUntil = r._interceptProtectUntil;
-        }
-      }
-      for (const id of [...state.res.keys()]) {
-        if (!wantResIds.has(id)) deleteResource(id);
-      }
-    }
-
-    // ── Turrets (full sync only) ──
-    if (snap.turrets) {
-      const wantTurretIds = new Set(snap.turrets.map(t => t.id));
-      for (const t of snap.turrets) {
-        let tu = state.turrets.get(t.id);
-        if (!tu) {
-          tu = { ...t, gfx: null, labelGfx: null, radiusGfx: null, atkCd: 0 };
-          state.turrets.set(tu.id, tu);
-        } else {
-          tu.hp = t.hp; tu.maxHp = t.maxHp; tu.x = t.x; tu.y = t.y;
-          if (t._diedAt != null) tu._diedAt = t._diedAt; else delete tu._diedAt;
-        }
-      }
-      for (const id of [...state.turrets.keys()]) {
-        if (!wantTurretIds.has(id)) {
-          const tu = state.turrets.get(id);
-          if (tu && tu.gfx) turretLayer.removeChild(tu.gfx);
-          if (tu && tu.labelGfx) turretLayer.removeChild(tu.labelGfx);
-          if (tu && tu.radiusGfx) turretLayer.removeChild(tu.radiusGfx);
-          state.turrets.delete(id);
-        }
-      }
-    }
-
-    // ── Storm ──
-    if (snap.storm !== undefined) {
-      if (snap.storm === null) {
-        if (state.storm) {
-          if (state.storm.gfx) { state.storm.gfx.parent?.removeChild(state.storm.gfx); state.storm.gfx.destroy(true); }
-          if (state.storm.emojiContainer) { state.storm.emojiContainer.parent?.removeChild(state.storm.emojiContainer); state.storm.emojiContainer.destroy({ children: true }); }
-          state.storm = null;
-        }
-      } else {
-        if (!state.storm) {
-          state.storm = { ...snap.storm, gfx: null, emojiContainer: null, particles: [] };
-          NET.Interp.setStormTarget(state.storm, snap.storm.x, snap.storm.y, snap.storm.vx, snap.storm.vy);
-        } else {
-          NET.Interp.setStormTarget(state.storm, snap.storm.x, snap.storm.y, snap.storm.vx, snap.storm.vy);
-          if (isFull) {
-            state.storm.spawnedAt = snap.storm.spawnedAt;
-            state.storm.lastDirChange = snap.storm.lastDirChange;
-            state.storm.lastDmgTick = snap.storm.lastDmgTick;
-            state.storm.rotAngle = snap.storm.rotAngle;
-            state.storm.stretch = snap.storm.stretch;
-            state.storm.blobs = snap.storm.blobs;
-          }
-        }
-      }
-    }
-
-    // Sync meteors from host
-    if (snap.meteors) {
-      // Clean up old graphics
-      for (const m of state._activeMeteors) removeMeteorGfx(m);
-      state._activeMeteors = snap.meteors.map(m => ({
-        ...m, gfx: null, trajGfx: null
-      }));
-    } else if (snap._fullSync) {
-      for (const m of state._activeMeteors) removeMeteorGfx(m);
-      state._activeMeteors = [];
-    }
-
-    // Sync ability storms from host (visual only on remote)
-    if (snap.abilityStorms && !state._multiIsHost) {
-      // Just update count for visual rendering — remote clients don't sim damage
-      while (state._abilityStorms.length > snap.abilityStorms.length) {
-        const s = state._abilityStorms.pop();
-        if (s.gfx) { s.gfx.parent?.removeChild(s.gfx); s.gfx.destroy(true); }
-        if (s.emojiContainer) { s.emojiContainer.parent?.removeChild(s.emojiContainer); s.emojiContainer.destroy({ children: true }); }
-      }
-    }
-
-    if (snap.abilityCooldownsByPlayer) {
-      state._abilityCooldownsByPlayer = {};
-      for (const pid of Object.keys(snap.abilityCooldownsByPlayer)) {
-        state._abilityCooldownsByPlayer[pid] = { ...snap.abilityCooldownsByPlayer[pid] };
-      }
-    }
-    if (snap.abilityUsedByPlayer) {
-      state._abilityUsedByPlayer = {};
-      for (const pid of Object.keys(snap.abilityUsedByPlayer)) {
-        state._abilityUsedByPlayer[pid] = (snap.abilityUsedByPlayer[pid] || []).slice();
-      }
-    }
-
-    if (snap.mines) {
-      const wantMineIds = new Set(snap.mines.map(m => m.id));
-      for (const m of snap.mines) {
-        let mine = state.mines.get(m.id);
-        if (!mine) {
-          mine = { ...m, gfx: null, yieldAcc: 0 };
-          state.mines.set(mine.id, mine);
-          makeMineVisual(mine);
-        } else {
-          const changed = mine.ownerId !== m.ownerId || mine.captureProgress !== m.captureProgress;
-          mine.ownerId = m.ownerId;
-          mine.captureProgress = m.captureProgress;
-          mine.capturingUnitId = m.capturingUnitId;
-          if (changed) updateMineVisual(mine);
-        }
-      }
-      for (const id of [...state.mines.keys()]) {
-        if (!wantMineIds.has(id)) {
-          const mine = state.mines.get(id);
-          if (mine && mine.gfx) resLayer.removeChild(mine.gfx);
-          state.mines.delete(id);
-        }
-      }
-    }
-
-    if (snap.blackHoles && !state._multiIsHost) {
-      state._blackHoles = snap.blackHoles.map(bh => ({
-        ...bh, _bodyContainer: null, _debrisGfx: null, phase: 0
-      }));
-    }
-    if (snap.pirateBase) {
-      if (!state.pirateBase) state.pirateBase = { x: 0, y: 0, hp: 4000, maxHp: 4000, gfx: null, _emojiGfx: null, spawnCd: 0, unitLimit: 12 };
-      state.pirateBase.x = snap.pirateBase.x;
-      state.pirateBase.y = snap.pirateBase.y;
-      state.pirateBase.hp = snap.pirateBase.hp;
-      state.pirateBase.maxHp = snap.pirateBase.maxHp;
-      if (snap.pirateBase.orbitCenter) state.pirateBase.orbitCenter = snap.pirateBase.orbitCenter;
-      if (snap.pirateBase.orbitRadius) state.pirateBase.orbitRadius = snap.pirateBase.orbitRadius;
-    } else if (snap.hasOwnProperty("pirateBase")) {
-      if (state.pirateBase && state.pirateBase._emojiGfx) {
-        state.pirateBase._emojiGfx.destroy();
-      }
-      state.pirateBase = null;
-    }
-    if (snap.battleMarchUntil) state._battleMarchUntil = { ...snap.battleMarchUntil };
-    if (snap.hyperFlashes) state._hyperFlashes = snap.hyperFlashes;
-    if (snap.nextEngagementZoneId != null) state.nextEngagementZoneId = snap.nextEngagementZoneId;
-
-    // ── Squads sync ──
-    if (snap.squads && typeof SQUADLOGIC !== "undefined") {
-      if (!state.squads) state.squads = new Map();
-      const wantSquadIds = new Set(snap.squads.map(s => s.id));
-      for (const sq of snap.squads) {
-        let existing = state.squads.get(sq.id);
-        if (!existing) {
-          existing = {
-            id: sq.id, leaderUnitId: sq.leaderUnitId,
-            unitIds: sq.unitIds || [],
-            ownerId: sq.ownerId,
-            formation: { type: "line", rows: 3, facing: 0, dirty: false, dirtyAt: 0 },
-            combat: { mode: "idle", zoneId: null, _disengageTimer: null, queuedOrder: null, resumeOrder: null },
-            anchor: { x: 0, y: 0 },
-            order: { type: "idle", waypoints: [], holdPoint: null }
-          };
-          state.squads.set(sq.id, existing);
-        }
-        existing.leaderUnitId = sq.leaderUnitId;
-        existing.unitIds = sq.unitIds || [];
-        existing.ownerId = sq.ownerId;
-        if (sq.formation) {
-          existing.formation.type = sq.formation.type || "line";
-          existing.formation.rows = sq.formation.rows || 3;
-          existing.formation.facing = sq.formation.facing || 0;
-          if (sq.formation.targetFacing != null) existing.formation.targetFacing = sq.formation.targetFacing;
-          if (sq.formation.pigWidth != null) existing.formation.pigWidth = sq.formation.pigWidth;
-        }
-        if (sq.combat) {
-          existing.combat.mode = sq.combat.mode || "idle";
-          existing.combat.zoneId = sq.combat.zoneId;
-        }
-        if (sq.anchor) {
-          existing.anchor.x = sq.anchor.x;
-          existing.anchor.y = sq.anchor.y;
-        }
-        if (sq.order) {
-          existing.order.type = sq.order.type || "idle";
-          existing.order.waypoints = sq.order.waypoints || [];
-          existing.order.holdPoint = sq.order.holdPoint || null;
-          existing.order.targetUnitId = sq.order.targetUnitId;
-          existing.order.targetCityId = sq.order.targetCityId;
-          existing.order.mineId = sq.order.mineId;
-        }
-        for (const uid of existing.unitIds) {
-          const u = state.units.get(uid);
-          if (u) {
-            u.squadId = sq.id;
-            u.leaderId = uid === sq.leaderUnitId ? null : sq.leaderUnitId;
-          }
-        }
-      }
-      for (const id of [...state.squads.keys()]) {
-        if (!wantSquadIds.has(id)) state.squads.delete(id);
-      }
-      if (state.nextSquadId == null || state.nextSquadId <= Math.max(...wantSquadIds, 0)) {
-        state.nextSquadId = Math.max(...wantSquadIds, 0) + 1;
-      }
-    }
-
-    // ── Engagement zones sync ──
-    if (snap.engagementZones) {
-      if (!state.engagementZones) state.engagementZones = new Map();
-      const wantZoneIds = new Set(snap.engagementZones.map(z => z.id));
-      for (const z of snap.engagementZones) {
-        let existing = state.engagementZones.get(z.id);
-        if (!existing) {
-          existing = { id: z.id, squadIds: [], anchorX: null, anchorY: null, radius: 0, displayRadius: 0, createdAt: state.t };
-          state.engagementZones.set(z.id, existing);
-        }
-        existing.squadIds = z.squadIds || [];
-        existing.anchorX = z.anchorX;
-        existing.anchorY = z.anchorY;
-        existing.radius = z.radius;
-        existing.displayRadius = z.displayRadius;
-        existing.createdAt = z.createdAt;
-        existing.owners = z.owners || [];
-        existing.balanceSegments = z.balanceSegments || [];
-      }
-      for (const id of [...state.engagementZones.keys()]) {
-        if (!wantZoneIds.has(id)) state.engagementZones.delete(id);
-      }
-    }
-
-    if (snap.timeScale != null) {
-      document.querySelectorAll(".speed-btn").forEach((b) => {
-        const s = parseInt(b.dataset.speed, 10) || 1;
-        b.classList.toggle("active", s === state.timeScale);
-      });
-    }
+    requireRuntime(snapshotSyncApi, "SnapshotSync").applyGameState(snap);
   }
 
-  function setupMenuButtons() {
-    const btnSingle = document.getElementById("btnSingle");
-    const btnMulti = document.getElementById("btnMulti");
-    const nicknameBack = document.getElementById("nicknameBack");
-    const nicknameOk = document.getElementById("nicknameOk");
-    const multiConnectBack = document.getElementById("multiConnectBack");
-    if (!btnMulti) {
-      console.error("[Меню] Кнопка #btnMulti не найдена. Проверьте, что index.html загружен целиком.");
-      return;
-    }
-    if (btnSingle) btnSingle.addEventListener("click", () => { state._menuMode = "single"; showScreen("nicknameScreen"); });
-    if (btnMulti) btnMulti.addEventListener("click", () => { state._menuMode = "multi"; showScreen("nicknameScreen"); });
-    if (nicknameBack) nicknameBack.addEventListener("click", () => showScreen("mainMenu"));
-    if (nicknameOk) nicknameOk.addEventListener("click", () => {
-      const nick = (nicknameInputEl && nicknameInputEl.value || "").trim().slice(0, 24) || "Игрок";
-      state._myNickname = nick;
-      if (state._menuMode === "single") { showScreen("soloLobbyScreen"); return; }
-      showScreen("multiConnectScreen");
-    });
-    if (multiConnectBack) multiConnectBack.addEventListener("click", () => showScreen("nicknameScreen"));
+  snapshotSyncApi = installRuntime(window.SnapshotSync, {
+    state,
+    NET,
+    CFG,
+    PLAYER_COLORS,
+    PLAYER_LIGHT_SYNC_KEYS,
+    PLAYER_FULL_SYNC_KEYS,
+    UNIT_FULL_SYNC_KEYS,
+    syncTimeRewindFromSnapshot,
+    makePlayer,
+    makeCityVisual,
+    makeZoneVisual,
+    cityLayer,
+    zonesLayer,
+    zoneEffectsLayer,
+    computeInfluencePolygon,
+    unitsLayer,
+    makeUnitVisual,
+    makeResVisual,
+    deleteResource,
+    turretLayer,
+    destroyIonStormVisual,
+    removeMeteorGfx,
+    makeMineVisual,
+    updateMineVisual,
+    resLayer,
+    destroyBlackHoleVisual
+  });
 
-    const soloLobbyBack = document.getElementById("soloLobbyBack");
-    const soloLobbyStart = document.getElementById("soloLobbyStart");
-    const soloSpawnPicker = document.getElementById("soloSpawnPicker");
-    if (soloLobbyBack) soloLobbyBack.addEventListener("click", () => showScreen("nicknameScreen"));
-    if (soloLobbyStart) soloLobbyStart.addEventListener("click", () => {
-      const nick = state._myNickname || (typeof window !== "undefined" && window._myNickname) || "Игрок";
-      startGameSingle(nick);
-    });
-    if (soloSpawnPicker) {
-      const total = 6;
-      for (let i = 0; i < total; i++) {
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = "menu-btn " + (i === (state._soloSpawnIndex ?? 0) ? "primary" : "secondary");
-        btn.style.minWidth = "44px";
-        btn.textContent = String(i + 1);
-        btn.addEventListener("click", () => {
-          state._soloSpawnIndex = i;
-          soloSpawnPicker.querySelectorAll("button").forEach((b, j) => {
-            b.className = "menu-btn " + (j === i ? "primary" : "secondary");
-            b.style.minWidth = "44px";
-          });
-        });
-        soloSpawnPicker.appendChild(btn);
-      }
-    }
-    const MAP_TYPES = [
-      { id: 1, label: "Стандарт", desc: "Сбалансированная карта" },
-      { id: 2, label: "Тесная", desc: "Плотная, ранние конфликты" },
-      { id: 3, label: "Открытая", desc: "Большие расстояния, редкие ресурсы" },
-      { id: 4, label: "Узкие фронты", desc: "Проходы и узкости" },
-      { id: 5, label: "Хаос", desc: "Случайные кластеры, непредсказуемо" }
-    ];
-    const soloMapVariationPicker = document.getElementById("soloMapVariationPicker");
-    if (soloMapVariationPicker) {
-      for (const mt of MAP_TYPES) {
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = "menu-btn " + (mt.id === (state._mapVariation ?? 1) ? "primary" : "secondary");
-        btn.style.minWidth = "80px";
-        btn.textContent = mt.label;
-        btn.title = mt.desc;
-        btn.addEventListener("click", () => {
-          state._mapVariation = mt.id;
-          soloMapVariationPicker.querySelectorAll("button").forEach((b, j) => {
-            b.className = "menu-btn " + (MAP_TYPES[j].id === mt.id ? "primary" : "secondary");
-          });
-        });
-        soloMapVariationPicker.appendChild(btn);
-      }
-    }
-    const seedInput = document.getElementById("soloMapSeedInput");
-    const rerollBtn = document.getElementById("soloMapReroll");
-    if (rerollBtn) {
-      rerollBtn.addEventListener("click", () => {
-        const newSeed = (Date.now() >>> 0) ^ (Math.random() * 0xFFFFFFFF >>> 0);
-        if (seedInput) seedInput.value = newSeed;
-        state._customMapSeed = newSeed;
-      });
-    }
-    if (seedInput) {
-      seedInput.addEventListener("input", () => {
-        const val = seedInput.value.trim();
-        state._customMapSeed = val ? (parseInt(val, 10) || 0) : null;
-      });
-    }
-    const soloModePicker = document.getElementById("soloModePicker");
-    if (soloModePicker) {
-      const modes = [{ id: "standard", label: "Стандарт" }, { id: "survival", label: "Выживание" }];
-      const current = state._soloGameMode || "standard";
-      modes.forEach((m, j) => {
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = "menu-btn " + (m.id === current ? "primary" : "secondary");
-        btn.textContent = m.label;
-        btn.addEventListener("click", () => {
-          state._soloGameMode = m.id;
-          soloModePicker.querySelectorAll("button").forEach((b, i) => {
-            b.className = "menu-btn " + (modes[i].id === m.id ? "primary" : "secondary");
-          });
-        });
-        soloModePicker.appendChild(btn);
-      });
-    }
-  }
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", setupMenuButtons);
-  } else {
-    setupMenuButtons();
-  }
+  socketActionDispatchApi = installRuntime(window.SocketActionDispatch, {
+    state,
+    CFG,
+    purchaseUnit,
+    shieldRadius,
+    getUnitAtkRange,
+    getSquadStateFromUnits,
+    getFormationOffsets,
+    applyFormationToSquad,
+    ABILITY_DEFS,
+    setAbilityCooldown,
+    pushAbilityAnnouncement,
+    spawnIonNebulaLocal: _spawnIonNebulaLocal,
+    spawnMeteorLocal: _spawnMeteorLocal,
+    spawnBlackHole,
+    useActiveShield,
+    spawnPirateRaid,
+    useGloriousBattleMarch,
+    useLoan,
+    useRaiderCapture,
+    beginTimeRewindSequence,
+    applyCard,
+    TIME_JUMP_REWIND_SEC
+  });
 
-  state._socket = socket;
-  console.log("[Лобби] Подключение к серверу:", socketUrlEarly, socket ? "OK" : "io не найден");
+  lobbyUiApi = installRuntime(window.LobbyUI, {
+    state,
+    socket,
+    socketUrl: socketUrlEarly,
+    showScreen,
+    startGameSingle,
+    nicknameInputEl,
+    roomCodeInputEl,
+    lobbyScreenEl,
+    LOBBY_COLORS,
+    CFG
+  });
+
+  remoteClientRuntimeApi = installRuntime(window.RemoteClientRuntime, {
+    state,
+    NET,
+    CFG,
+    netPing: _netPing,
+    applyGameState,
+    rebuildZoneGrid,
+    updateUnitVisualsOnly,
+    stepBulletsVisual,
+    stepMineGemsRemote,
+    stepMineGems,
+    inView
+  });
+
+  hostNetworkRuntimeApi = installRuntime(window.HostNetworkRuntime, {
+    state,
+    netSendScheduler: _netSendScheduler,
+    serializeGameState
+  });
+
+  hostSimRuntimeApi = installRuntime(window.HostSimRuntime, {
+    state,
+    perfStartStep,
+    perfEndStep,
+    stepCities,
+    rebuildZoneGrid,
+    botThink,
+    requireSquadLogic,
+    queryHash,
+    getUnitAtkRange,
+    getUnitEngagementRange,
+    getUnitBaseSpeed,
+    shieldRadius,
+    getPlanetRadius,
+    getUnitHitRadius,
+    getFormationOffsets,
+    stepUnits,
+    stepCombat,
+    getSquadLogicGlobal: () => (typeof SQUADLOGIC !== "undefined" ? SQUADLOGIC : null),
+    mergeBattleSurvivorsIntoOneSquad,
+    applyFormationToSquad,
+    stepTurrets,
+    stepPatrols,
+    stepBullets,
+    stepMines,
+    stepMineGems,
+    stepResourceMagnet,
+    stepPickups,
+    stepNebulae,
+    stepStorm,
+    stepAbilityStorms,
+    stepBlackHoles,
+    stepRandomEvents,
+    stepAbilityZoneEffects,
+    stepAbilityCooldowns,
+    stepLoanDebts,
+    stepMeteors,
+    stepBgComets,
+    stepSurvivalWaves
+  });
+
+  visualTickRuntimeApi = installRuntime(window.VisualTickRuntime, {
+    state,
+    perfStartStep,
+    perfEndStep,
+    redrawZone,
+    rebuildTurrets,
+    updateZoneOverlaps,
+    updateZoneLights,
+    updateZoneContacts,
+    contactGfx,
+    updateShieldVisuals,
+    updateDischarges,
+    pulseStars,
+    drawBgComets,
+    updateActivityZones,
+    drawTurrets,
+    updateCityPopLabels,
+    updateSquadLabels,
+    updateShipTrails,
+    updateCombatUI,
+    updateFloatingDamage,
+    updateAbilityAnnouncements,
+    drawBullets,
+    drawStorm,
+    drawNebulae,
+    drawAbilityStorms,
+    drawBlackHoles,
+    drawPirateBase,
+    drawAbilityZoneEffects,
+    drawHyperFlashes,
+    drawMeteors,
+    drawMeteorImpactEffects,
+    drawTimeRewindFx,
+    drawAbilityTargetPreview,
+    clearAbilityPreview,
+    neonEdgeSprite,
+    world,
+    pulseNeonEdge,
+    updateSelectionBox,
+    updatePathPreview,
+    updateMovingPathPreview,
+    updateMinimap,
+    updateLeaderboard,
+    updateFog,
+    updateSquadStrip,
+    updateSquadControlBox,
+    updateHUD,
+    checkVictory,
+    updateSurvivalHud,
+    updateDominationTimerUI,
+    getCombatGlobal: () => (typeof COMBAT !== "undefined" ? COMBAT : null),
+    combatDebugGfx,
+    getUnitAtkRange,
+    inView,
+    updateCombatDebugLabels
+  });
 
   if (socket) {
-    socket.on("connect", () => console.log("[Лобби] Socket подключён, id:", socket.id));
-    socket.on("connect_error", (err) => console.error("[Лобби] Ошибка подключения:", err.message || err));
-    socket.on("disconnect", (reason) => console.log("[Лобби] Socket отключён, причина:", reason));
-    socket.on("serverUrl", (url) => { console.log("[Лобби] Адрес сервера для сети:", url); });
-  }
-
-  const nickForSocket = () => (state._myNickname || window._myNickname || "Игрок").trim().slice(0, 24) || "Игрок";
-  window.__createRoom = function() {
-    if (!socket) { alert("Сервер не подключён. Запустите server.js."); return; }
-    state._myNickname = state._myNickname || window._myNickname || nicknameInputEl?.value?.trim() || "Игрок";
-    socket.emit("create", nickForSocket(), (data) => {
-      if (data.error) { alert(data.error); return; }
-      state._lobbySlots = data.slots; state._mySlot = data.mySlot;
-      state._isHost = data.isHost; state._roomId = data.roomId;
-      renderLobby(); showScreen("lobbyScreen");
-    });
-  };
-  window.__joinRoom = function() {
-    if (!socket) { alert("Сервер не подключён."); return; }
-    const code = (roomCodeInputEl && roomCodeInputEl.value || "").trim();
-    if (!code) { alert("Введите код комнаты."); return; }
-    state._myNickname = state._myNickname || window._myNickname || nicknameInputEl?.value?.trim() || "Игрок";
-    socket.emit("join", code, nickForSocket(), (data) => {
-      if (data.error) { alert(data.error); return; }
-      state._lobbySlots = data.slots; state._mySlot = data.mySlot;
-      state._isHost = data.isHost; state._roomId = data.roomId;
-      renderLobby(); showScreen("lobbyScreen");
-    });
-  };
-  window.__refreshLobbyList = refreshLobbyList;
-
-  function renderLobby() {
-    const slotsEl = document.getElementById("lobbySlots");
-    const hostBadge = document.getElementById("lobbyHostBadge");
-    const roomCodeEl = document.getElementById("lobbyRoomCode");
-    const startBtn = document.getElementById("lobbyStart");
-    if (!slotsEl) return;
-    const slots = state._lobbySlots || [];
-    roomCodeEl.textContent = "Код: " + (state._roomId || "").replace("r_", "");
-    roomCodeEl.style.display = "inline-block";
-    hostBadge.style.display = state._isHost ? "inline-block" : "none";
-    startBtn.style.display = state._isHost ? "inline-block" : "none";
-    const urlEl = document.getElementById("lobbyServerUrl");
-    const urlHintEl = document.getElementById("lobbyUrlHint");
-    const url = state._serverUrl || window.location.origin;
-    if (urlEl) {
-      urlEl.textContent = url;
-      urlEl.title = url;
-      if (urlHintEl) {
-        urlHintEl.style.display = (!state._serverUrl && url.indexOf("localhost") !== -1 && state._isHost) ? "block" : "none";
-      }
-    }
-    const spawnBySlot = new Map();
-    const spawnTaken = new Map();
-    for (let i = 0; i < slots.length; i++) {
-      const s = slots[i] || {};
-      if (!s.id && !s.isBot) continue;
-      const sp = s.spawnIndex != null ? s.spawnIndex : i;
-      spawnBySlot.set(i, sp);
-      spawnTaken.set(sp, i);
-    }
-
-    slotsEl.innerHTML = "";
-    const editSlot = state._colorEditSlot != null ? state._colorEditSlot : state._mySlot;
-    for (let i = 0; i < slots.length; i++) {
-      const s = slots[i] || {};
-      const occupied = !!(s.id || s.isBot);
-      const div = document.createElement("div");
-      div.className = "lobby-slot" + (occupied ? "" : " empty");
-      const colorHex = "#" + (LOBBY_COLORS[s.colorIndex || 0] || 0x888888).toString(16).padStart(6, "0");
-
-      const colorSpan = document.createElement("span");
-      colorSpan.className = "slot-color";
-      colorSpan.style.background = colorHex;
-      if (state._isHost && occupied) {
-        colorSpan.style.cursor = "pointer";
-        colorSpan.title = "Выбрать цвет для этого слота";
-        if (i === editSlot) {
-          colorSpan.style.boxShadow = "0 0 0 3px #fff";
-        }
-        const slotIdx = i;
-        colorSpan.addEventListener("click", () => {
-          state._colorEditSlot = slotIdx;
-          renderLobby();
-        });
-      }
-      div.appendChild(colorSpan);
-
-      const nameSpan = document.createElement("span");
-      nameSpan.className = "slot-name";
-      nameSpan.textContent = s.name || "Пусто";
-      div.appendChild(nameSpan);
-
-      if (s.isBot) {
-        const badge = document.createElement("span");
-        badge.className = "slot-badge";
-        badge.textContent = "Бот";
-        div.appendChild(badge);
-      }
-
-      if (occupied) {
-        const curSpawn = spawnBySlot.get(i) ?? i;
-        const sel = document.createElement("select");
-        sel.className = "slot-spawn-select";
-        sel.title = "Позиция спавна";
-        for (let sp = 0; sp < slots.length; sp++) {
-          const opt = document.createElement("option");
-          opt.value = sp;
-          opt.textContent = "Поз. " + (sp + 1);
-          const takenBy = spawnTaken.get(sp);
-          if (takenBy != null && takenBy !== i) opt.disabled = true;
-          if (sp === curSpawn) opt.selected = true;
-          sel.appendChild(opt);
-        }
-        const canChange = state._isHost || (i === state._mySlot);
-        sel.disabled = !canChange;
-        const slotIdx = i;
-        sel.addEventListener("change", () => {
-          const newSp = parseInt(sel.value);
-          if (state._isHost && slotIdx !== state._mySlot) {
-            socket.emit("setSlotSpawn", slotIdx, newSp);
-          } else {
-            socket.emit("setSpawn", newSp);
-          }
-        });
-        div.appendChild(sel);
-      }
-
-      if (state._isHost && i > 0) {
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = "menu-btn secondary";
-        btn.style.fontSize = "12px";
-        btn.textContent = s.isBot ? "Убрать бота" : "Бот";
-        btn.addEventListener("click", () => {
-          socket.emit("setSlot", i, !s.isBot);
-        });
-        div.appendChild(btn);
-      }
-      slotsEl.appendChild(div);
-    }
-
-    const spawnMapEl = document.getElementById("lobbySpawnMap");
-    if (spawnMapEl) {
-      const SPAWN_COUNT = slots.length || 6;
-      const W = (typeof CFG !== "undefined" ? CFG.WORLD_W : 7200) || 7200;
-      const H = (typeof CFG !== "undefined" ? CFG.WORLD_H : 4320) || 4320;
-      const wCx = W * 0.5, wCy = H * 0.5;
-      const wR = Math.min(W, H) * 0.38;
-      const spawns = [];
-      for (let i = 0; i < SPAWN_COUNT; i++) {
-        const angle = (i / SPAWN_COUNT) * Math.PI * 2 - Math.PI / 2;
-        spawns.push({ x: wCx + Math.cos(angle) * wR, y: wCy + Math.sin(angle) * wR });
-      }
-      const cw = spawnMapEl.width, ch = spawnMapEl.height;
-      const ctx = spawnMapEl.getContext("2d");
-      ctx.fillStyle = "#0a0c1a";
-      ctx.fillRect(0, 0, cw, ch);
-
-      const pad = 30;
-      const scaleX = (cw - pad * 2) / W, scaleY = (ch - pad * 2) / H;
-      const scale = Math.min(scaleX, scaleY);
-      const offX = (cw - W * scale) / 2, offY = (ch - H * scale) / 2;
-
-      ctx.beginPath();
-      ctx.arc(offX + wCx * scale, offY + wCy * scale, wR * scale, 0, Math.PI * 2);
-      ctx.strokeStyle = "rgba(100,150,255,0.15)";
-      ctx.lineWidth = 1;
-      ctx.stroke();
-
-      const DOT_R = 16;
-      for (let i = 0; i < spawns.length; i++) {
-        const px = offX + spawns[i].x * scale;
-        const py = offY + spawns[i].y * scale;
-        const ownerSlot = spawnTaken.get(i);
-        const occupied = ownerSlot != null;
-        const slotData = occupied ? (slots[ownerSlot] || {}) : null;
-        const color = occupied ? "#" + (LOBBY_COLORS[slotData.colorIndex || 0] || 0x888888).toString(16).padStart(6, "0") : "#334";
-        const borderColor = occupied ? "rgba(255,255,255,0.5)" : "#556";
-
-        ctx.beginPath();
-        ctx.arc(px, py, DOT_R, 0, Math.PI * 2);
-        ctx.fillStyle = color;
-        ctx.fill();
-        ctx.strokeStyle = borderColor;
-        ctx.lineWidth = occupied ? 2 : 1;
-        ctx.stroke();
-
-        ctx.fillStyle = occupied ? "#fff" : "#889";
-        ctx.font = "bold 13px sans-serif";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText(String(i + 1), px, py + 1);
-
-        if (occupied && slotData) {
-          const label = slotData.name || (slotData.isBot ? "Бот" : "");
-          if (label) {
-            ctx.fillStyle = "rgba(255,255,255,0.7)";
-            ctx.font = "11px sans-serif";
-            ctx.fillText(label.length > 8 ? label.slice(0, 7) + "…" : label, px, py + DOT_R + 12);
-          }
-        }
-      }
-      spawnMapEl.onclick = null;
-    }
-
-    const pickerEl = document.getElementById("colorPicker");
-    if (pickerEl) {
-      pickerEl.innerHTML = "";
-      const targetSlot = editSlot != null ? editSlot : state._mySlot;
-      const targetData = slots[targetSlot] || {};
-      const curColor = targetData.colorIndex != null ? targetData.colorIndex : 0;
-
-      const usedColors = new Set();
-      for (let j = 0; j < slots.length; j++) {
-        const sl = slots[j] || {};
-        if ((sl.id || sl.isBot) && j !== targetSlot) usedColors.add(sl.colorIndex);
-      }
-
-      const label = document.getElementById("colorPickerLabel");
-      if (label) {
-        if (state._isHost && targetSlot !== state._mySlot) {
-          const tName = targetData.name || (targetData.isBot ? "Бот" : "Слот " + (targetSlot + 1));
-          label.textContent = "Цвет для: " + tName;
-        } else {
-          label.textContent = "Ваш цвет:";
-        }
-      }
-
-      for (let i = 0; i < 36; i++) {
-        const sw = document.createElement("div");
-        const taken = usedColors.has(i);
-        sw.className = "color-swatch" + (i === curColor ? " selected" : "") + (taken ? " taken" : "");
-        sw.style.background = "#" + (LOBBY_COLORS[i] || 0).toString(16).padStart(6, "0");
-        if (taken) {
-          sw.style.opacity = "0.25";
-          sw.style.cursor = "default";
-          sw.title = "Занят";
-        } else {
-          const colorIdx = i;
-          sw.addEventListener("click", () => {
-            if (state._isHost && targetSlot !== state._mySlot) {
-              socket.emit("setSlotColor", targetSlot, colorIdx);
-            } else {
-              socket.emit("setColor", colorIdx);
-            }
-          });
-        }
-        pickerEl.appendChild(sw);
-      }
-    }
-  }
-
-  if (socket) {
-    socket.on("serverUrl", (url) => {
-      state._serverUrl = url;
-      if (lobbyScreenEl && lobbyScreenEl.style.display === "flex") renderLobby();
-      const urlEl = document.getElementById("lobbyServerUrl");
-      if (urlEl) { urlEl.textContent = url; urlEl.title = url; }
-    });
-    socket.on("slots", (slots) => {
-      state._lobbySlots = slots;
-      if (lobbyScreenEl && lobbyScreenEl.style.display === "flex") renderLobby();
-    });
-    socket.on("chat", (msg) => {
-      const list = document.getElementById("chatMessages");
-      if (list) {
-        const div = document.createElement("div");
-        div.className = "msg";
-        div.innerHTML = "<span class=\"sender\">" + (msg.name || "?") + ":</span> " + (msg.text || "").replace(/</g, "&lt;");
-        list.appendChild(div);
-        list.scrollTop = list.scrollHeight;
-      }
-      const gameList = document.getElementById("gameChatMessages");
-      if (gameList && state._multiSlots) {
-        const d = document.createElement("div");
-        d.className = "msg";
-        d.innerHTML = "<span class=\"sender\">" + (msg.name || "?") + ":</span> " + (msg.text || "").replace(/</g, "&lt;");
-        gameList.appendChild(d);
-        while (gameList.children.length > 100) gameList.removeChild(gameList.firstChild);
-        gameList.scrollTop = gameList.scrollHeight;
-        const wrap = document.getElementById("gameChatWrap");
-        const collapsed = wrap && wrap.classList.contains("game-chat-collapsed");
-        const isOwn = (msg.name || "") === (state._myNickname || "");
-        if (collapsed && !isOwn) {
-          state._gameChatUnread = (state._gameChatUnread || 0) + 1;
-          const badge = document.getElementById("gameChatUnreadBadge");
-          if (badge) badge.textContent = state._gameChatUnread > 99 ? "99+" : String(state._gameChatUnread);
-          try {
-            const ctx = new (window.AudioContext || window.webkitAudioContext)();
-            const osc = ctx.createOscillator();
-            const g = ctx.createGain();
-            osc.connect(g);
-            g.connect(ctx.destination);
-            osc.frequency.value = 880;
-            osc.type = "sine";
-            g.gain.setValueAtTime(0.08, ctx.currentTime);
-            g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.12);
-            osc.start(ctx.currentTime);
-            osc.stop(ctx.currentTime + 0.12);
-          } catch (_) {}
-        }
-      }
-    });
     socket.on("net:pong", (seq) => _netPing.onPong(seq));
 
     socket.on("gameStart", (data) => {
@@ -12360,261 +11465,8 @@
       }
     });
     socket.on("playerAction", (action) => {
-      if (!state._multiIsHost) return;
-      console.log("[MP-ACTION] host received action:", action.type, "pid=", action.pid, "from remote");
-      if (action.type === "spawn") {
-        const res = purchaseUnit(action.pid, action.unitType || "fighter", action.waypoints);
-        console.log("[MP-ACTION] spawn result:", JSON.stringify(res));
-      } else if (action.type === "purchase") {
-        const res = purchaseUnit(action.pid, action.unitType || "fighter", action.waypoints);
-        console.log("[MP-ACTION] purchase result:", JSON.stringify(res));
-      } else if (action.type === "chase") {
-        if (typeof SQUADLOGIC !== "undefined") {
-          for (const lid of (action.leaderIds || [])) {
-            const u = state.units.get(lid);
-            if (!u || u.squadId == null) continue;
-            SQUADLOGIC.issueAttackUnitOrder(state, u.squadId, action.targetUnitId);
-          }
-          return;
-        }
-        for (const lid of (action.leaderIds || [])) {
-          const u = state.units.get(lid);
-          if (!u) continue;
-          u.chaseTargetUnitId = action.targetUnitId;
-          u.chaseTargetCityId = undefined;
-          u.waypoints = [{ x: action.x, y: action.y }];
-          u.waypointIndex = 0;
-          u.straightMode = false;
-        }
-      } else if (action.type === "chaseCity") {
-        if (typeof SQUADLOGIC !== "undefined") {
-          for (const lid of (action.leaderIds || [])) {
-            const u = state.units.get(lid);
-            if (!u || u.squadId == null) continue;
-            SQUADLOGIC.issueSiegeOrder(state, u.squadId, action.targetCityId, [{ x: action.x, y: action.y }]);
-          }
-          return;
-        }
-        const city = state.players.get(action.targetCityId);
-        const minStopR = city ? shieldRadius(city) + 6 : 26;
-        for (const lid of (action.leaderIds || [])) {
-          const u = state.units.get(lid);
-          if (!u) continue;
-          u.chaseTargetCityId = action.targetCityId;
-          u.chaseTargetUnitId = undefined;
-          const stopR = Math.max(getUnitAtkRange(u), minStopR);
-          const cx = city ? city.x : action.x, cy = city ? city.y : action.y;
-          const dx = u.x - cx, dy = u.y - cy;
-          const dl = Math.hypot(dx, dy) || 1;
-          u.waypoints = [{ x: cx + (dx / dl) * stopR, y: cy + (dy / dl) * stopR }];
-          u.waypointIndex = 0;
-          u.straightMode = false;
-        }
-      } else if (action.type === "move") {
-        if (typeof SQUADLOGIC !== "undefined") {
-          const wp = Array.isArray(action.waypoints) && action.waypoints.length > 0
-            ? action.waypoints.map(w => ({ x: w.x, y: w.y }))
-            : [{ x: action.x, y: action.y }];
-          for (const lid of (action.leaderIds || [])) {
-            const u = state.units.get(lid);
-            if (!u || u.squadId == null) continue;
-            if (action.capture) SQUADLOGIC.issueCaptureOrder(state, u.squadId, action.mineId, wp[0]);
-            else SQUADLOGIC.issueMoveOrder(state, u.squadId, wp, action.angle);
-          }
-          return;
-        }
-        const wp = Array.isArray(action.waypoints) && action.waypoints.length > 0
-          ? action.waypoints.map(w => ({ x: w.x, y: w.y }))
-          : [{ x: action.x, y: action.y }];
-        for (const lid of (action.leaderIds || [])) {
-          const u = state.units.get(lid);
-          if (!u) continue;
-          u.targetFormationAngle = action.angle;
-          u.chaseTargetUnitId = undefined;
-          u.chaseTargetCityId = undefined;
-          for (const v of state.units.values()) {
-            if ((v.leaderId || v.id) === lid) {
-              v.waypoints = wp.map(w => ({ x: w.x, y: w.y }));
-              v.waypointIndex = 0;
-              v.straightMode = false;
-            }
-          }
-        }
-      } else if (action.type === "formation") {
-        if (typeof SQUADLOGIC !== "undefined") {
-          const squad = (action.unitIds || []).map(id => state.units.get(id)).filter(Boolean);
-          if (squad.length > 0) {
-            const squadState = getSquadStateFromUnits(squad);
-            if (squadState) {
-              SQUADLOGIC.setSquadFormation(state, squadState.id, action.formationType || "line", action.formationRows || 3, action.formationPigWidth || 1);
-              SQUADLOGIC.recalculateFormation(state, squadState.id, { getFormationOffsets }, true);
-            }
-          }
-          return;
-        }
-        const squad = (action.unitIds || []).map(id => state.units.get(id)).filter(Boolean);
-        if (squad.length > 0) {
-          const leader = squad.find(u => !u.leaderId) || squad[0];
-          const wp = leader.waypoints;
-          const idx = leader.waypointIndex ?? 0;
-          const dirX = wp && idx < wp.length && wp[idx] ? wp[idx].x - leader.x : null;
-          const dirY = wp && idx < wp.length && wp[idx] ? wp[idx].y - leader.y : null;
-          applyFormationToSquad(squad, action.formationType || "pig", action.formationRows || 1, dirX, dirY, action.formationPigWidth || 1);
-        }
-      } else if (action.type === "mergeSquad") {
-        if (typeof SQUADLOGIC !== "undefined") {
-          const squadIds = Array.isArray(action.squadIds) ? action.squadIds : [];
-          const merged = squadIds.length >= 2
-            ? SQUADLOGIC.mergeSquads(state, squadIds, action.formationType || "line", action.formationRows || 3, action.formationPigWidth || 1)
-            : null;
-          if (merged) {
-            const waypoints = Array.isArray(action.waypoints) && action.waypoints.length > 0
-              ? action.waypoints.map(w => ({ x: w.x, y: w.y }))
-              : [];
-            SQUADLOGIC.issueMoveOrder(state, merged.id, waypoints, null);
-            SQUADLOGIC.recalculateFormation(state, merged.id, { getFormationOffsets }, true);
-          }
-          return;
-        }
-        const units = (action.unitIds || []).map(id => state.units.get(id)).filter(Boolean);
-        if (units.length >= 2) {
-          const leader = units[0];
-          const formationType = action.formationType || "pig";
-          const formationRows = action.formationRows || 1;
-          const pigW = action.formationPigWidth || 1;
-          const waypoints = Array.isArray(action.waypoints) && action.waypoints.length > 0
-            ? action.waypoints.map(w => ({ x: w.x, y: w.y }))
-            : [{ x: leader.x + 280, y: leader.y }];
-          const dx = waypoints[0].x - leader.x, dy = waypoints[0].y - leader.y;
-          const dl = Math.hypot(dx, dy) || 1;
-          const vx = dx / dl, vy = dy / dl;
-          const offsets = getFormationOffsets(units.length, formationType, formationRows, vx, vy, pigW, units);
-          const leaderId = leader.id;
-          leader.leaderId = null;
-          leader.formationType = formationType;
-          leader.formationRows = formationRows;
-          leader._formationAngle = Math.atan2(vy, vx);
-          leader._lastFacingAngle = Math.atan2(vy, vx);
-          if (formationType === "pig") leader.formationPigWidth = pigW;
-          leader.waypoints = waypoints;
-          leader.waypointIndex = 0;
-          leader.straightMode = false;
-          for (let i = 0; i < units.length; i++) {
-            const u = units[i];
-            u.leaderId = i === 0 ? null : leaderId;
-            u.formationOffsetX = offsets[i]?.x ?? 0;
-            u.formationOffsetY = offsets[i]?.y ?? 0;
-            u.waypoints = waypoints.map(w => ({ x: w.x, y: w.y }));
-            u.waypointIndex = 0;
-            u.straightMode = false;
-          }
-        }
-      } else if (action.type === "splitSquad") {
-        if (typeof SQUADLOGIC !== "undefined") {
-          const allUnits = (action.unitIds || []).map(id => state.units.get(id)).filter(Boolean);
-          if (allUnits.length >= 2) {
-            const squadState = getSquadStateFromUnits(allUnits);
-            if (squadState) {
-              const n = allUnits.length;
-              const k = Math.floor(n / 2);
-              const firstIds = allUnits.slice(0, k).map(u => u.id);
-              const secondIds = allUnits.slice(k).map(u => u.id);
-              const order = SQUADLOGIC.cloneOrder(squadState.order);
-              const formation = { ...squadState.formation };
-              SQUADLOGIC.destroySquad(state, squadState.id);
-              const firstSquad = SQUADLOGIC.createSquad(state, firstIds, {
-                formationType: formation.type,
-                formationRows: formation.rows,
-                formationWidth: formation.width,
-                order
-              });
-              const secondSquad = SQUADLOGIC.createSquad(state, secondIds, {
-                formationType: formation.type,
-                formationRows: formation.rows,
-                formationWidth: formation.width,
-                order
-              });
-              if (firstSquad) SQUADLOGIC.recalculateFormation(state, firstSquad.id, { getFormationOffsets }, true);
-              if (secondSquad) SQUADLOGIC.recalculateFormation(state, secondSquad.id, { getFormationOffsets }, true);
-            }
-          }
-          return;
-        }
-        const allUnits = (action.unitIds || []).map(id => state.units.get(id)).filter(Boolean);
-        if (allUnits.length >= 2) {
-          const n = allUnits.length;
-          const k = Math.floor(n / 2);
-          const first = allUnits.slice(0, k);
-          const second = allUnits.slice(k);
-          const centerIdx = arr => Math.min(Math.floor((arr.length - 1) / 2), arr.length - 1);
-          const leader1 = state.units.get(action.leader1Id) || first[centerIdx(first)];
-          const leader2 = state.units.get(action.leader2Id) || second[centerIdx(second)];
-          if (leader1 && leader2) {
-            for (const u of first) { u.leaderId = leader1.id; u.formationOffsetX = 0; u.formationOffsetY = 0; }
-            leader1.leaderId = null;
-            for (const u of second) { u.leaderId = leader2.id; u.formationOffsetX = 0; u.formationOffsetY = 0; }
-            leader2.leaderId = null;
-            applyFormationToSquad(first, leader1.formationType || "pig", leader1.formationRows ?? 1, null, null, leader1.formationPigWidth);
-            applyFormationToSquad(second, leader2.formationType || "pig", leader2.formationRows ?? 1, null, null, leader2.formationPigWidth);
-          }
-        }
-      } else if (action.type === "splitSquadByType") {
-        if (typeof SQUADLOGIC !== "undefined") {
-          const squad = state.squads.get(action.squadId);
-          if (squad) {
-            const out = SQUADLOGIC.splitSquadByType(state, squad.id);
-            for (const nextSquad of out) SQUADLOGIC.recalculateFormation(state, nextSquad.id, { getFormationOffsets }, true);
-          }
-          return;
-        }
-      } else if (action.type === "useAbility") {
-        const def = ABILITY_DEFS.find(d => d.id === action.abilityId);
-        if (def && action.pid != null && !def.oneTime) setAbilityCooldown(action.pid, action.abilityId, def.cooldown);
-        pushAbilityAnnouncement(action.pid, action.abilityId);
-        if (action.abilityId === "ionNebula") {
-          _spawnIonNebulaLocal(action.x, action.y);
-        } else if (action.abilityId === "meteor") {
-          _spawnMeteorLocal(action.x, action.y, action.angle, action.pid);
-        } else if (action.abilityId === "blackHole") {
-          spawnBlackHole(action.x, action.y, action.pid);
-          const me = state.players.get(action.pid);
-          if (me && def) {
-            if (!state._abilityCooldownsByPlayer[me.id]) state._abilityCooldownsByPlayer[me.id] = {};
-            state._abilityCooldownsByPlayer[me.id]["blackHole"] = state.t + CFG.BLACKHOLE_COOLDOWN;
-          }
-        } else if (action.abilityId === "activeShield") {
-          useActiveShield(action.pid);
-        } else if (action.abilityId === "pirateRaid") {
-          spawnPirateRaid(action.x, action.y, action.angle ?? 0);
-        } else if (action.abilityId === "gloriousBattleMarch") {
-          useGloriousBattleMarch(action.pid);
-        } else if (action.abilityId === "loan") {
-          useLoan(action.pid);
-        } else if (action.abilityId === "raiderCapture") {
-          useRaiderCapture(action.pid, action.targetCityId);
-        } else if (action.abilityId === "timeJump") {
-          if (!state._timeSnapshots || state._timeSnapshots.length === 0) { /* no snapshot */ }
-          else {
-            const targetT = Math.max(0, state.t - TIME_JUMP_REWIND_SEC);
-            let snap = null;
-            for (let i = state._timeSnapshots.length - 1; i >= 0; i--) {
-              if (state._timeSnapshots[i].t <= targetT) {
-                snap = state._timeSnapshots[i];
-                break;
-              }
-            }
-            if (snap) {
-              const eliminatedBeforeRewind = [...state.players.values()].filter(p => p.eliminated).map(p => p.id);
-              restoreFromTimeSnapshot(snap, eliminatedBeforeRewind, action.pid);
-            }
-          }
-        }
-      } else if (action.type === "cardChoice") {
-        const pl = action.pid != null ? state.players.get(action.pid) : null;
-        if (pl && action.card && typeof (pl.pendingCardPicks) === "number" && pl.pendingCardPicks > 0) {
-          applyCard(pl, action.card);
-          pl.pendingCardPicks--;
-        }
+      if (socketActionDispatchApi && socketActionDispatchApi.handlePlayerAction) {
+        socketActionDispatchApi.handlePlayerAction(action);
       }
     });
     socket.on("mapRegenerate", (data) => {
@@ -12632,34 +11484,6 @@
       if (me) centerOn(me.x, me.y);
     });
   }
-
-  document.getElementById("lobbyCopyUrl").addEventListener("click", () => {
-    const url = state._serverUrl || window.location.origin;
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(url).then(() => {
-        const btn = document.getElementById("lobbyCopyUrl");
-        if (btn) { const t = btn.textContent; btn.textContent = "Скопировано!"; setTimeout(() => { btn.textContent = t; }, 1500); }
-      });
-    } else {
-      prompt("Скопируйте адрес:", url);
-    }
-  });
-  document.getElementById("lobbyLeave").addEventListener("click", () => {
-    if (socket && state._roomId) socket.emit("leave");
-    state._roomId = null;
-    state._mySlot = null;
-    state._isHost = false;
-    showScreen("multiConnectScreen");
-  });
-  document.getElementById("lobbyStart").addEventListener("click", () => {
-    if (socket && state._isHost) socket.emit("start", { seed: (Date.now() >>> 0) + Math.floor(Math.random() * 0xffff) });
-  });
-  const chatInputEl = document.getElementById("chatInput");
-  document.getElementById("chatSend").addEventListener("click", () => {
-    const t = chatInputEl && chatInputEl.value.trim();
-    if (t && socket) { socket.emit("chat", t); chatInputEl.value = ""; }
-  });
-  if (chatInputEl) chatInputEl.addEventListener("keydown", (e) => { if (e.key === "Enter") document.getElementById("chatSend").click(); });
 
   showScreen("mainMenu");
   gameWrapEl.style.display = "none";
@@ -12682,6 +11506,7 @@
     if (!state.players || state.players.size === 0) return;
     const frameStart = performance.now();
     const now = frameStart;
+    stepTimeRewindSequence(now / 1000);
     let dt = Math.min(0.05, (now - lastT) / 1000);
     dt *= CFG.GAME_SPEED;
     const timeScale = state.timeScale || 1;
@@ -12704,251 +11529,25 @@
     const isRemoteClient = !!(state._multiSlots && !state._multiIsHost);
 
     if (!isRemoteClient) {
-      perfStartStep("stepCities");
-      stepCities(dt);
-      perfEndStep("stepCities");
-      if (state._frameCtr % 4 === 0) rebuildZoneGrid();
-
-      perfStartStep("botThink");
-      if (state._frameCtr % 2 === 0) botThink(dt);
-      perfEndStep("botThink");
-
-      perfStartStep("combatStateMachine");
-      if (typeof SQUADLOGIC !== "undefined" && SQUADLOGIC.step) {
-        SQUADLOGIC.step(state, dt, {
-          queryHash,
-          getUnitAtkRange,
-          getUnitEngagementRange,
-          getUnitBaseSpeed,
-          shieldRadius,
-          getPlanetRadius,
-          getUnitHitRadius,
-          getFormationOffsets
-        });
-      } else if (typeof COMBAT !== "undefined" && COMBAT.stepCombatSystem) {
-        COMBAT.stepCombatSystem(state, dt, {
-          queryHash,
-          getUnitAtkRange,
-          getUnitEngagementRange,
-          getUnitBaseSpeed,
-          shieldRadius,
-          getPlanetRadius,
-          getUnitHitRadius
-        });
-      }
-      perfEndStep("combatStateMachine");
-
-      perfStartStep("stepUnits");
-      stepUnits(dt);
-      perfEndStep("stepUnits");
-      perfStartStep("stepCombat");
-      stepCombat(dt);
-      perfEndStep("stepCombat");
-      perfStartStep("mergeBattle");
-      if (typeof SQUADLOGIC !== "undefined") {
-        for (const u of state.units.values()) {
-          if (u._formationRebuildAt != null && state.t >= u._formationRebuildAt && u.squadId != null) {
-            u._formationRebuildAt = undefined;
-            SQUADLOGIC.requestFormationRecalc(state, u.squadId, false);
-            SQUADLOGIC.recalculateFormation(state, u.squadId, { getFormationOffsets }, false);
-          }
-        }
+      requireRuntime(hostSimRuntimeApi, "HostSimRuntime").step(dt);
+    } else {
+      if (remoteClientRuntimeApi && remoteClientRuntimeApi.step) {
+        remoteClientRuntimeApi.step(dt);
       } else {
-        mergeBattleSurvivorsIntoOneSquad();
-        for (const u of state.units.values()) {
-          if (u._formationRebuildAt != null && u.leaderId == null && state.t >= u._formationRebuildAt) {
-            u._formationRebuildAt = undefined;
-            const squad = [u];
-            for (const v of state.units.values()) if (v.leaderId === u.id) squad.push(v);
-            if (squad.length > 1) {
-              applyFormationToSquad(squad, u.formationType || "line", u.formationRows || 3, null, null, u.formationPigWidth);
-            }
-          }
-        }
-      }
-      perfEndStep("mergeBattle");
-      perfStartStep("stepTurrets");
-      stepTurrets(dt);
-      perfEndStep("stepTurrets");
-      stepPatrols(dt);
-      perfStartStep("stepBullets");
-      stepBullets(dt);
-      perfEndStep("stepBullets");
-      stepMines(dt);
-      stepMineGems(dt);
-      stepResourceMagnet(dt);
-      stepPickups(dt);
-      stepNebulae(dt);
-      stepStorm(dt);
-      stepAbilityStorms(dt);
-      stepBlackHoles(dt);
-      stepRandomEvents(dt);
-      stepAbilityZoneEffects(dt);
-      stepAbilityCooldowns(dt);
-      stepLoanDebts(dt);
-      stepMeteors(dt);
-      stepBgComets(dt);
-      stepSurvivalWaves(dt);
-    } else {
-      // ── Remote client: apply pending snapshots, then interpolate ──
-      if (state._pendingFullSnap) {
-        applyGameState(state._pendingFullSnap);
-        state._pendingFullSnap = null;
-        state._pendingSnap = null;
-      } else if (state._pendingSnap) {
-        applyGameState(state._pendingSnap);
-        state._pendingSnap = null;
-      }
-      if (state._frameCtr % 4 === 0) rebuildZoneGrid();
-
-      const interpMs = _netPing.getInterpDurationMs();
-
-      for (const u of state.units.values()) {
-        NET.Interp.tickUnit(u, interpMs);
-      }
-      updateUnitVisualsOnly();
-
-      // Simulate bullets visually — smooth movement between zone syncs (266 ms)
-      stepBulletsVisual(dt);
-
-      stepMineGemsRemote(dt);
-      stepMineGems(dt);
-
-      NET.Interp.tickStorm(state.storm, interpMs);
-
-      const numRays = CFG.TERRAIN_RAYS ?? 96;
-      for (const pl of state.players.values()) {
-        // Use full zone sync interval (266 ms) for proper linear interpolation
-        NET.Interp.tickZoneRays(pl, numRays, NET.ZONE_SYNC_INTERVAL_MS);
-        if (pl.influenceRayDistances && pl.influenceRayDistances.length === numRays) {
-          if (!pl._polyBuf || pl._polyBuf.length !== numRays) {
-            pl._polyBuf = [];
-            for (let i = 0; i < numRays; i++) pl._polyBuf.push({ x: 0, y: 0 });
-          }
-          for (let i = 0; i < numRays; i++) {
-            const angle = (i / numRays) * Math.PI * 2;
-            const d = pl.influenceRayDistances[i] ?? 0;
-            pl._polyBuf[i].x = pl.x + Math.cos(angle) * d;
-            pl._polyBuf[i].y = pl.y + Math.sin(angle) * d;
-          }
-          pl.influencePolygon = pl._polyBuf;
-          if (pl._lastZoneHash !== undefined) pl._lastZoneHash = null;
-        }
-      }
-
-      for (const r of state.res.values()) {
-        NET.Interp.tickRes(r, NET.ZONE_SYNC_INTERVAL_MS, state.players);
-        if (r.gfx) {
-          r.gfx.visible = inView(r.x, r.y);
-          if (r.gfx.visible) r.gfx.position.set(r.x, r.y);
+        if (state._pendingFullSnap) {
+          applyGameState(state._pendingFullSnap);
+          state._pendingFullSnap = null;
+          state._pendingSnap = null;
+        } else if (state._pendingSnap) {
+          applyGameState(state._pendingSnap);
+          state._pendingSnap = null;
         }
       }
     }
 
-    // ── Host: send snapshots at fixed 30 Hz (decoupled from render rate) ──
-    if (state._multiIsHost && state._socket && state._roomId) {
-      const dtMs = (now - (state._lastSendCheck || now));
-      state._lastSendCheck = now;
-      if (_netSendScheduler.update(dtMs)) {
-        const gs = serializeGameState();
-        const payload = JSON.stringify(gs);
-        const size = payload.length;
-        if (!state._netPacketStats) state._netPacketStats = { samples: [], lastLog: 0 };
-        const st = state._netPacketStats;
-        st.samples.push({ size, full: !!gs._fullSync, t: state.t });
-        if (st.samples.length > 120) st.samples.shift();
-        if (state.t - st.lastLog >= 10) {
-          st.lastLog = state.t;
-          const recent = st.samples.slice(-30);
-          const avg = recent.reduce((s, x) => s + x.size, 0) / recent.length;
-          const fulls = recent.filter(x => x.full).length;
-          const line = `[NET-PKT] size=${size} avg30=${Math.round(avg)} fullSyncs=${fulls} units=${(gs.units||[]).length}`;
-          console.log(line);
-          if (typeof window !== "undefined") {
-            window._lastNetPacketLog = line;
-            window._netPacketSamples = st.samples;
-          }
-        }
-        state._socket.emit("gameState", gs);
-      }
-    }
+    if (hostNetworkRuntimeApi && hostNetworkRuntimeApi.step) hostNetworkRuntimeApi.step(now);
 
-    // visuals: zones & overlaps (redraw only when shape changed; throttle overlaps)
-    perfStartStep("zones");
-    if (state.zonesEnabled) {
-      const isRemote = state._multiSlots && !state._multiIsHost;
-      const zoneRedrawThisFrame = !isRemote || (state._frameCtr % 2 === 0);
-      for (const p of state.players.values()) {
-        const oldHash = p._lastZoneHash;
-        if (zoneRedrawThisFrame) redrawZone(p);
-        if (p._lastZoneHash !== oldHash || (state._frameCtr % 8 === 0)) rebuildTurrets(p);
-      }
-      state._zoneFrameCounter = (state._zoneFrameCounter || 0) + 1;
-      if (state._zoneFrameCounter % 2 === 0) updateZoneOverlaps();
-      // Running border lights (every frame, smooth animation)
-      updateZoneLights(dt);
-      // Zone contact glow (throttled — zones move slowly)
-      if (state._frameCtr % 3 === 0) updateZoneContacts(dt);
-    } else {
-      // Hide effects when zones are toggled off
-      contactGfx.clear();
-      for (const p of state.players.values()) {
-        if (p.zoneLightGfx) p.zoneLightGfx.clear();
-      }
-    }
-    perfEndStep("zones");
-
-    perfStartStep("visuals");
-    const vfc = state._frameCtr;
-    if (vfc % 2 === 0) updateShieldVisuals();
-    if (vfc % 3 === 0) updateDischarges(dt);
-    if (vfc % 4 === 0) pulseStars();
-    drawBgComets();
-    if (vfc % 4 === 0) updateActivityZones();
-    if (vfc % 3 === 0) drawTurrets();
-    if (vfc % 2 === 0) updateCityPopLabels();
-    if (vfc % 3 === 0) updateSquadLabels();
-    if (vfc % 2 === 0) updateShipTrails();
-    if (vfc % 3 === 0) updateCombatUI();
-    updateFloatingDamage(dt);
-    updateAbilityAnnouncements(dt);
-    drawBullets();
-    if (vfc % 2 === 0) { drawStorm(); drawNebulae(); }
-    if (vfc % 2 === 0) { drawAbilityStorms(); drawBlackHoles(); drawPirateBase(); drawAbilityZoneEffects(); }
-    drawHyperFlashes();
-    drawMeteors();
-    drawMeteorImpactEffects();
-    if (state._abilityTargeting) drawAbilityTargetPreview();
-    else clearAbilityPreview();
-    if (neonEdgeSprite) {
-      if (neonEdgeSprite.parent) neonEdgeSprite.parent.removeChild(neonEdgeSprite);
-      world.addChild(neonEdgeSprite);
-    }
-    pulseNeonEdge();
-    updateSelectionBox();
-    updatePathPreview();
-    updateMovingPathPreview();
-    if (vfc % 4 === 0) updateMinimap();
-    if (vfc % 3 === 0) updateLeaderboard();
-    if (vfc % 2 === 0) updateFog();
-    if (vfc % 2 === 0) updateSquadStrip();
-    updateSquadControlBox();
-    if (vfc % 3 === 0) updateHUD();
-    if (vfc % 10 === 0) { checkVictory(); updateSurvivalHud(); updateDominationTimerUI(); }
-    
-    // Combat debug overlay (F2)
-    if (typeof COMBAT !== "undefined" && COMBAT.DEBUG && COMBAT.DEBUG.enabled) {
-      COMBAT.drawCombatDebug(combatDebugGfx, state, {
-        getUnitAtkRange,
-        inView
-      });
-      updateCombatDebugLabels();
-    } else {
-      if (combatDebugGfx) combatDebugGfx.clear();
-      updateCombatDebugLabels();
-    }
-    
-    perfEndStep("visuals");
+    requireRuntime(visualTickRuntimeApi, "VisualTickRuntime").step(dt, now);
 
     // fps
     fpsAcc += dt;
@@ -13018,11 +11617,10 @@
   }
 
   function describeOrderPreview(order) {
-    if (!order) return { ghostPath: false, targetHighlight: false };
-    return {
-      ghostPath: order.type === "move" || order.type === "capture",
-      targetHighlight: order.type === "attackUnit" || order.type === "attackCity"
-    };
+    if (selectionAndOrdersApi && selectionAndOrdersApi.describeOrderPreview) {
+      return selectionAndOrdersApi.describeOrderPreview(order);
+    }
+    return { ghostPath: false, targetHighlight: false };
   }
 
   window._gameTest = {

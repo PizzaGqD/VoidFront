@@ -212,9 +212,9 @@
     "comment": "Show influence polygons around cities."
   },
   "grid": {
-    "enabled": false,
+    "enabled": true,
     "step": 100,
-    "comment": "Debug grid overlay. Toggle in dev."
+    "comment": "Tactical grid overlay."
   },
   "blackHole": {
     "cooldown": 180,

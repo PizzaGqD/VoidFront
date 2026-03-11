@@ -196,6 +196,7 @@
         _fullSync: isFull,
         t: state.t,
         nextUnitId: state.nextUnitId,
+        timeScale: state.timeScale ?? 1,
         players,
         units,
         // Bullets in every packet — short-lived, need smooth visual on remote clients
@@ -213,7 +214,6 @@
       }
 
       if (isFull) {
-        gs.timeScale = state.timeScale ?? 1;
         gs.nextResId = state.nextResId;
         gs.nextEngagementZoneId = state.nextEngagementZoneId;
 
@@ -259,7 +259,14 @@
                 pigWidth: sq.formation?.pigWidth,
                 dirty: sq.formation?.dirty
               },
-              combat: { mode: sq.combat?.mode || "idle", zoneId: sq.combat?.zoneId },
+              combat: {
+                mode: sq.combat?.mode || "idle",
+                zoneId: sq.combat?.zoneId,
+                focusTargetUnitId: sq.combat?.focusTargetUnitId,
+                queuedOrder: sq.combat?.queuedOrder || null,
+                resumeOrder: sq.combat?.resumeOrder || null,
+                combatTargetSquadId: sq.combat?.combatTargetSquadId ?? null
+              },
               anchor: sq.anchor ? { x: roundN(sq.anchor.x, 10), y: roundN(sq.anchor.y, 10) } : null,
               order: sq.order ? {
                 type: sq.order.type || "idle",
@@ -267,6 +274,7 @@
                 holdPoint: sq.order.holdPoint ? { x: roundN(sq.order.holdPoint.x, 10), y: roundN(sq.order.holdPoint.y, 10) } : null,
                 targetUnitId: sq.order.targetUnitId,
                 targetCityId: sq.order.targetCityId,
+                targetPirateBase: !!sq.order.targetPirateBase,
                 mineId: sq.order.mineId
               } : null
             });
@@ -304,6 +312,14 @@
             ttlRemaining: Math.max(0.5, (a.ttl != null ? a.ttl : 4.5) - (state.t - (a.t0 || state.t)))
           }))
           .slice(-5);
+      }
+      if (state._timeRewindFx && state._timeRewindFx.active) {
+        gs.timeRewindFx = {
+          token: state._timeRewindFx.token || 0,
+          triggeredByPid: state._timeRewindFx.usedByPid,
+          rewindSeconds: state._timeRewindFx.rewindSeconds || 60,
+          applied: !!state._timeRewindFx.applied
+        };
       }
 
       gs.storm = this._serializeStorm(state);
