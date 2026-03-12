@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VFX_LAB</title>
+  <link rel="stylesheet" href="./vfx-lab.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <h1>VFX_LAB</h1>
+      <p>Новая зона для всех визуальных тестов. Основа берется не из старых html-экспериментов, а из реального игрового `ZoneRenderer` и из продавливающей логики `stepCities()`.</p>
+      <p>Старые наработки сохранены отдельно как архив и помечены как `OLD`.</p>
+    </div>
+    <div class="controls">
+      <div class="control">
+        <label>Основа</label>
+        <select disabled>
+          <option selected>In-game ZoneRenderer + pressure rays</option>
+        </select>
+      </div>
+      <div class="control">
+        <label>Цель</label>
+        <select disabled>
+          <option selected>Сильное продавливание + больше разнообразия</option>
+        </select>
+      </div>
+      <div class="control">
+        <label>LOD</label>
+        <select disabled>
+          <option selected>Near / Mid / Far</option>
+        </select>
+      </div>
+      <div class="control">
+        <label>Статус</label>
+        <select disabled>
+          <option selected>Zone / Ships / Mine Flow prototypes готовы</option>
+        </select>
+      </div>
+    </div>
+    <div class="actions">
+      <a class="button-link" href="./zone-pressure-prototype.html">Открыть Zone Prototype 01</a>
+      <a class="button-link" href="./ships-prototype.html">Открыть Ships Prototype 01</a>
+      <a class="button-link" href="./mine-flow-prototype.html">Открыть Mine Flow Prototype 01</a>
+    </div>
+  </header>
+
+  <nav class="nav">
+    <a href="./index.html" class="active">Overview</a>
+    <a href="./zone-pressure-prototype.html">Zone Prototype 01</a>
+    <a href="./ships-prototype.html">Ships Prototype 01</a>
+    <a href="./mine-flow-prototype.html">Mine Flow Prototype 01</a>
+    <a href="./OLD/vfx_test_OLD/index.html">OLD vfx_test</a>
+    <a href="./OLD/vfx_test2_OLD/index.html">OLD vfx_test2</a>
+    <a href="./OLD/vfx_test_2_OLD/index.html">OLD vfx_test_2</a>
+  </nav>
+
+  <main class="overview">
+    <article class="overview-card">
+      <h2>Zone Pressure Prototype 01</h2>
+      <p>Зонный прототип теперь разделяет `real contour` и `visual shell`: реальный контур стабильный, а внешняя оболочка уже конфликтует с другой оболочкой и дает seam, crown и plexus-ответ.</p>
+      <div class="tags">
+        <span class="tag">Real-game basis</span>
+        <span class="tag">Fixed real contour</span>
+        <span class="tag">Shell clash</span>
+        <span class="tag">6 style directions</span>
+        <span class="tag">LOD aware</span>
+      </div>
+      <div class="button-row">
+        <a class="button-link" href="./zone-pressure-prototype.html">Запустить прототип</a>
+      </div>
+    </article>
+
+    <article class="overview-card">
+      <h2>Ships Prototype 01</h2>
+      <p>Первый корабельный проход: `5` базовых военных типов и `10` стартовых вариантов. Фокус на дальнем чтении, массе и силуэте, а не на декоративной микродетали.</p>
+      <div class="tags">
+        <span class="tag">5 types</span>
+        <span class="tag">10 starter variants</span>
+        <span class="tag">Military sci-fi</span>
+        <span class="tag">LOD aware</span>
+      </div>
+      <div class="button-row">
+        <a class="button-link" href="./ships-prototype.html">Открыть Ships Prototype 01</a>
+      </div>
+    </article>
+
+    <article class="overview-card">
+      <h2>Mine Flow Prototype 01</h2>
+      <p>Пять вариантов визуала добычи: dashed beam, пульсар, клиентские пакеты ресурсов, два ресурсных типа и мягкий redirect потока на вражеское ядро при перехвате ship-ом.</p>
+      <div class="tags">
+        <span class="tag">5 style directions</span>
+        <span class="tag">Money / XP split</span>
+        <span class="tag">Client-side packets</span>
+        <span class="tag">Soft reroute</span>
+        <span class="tag">LOD aware</span>
+      </div>
+      <div class="button-row">
+        <a class="button-link" href="./mine-flow-prototype.html">Открыть Mine Flow Prototype 01</a>
+      </div>
+    </article>
+
+    <article class="overview-card">
+      <h2>Что перенесено в OLD</h2>
+      <p>Все старые папки тестов вынесены из корня проекта в архивную секцию `VFX_LAB/OLD`, чтобы дальше новые визуальные эксперименты не смешивались с ранними набросками.</p>
+      <div class="tags">
+        <span class="tag mono">OLD/vfx_test_OLD</span>
+        <span class="tag mono">OLD/vfx_test2_OLD</span>
+        <span class="tag mono">OLD/vfx_test_2_OLD</span>
+      </div>
+      <div class="button-row">
+        <a class="button-link" href="./OLD/vfx_test2_OLD/index.html">Открыть архив</a>
+      </div>
+    </article>
+  </main>
+</body>
+</html>

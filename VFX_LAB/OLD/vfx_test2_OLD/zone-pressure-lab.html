@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Zone Pressure Lab</title>
+  <link rel="stylesheet" href="./zone-vfx.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <h1>Zone Pressure Lab</h1>
+      <p id="variantTitle">Plexus Membrane</p>
+      <p id="statusLine">Тяни центры зон мышью. Реальный contour продавливается сильной зоной, а локальный VFX подчеркивает это Plexus-электричеством и вспышками.</p>
+    </div>
+
+    <div class="controls">
+      <div class="control">
+        <label for="variantSelect">Variant</label>
+        <select id="variantSelect"></select>
+      </div>
+      <div class="control">
+        <label for="palette">Palette</label>
+        <select id="palette">
+          <option value="blue" selected>Blue</option>
+          <option value="red">Red</option>
+          <option value="green">Green</option>
+          <option value="purple">Purple</option>
+          <option value="amber">Amber</option>
+        </select>
+      </div>
+      <div class="control">
+        <label for="lodMode">LOD</label>
+        <select id="lodMode">
+          <option value="auto" selected>Auto</option>
+          <option value="near">Near</option>
+          <option value="mid">Mid</option>
+          <option value="far">Far</option>
+        </select>
+      </div>
+      <div class="control">
+        <label for="distance">Distance</label>
+        <input id="distance" type="range" min="0" max="100" step="1" value="22">
+      </div>
+      <div class="control">
+        <label for="stress">Stress</label>
+        <input id="stress" type="range" min="0" max="100" step="1" value="18">
+      </div>
+    </div>
+
+    <div class="actions">
+      <button id="pulsePressure" type="button">Pressure Pulse</button>
+      <button id="randomizeCenters" type="button">Randomize Centers</button>
+      <button id="resetCenters" type="button">Reset Centers</button>
+    </div>
+  </header>
+
+  <nav class="nav">
+    <a href="./index.html">Overview</a>
+    <a href="./zone-pressure-lab.html" class="active">Zone x10</a>
+    <a href="./ship-variants-lab.html">Ships x10</a>
+    <a href="./01-pressure-lattice.html">01</a>
+    <a href="./02-fluid-front.html">02</a>
+    <a href="./03-shard-bastion.html">03</a>
+    <a href="./04-ion-drape.html">04</a>
+    <a href="./05-grav-skin.html">05</a>
+    <a href="./06-pulse-crown.html">06</a>
+  </nav>
+
+  <div class="scene-wrap">
+    <canvas id="scene"></canvas>
+  </div>
+
+  <section class="legend">
+    <div class="legend-card">
+      <h3>Real Zone Logic</h3>
+      <p id="legendReal">Authoritative contour is the gameplay contour. In this lab we imitate pressure by compressing the weaker real contour itself.</p>
+    </div>
+    <div class="legend-card">
+      <h3>Pressure VFX</h3>
+      <p id="legendPressure">Calm areas show slow floating shell and Plexus nodes. Pressure front suppresses calm color circles and switches to electric sparks, crossed links and flashes.</p>
+    </div>
+    <div class="legend-card">
+      <h3>Interaction</h3>
+      <p id="legendInteraction">Drag centers of weak and strong zones. Distance and stress change LOD. Pressure Pulse exaggerates compression for quick inspection.</p>
+    </div>
+  </section>
+
+  <script src="./zone-pressure-lab.js"></script>
+</body>
+</html>

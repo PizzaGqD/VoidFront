@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Zone VFX 01 - Pressure Lattice</title>
+  <link rel="stylesheet" href="./zone-vfx.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <h1 id="variantTitle">01. Pressure Lattice</h1>
+      <p id="variantSubtitle">Техническая мембрана с узлами и связями. Хорошо показывает, где сильная зона реально продавливает локальный слой.</p>
+      <p id="statusLine">Real contour is unchanged. Local shell is client-only and gets compressed where the stronger zone dominates.</p>
+    </div>
+
+    <div class="controls">
+      <div class="control">
+        <label for="palette">Palette</label>
+        <select id="palette">
+          <option value="blue" selected>Blue</option>
+          <option value="red">Red</option>
+          <option value="green">Green</option>
+          <option value="purple">Purple</option>
+          <option value="amber">Amber</option>
+        </select>
+      </div>
+      <div class="control">
+        <label for="lodMode">LOD</label>
+        <select id="lodMode">
+          <option value="auto" selected>Auto</option>
+          <option value="near">Near</option>
+          <option value="mid">Mid</option>
+          <option value="far">Far</option>
+        </select>
+      </div>
+      <div class="control">
+        <label for="distance">Distance</label>
+        <input id="distance" type="range" min="0" max="100" step="1" value="18">
+      </div>
+      <div class="control">
+        <label for="stress">Stress</label>
+        <input id="stress" type="range" min="0" max="100" step="1" value="14">
+      </div>
+    </div>
+
+    <div class="actions">
+      <button id="pulsePressure" type="button">Pulse Pressure</button>
+      <button id="motionBurst" type="button">Motion Burst</button>
+    </div>
+  </header>
+
+  <nav class="nav">
+    <a href="./index.html">Overview</a>
+    <a href="./01-pressure-lattice.html" class="active">01</a>
+    <a href="./02-fluid-front.html">02</a>
+    <a href="./03-shard-bastion.html">03</a>
+    <a href="./04-ion-drape.html">04</a>
+    <a href="./05-grav-skin.html">05</a>
+    <a href="./06-pulse-crown.html">06</a>
+  </nav>
+
+  <div class="scene-wrap">
+    <canvas id="scene"></canvas>
+  </div>
+
+  <section class="legend">
+    <div class="legend-card">
+      <h3>Real Zone</h3>
+      <p id="legendReal"></p>
+    </div>
+    <div class="legend-card">
+      <h3>Local Visual</h3>
+      <p id="legendLocal"></p>
+    </div>
+    <div class="legend-card">
+      <h3>Ship Language</h3>
+      <p id="legendShips"></p>
+    </div>
+  </section>
+
+  <script>
+    window.ZONE_VARIANT_CONFIG = {
+      variantId: "01",
+      title: "01. Pressure Lattice",
+      subtitle: "Техническая сетчатая мембрана. Удобна для RTS-читабельности и честно показывает фронт давления сильной зоны.",
+      style: "lattice",
+      auraDepth: 22,
+      noiseAmp: 12,
+      pressureAmp: 30,
+      pressureInset: 42,
+      shellWidth: 9,
+      flowSpeed: 1.0,
+      spikeLen: 14,
+      ribbonLen: 26,
+      localFormula: "Тонкая пунктирная линия — authoritative zone. Ее форма не анимируется и не меняется от локального VFX.",
+      pressureNote: "Локальная оболочка строится у клиента поверх реального контура. При контакте более сильной зоны слабая оболочка сжимается, но gameplay-граница остается старой.",
+      shipNote: "Новый язык корпусов: split-prong, anvil и ray. Они радикально отличаются от прежних вытянутых силуэтов и лучше сочетаются с плотной зонной сеткой."
+    };
+  </script>
+  <script src="./zone-vfx-common.js"></script>
+</body>
+</html>

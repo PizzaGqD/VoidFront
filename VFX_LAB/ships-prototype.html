@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ships Prototype 01</title>
+  <link rel="stylesheet" href="./vfx-lab.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <h2 id="shipTitle">Ships Prototype 01</h2>
+      <p>Первый проход по кораблям в новой лаборатории: `5` читаемых военных типов, собранных в одну общую mil-tech семью.</p>
+      <p>Фокус на дальнем чтении: масса, нос, плечи, корма и силуэт важнее мелкой насечки.</p>
+    </div>
+    <div class="controls">
+      <div class="control">
+        <label>Ship Type</label>
+        <select id="focusFamily"></select>
+      </div>
+      <div class="control">
+        <label>Variant</label>
+        <select id="focusVariant"></select>
+      </div>
+      <div class="control">
+        <label>Palette</label>
+        <select id="palette">
+          <option value="blue">Blue</option>
+          <option value="red">Red</option>
+          <option value="green">Green</option>
+          <option value="purple">Purple</option>
+          <option value="amber">Amber</option>
+        </select>
+      </div>
+      <div class="control">
+        <label>LOD</label>
+        <select id="lodMode">
+          <option value="auto">Auto</option>
+          <option value="near">Near</option>
+          <option value="mid">Mid</option>
+          <option value="far">Far</option>
+        </select>
+      </div>
+      <div class="control">
+        <label>Distance</label>
+        <input id="distance" type="range" min="0" max="100" value="24">
+      </div>
+      <div class="control">
+        <label>Stress</label>
+        <input id="stress" type="range" min="0" max="100" value="22">
+      </div>
+    </div>
+    <div class="actions">
+      <button type="button" id="cycleMotion">Cycle Motion</button>
+      <button type="button" id="shufflePalette">Shuffle Palette</button>
+      <button type="button" id="focusAll">Show All</button>
+    </div>
+  </header>
+
+  <nav class="nav">
+    <a href="./index.html">Overview</a>
+    <a href="./zone-pressure-prototype.html">Zone Prototype 01</a>
+    <a href="./ships-prototype.html" class="active">Ships Prototype 01</a>
+    <a href="./mine-flow-prototype.html">Mine Flow Prototype 01</a>
+    <a href="./OLD/vfx_test2_OLD/ship-variants-lab.html">OLD Ships</a>
+  </nav>
+
+  <main class="scene-wrap">
+    <canvas id="scene"></canvas>
+  </main>
+
+  <div id="statusLine" class="status-line">
+    Ship prototype focuses on readable military silhouettes grouped into 5 tactical classes.
+  </div>
+
+  <section class="legend">
+    <article class="legend-card">
+      <h3>Type Logic</h3>
+      <p id="legendTypes">Пока это первый проход: `5` базовых классов и `10` стартовых вариантов, чтобы быстро выбрать правильный язык массы и силуэта.</p>
+    </article>
+    <article class="legend-card">
+      <h3>Readability</h3>
+      <p id="legendSilhouette">Упор не на микродетали, а на читаемый нос, ширину плеч, общий тоннаж и характер кормы с дальней дистанции.</p>
+    </article>
+    <article class="legend-card">
+      <h3>Animation Layer</h3>
+      <p id="legendMotion">Дюзы, огни и небольшое движение остаются вторичным слоем. Идентичность корабля держится формой корпуса.</p>
+    </article>
+  </section>
+
+  <script src="./ships-prototype.js"></script>
+</body>
+</html>

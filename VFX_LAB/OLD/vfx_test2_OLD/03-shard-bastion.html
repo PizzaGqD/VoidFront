@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Zone VFX 03 - Shard Bastion</title>
+  <link rel="stylesheet" href="./zone-vfx.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <h1 id="variantTitle">03. Shard Bastion</h1>
+      <p id="variantSubtitle">Граница как набор кристаллических пластин и бастионных выступов. Давление сильной зоны ломает ритм этих сегментов.</p>
+      <p id="statusLine">Real contour is unchanged. Local shell is client-only and gets compressed where the stronger zone dominates.</p>
+    </div>
+    <div class="controls">
+      <div class="control">
+        <label for="palette">Palette</label>
+        <select id="palette">
+          <option value="blue" selected>Blue</option>
+          <option value="red">Red</option>
+          <option value="green">Green</option>
+          <option value="purple">Purple</option>
+          <option value="amber">Amber</option>
+        </select>
+      </div>
+      <div class="control">
+        <label for="lodMode">LOD</label>
+        <select id="lodMode">
+          <option value="auto" selected>Auto</option>
+          <option value="near">Near</option>
+          <option value="mid">Mid</option>
+          <option value="far">Far</option>
+        </select>
+      </div>
+      <div class="control">
+        <label for="distance">Distance</label>
+        <input id="distance" type="range" min="0" max="100" step="1" value="18">
+      </div>
+      <div class="control">
+        <label for="stress">Stress</label>
+        <input id="stress" type="range" min="0" max="100" step="1" value="24">
+      </div>
+    </div>
+    <div class="actions">
+      <button id="pulsePressure" type="button">Pulse Pressure</button>
+      <button id="motionBurst" type="button">Motion Burst</button>
+    </div>
+  </header>
+
+  <nav class="nav">
+    <a href="./index.html">Overview</a>
+    <a href="./01-pressure-lattice.html">01</a>
+    <a href="./02-fluid-front.html">02</a>
+    <a href="./03-shard-bastion.html" class="active">03</a>
+    <a href="./04-ion-drape.html">04</a>
+    <a href="./05-grav-skin.html">05</a>
+    <a href="./06-pulse-crown.html">06</a>
+  </nav>
+
+  <div class="scene-wrap">
+    <canvas id="scene"></canvas>
+  </div>
+
+  <section class="legend">
+    <div class="legend-card">
+      <h3>Real Zone</h3>
+      <p id="legendReal"></p>
+    </div>
+    <div class="legend-card">
+      <h3>Local Visual</h3>
+      <p id="legendLocal"></p>
+    </div>
+    <div class="legend-card">
+      <h3>Ship Language</h3>
+      <p id="legendShips"></p>
+    </div>
+  </section>
+
+  <script>
+    window.ZONE_VARIANT_CONFIG = {
+      variantId: "03",
+      title: "03. Shard Bastion",
+      subtitle: "Сегментированный бастионный периметр. Хорошо подходит для более сурового mil-tech и делает фронт конфликта очень читаемым.",
+      style: "shards",
+      auraDepth: 18,
+      noiseAmp: 8,
+      pressureAmp: 28,
+      pressureInset: 34,
+      shellWidth: 6,
+      flowSpeed: 0.9,
+      spikeLen: 24,
+      ribbonLen: 20,
+      localFormula: "Исходный авторитетный контур не двигается. Поверх него локально строятся shard-сегменты, которые можно сильно упрощать на дальнем расстоянии.",
+      pressureNote: "Продавливание сильной зоны читается как ломка и смятие внешних пластин слабой зоны. Реальная зона при этом остается той же.",
+      shipNote: "Новые корабли смотрятся здесь как бронированные платформы в бастионной среде, а не как тонкие классические силуэты."
+    };
+  </script>
+  <script src="./zone-vfx-common.js"></script>
+</body>
+</html>

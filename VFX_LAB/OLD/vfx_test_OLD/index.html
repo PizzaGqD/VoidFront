@@ -1,0 +1,1166 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hoi2D VFX Test</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #050814;
+      --panel: rgba(9, 16, 32, 0.84);
+      --panel-border: rgba(150, 190, 255, 0.18);
+      --text: #d8e6ff;
+      --muted: #8ea3c9;
+      --accent: #7eb6ff;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background:
+        radial-gradient(circle at top, rgba(32, 52, 92, 0.28), transparent 42%),
+        radial-gradient(circle at bottom, rgba(11, 22, 40, 0.8), transparent 50%),
+        linear-gradient(180deg, #060b16 0%, #04070f 100%);
+      color: var(--text);
+      font: 13px/1.45 Inter, Segoe UI, Roboto, Arial, sans-serif;
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+
+    .hud {
+      position: fixed;
+      inset: 16px auto auto 16px;
+      width: min(360px, calc(100vw - 32px));
+      padding: 14px 14px 12px;
+      background: var(--panel);
+      border: 1px solid var(--panel-border);
+      border-radius: 14px;
+      backdrop-filter: blur(14px);
+      box-shadow: 0 18px 60px rgba(0, 0, 0, 0.32);
+    }
+
+    .hud h1 {
+      margin: 0 0 4px;
+      font-size: 16px;
+      font-weight: 600;
+      letter-spacing: 0.03em;
+    }
+
+    .hud p {
+      margin: 0 0 10px;
+      color: var(--muted);
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px 12px;
+      margin-bottom: 10px;
+    }
+
+    label {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 4px;
+    }
+
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    select,
+    input[type="range"],
+    button {
+      width: 100%;
+    }
+
+    select,
+    button {
+      border: 1px solid rgba(150, 190, 255, 0.14);
+      background: rgba(15, 23, 45, 0.85);
+      color: var(--text);
+      border-radius: 10px;
+      padding: 9px 10px;
+      font: inherit;
+    }
+
+    input[type="range"] {
+      accent-color: var(--accent);
+    }
+
+    .actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .note,
+    .legend {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .legend {
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid rgba(150, 190, 255, 0.1);
+    }
+
+    .chips {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-top: 8px;
+    }
+
+    .chip {
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: rgba(126, 182, 255, 0.08);
+      border: 1px solid rgba(126, 182, 255, 0.16);
+      color: #bad2ff;
+      font-size: 11px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="scene"></canvas>
+
+  <section class="hud">
+    <h1>Hoi2D VFX Prototype</h1>
+    <p>Living ship boundary, local Plexus shell, charged mines, shield impacts and LOD controls.</p>
+
+    <div class="grid">
+      <div class="field">
+        <label for="lodMode">LOD</label>
+        <select id="lodMode">
+          <option value="auto" selected>Auto</option>
+          <option value="near">Near</option>
+          <option value="mid">Mid</option>
+          <option value="far">Far</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="palette">Palette</label>
+        <select id="palette">
+          <option value="blue" selected>Blue team</option>
+          <option value="red">Red team</option>
+          <option value="green">Green team</option>
+          <option value="purple">Purple team</option>
+          <option value="amber">Amber team</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="zoom">Zoom</label>
+        <input id="zoom" type="range" min="0.58" max="1.55" step="0.01" value="1.10">
+      </div>
+
+      <div class="field">
+        <label for="stress">Stress</label>
+        <input id="stress" type="range" min="0" max="120" step="1" value="18">
+      </div>
+    </div>
+
+    <div class="actions">
+      <button id="impactBtn" type="button">Spawn Shield Hit</button>
+      <button id="paletteBtn" type="button">Cycle Palette</button>
+    </div>
+
+    <div class="note" id="statusLine">
+      Thin ring = gameplay radius. Animated shell = local-only visual radius tied to the real one.
+    </div>
+
+    <div class="chips">
+      <span class="chip">Wheel = zoom</span>
+      <span class="chip">Click shield = hit</span>
+      <span class="chip">Auto LOD uses zoom + stress</span>
+    </div>
+
+    <div class="legend">
+      Near: full Plexus, dense shield cells, richer mine charge.<br>
+      Mid: lighter shell, fewer links, simplified impacts.<br>
+      Far: gameplay circle stays thin, visuals collapse to readable silhouettes.
+    </div>
+  </section>
+
+  <script>
+    (() => {
+      "use strict";
+
+      const canvas = document.getElementById("scene");
+      const ctx = canvas.getContext("2d");
+      const statusLine = document.getElementById("statusLine");
+
+      const controls = {
+        lodMode: document.getElementById("lodMode"),
+        palette: document.getElementById("palette"),
+        zoom: document.getElementById("zoom"),
+        stress: document.getElementById("stress"),
+        impactBtn: document.getElementById("impactBtn"),
+        paletteBtn: document.getElementById("paletteBtn")
+      };
+
+      const PALETTES = {
+        blue: {
+          core: "#5f9dff",
+          edge: "#b8d3ff",
+          glow: "95,157,255",
+          line: "130,188,255",
+          shell: "#0a1425",
+          bright: "#eef5ff"
+        },
+        red: {
+          core: "#ff6576",
+          edge: "#ffc0ca",
+          glow: "255,101,118",
+          line: "255,150,165",
+          shell: "#210b13",
+          bright: "#fff0f2"
+        },
+        green: {
+          core: "#58cb8e",
+          edge: "#b8f2cf",
+          glow: "88,203,142",
+          line: "130,226,170",
+          shell: "#091c15",
+          bright: "#effff7"
+        },
+        purple: {
+          core: "#b87aff",
+          edge: "#e3cfff",
+          glow: "184,122,255",
+          line: "205,164,255",
+          shell: "#171022",
+          bright: "#faf3ff"
+        },
+        amber: {
+          core: "#ffba54",
+          edge: "#ffe2af",
+          glow: "255,186,84",
+          line: "255,207,130",
+          shell: "#231707",
+          bright: "#fff8eb"
+        }
+      };
+
+      const SHIP_SPECS = {
+        fighter: {
+          outer: [[2.12, 0], [0.60, -0.50], [-0.22, -0.84], [0.06, 0], [-0.22, 0.84], [0.60, 0.50]],
+          inner: [[1.24, 0], [0.34, -0.28], [-0.10, -0.48], [0.04, 0], [-0.10, 0.48], [0.34, 0.28]],
+          accent: [[[0.20, -0.32], [0.22, 0.32]]],
+          bridge: [0.36, 0, 0.16]
+        },
+        destroyer: {
+          outer: [[2.24, 0], [0.96, -0.50], [0.08, -0.92], [-0.86, -0.72], [-1.12, -0.20], [-1.12, 0.20], [-0.86, 0.72], [0.08, 0.92], [0.96, 0.50]],
+          inner: [[1.44, 0], [0.50, -0.28], [-0.06, -0.56], [-0.62, -0.42], [-0.82, -0.12], [-0.82, 0.12], [-0.62, 0.42], [-0.06, 0.56], [0.50, 0.28]],
+          accent: [[[0.30, -0.56], [-0.52, -0.56]], [[0.30, 0.56], [-0.52, 0.56]]],
+          bridge: [0.24, 0, 0.18]
+        },
+        cruiser: {
+          outer: [[2.36, 0], [1.08, -0.54], [0.20, -1.04], [-0.50, -1.12], [-1.14, -0.74], [-1.38, -0.22], [-1.38, 0.22], [-1.14, 0.74], [-0.50, 1.12], [0.20, 1.04], [1.08, 0.54]],
+          inner: [[1.54, 0], [0.60, -0.30], [0.02, -0.68], [-0.42, -0.72], [-0.90, -0.50], [-1.02, -0.12], [-1.02, 0.12], [-0.90, 0.50], [-0.42, 0.72], [0.02, 0.68], [0.60, 0.30]],
+          accent: [[[0.30, -0.64], [-0.72, -0.64]], [[0.30, 0.64], [-0.72, 0.64]], [[1.40, 0], [-0.62, 0]]],
+          bridge: [0.18, 0, 0.20]
+        },
+        battleship: {
+          outer: [[2.56, 0], [1.20, -0.60], [0.30, -1.16], [-0.38, -1.28], [-1.06, -0.96], [-1.40, -0.40], [-1.50, -0.10], [-1.50, 0.10], [-1.40, 0.40], [-1.06, 0.96], [-0.38, 1.28], [0.30, 1.16], [1.20, 0.60]],
+          inner: [[1.72, 0], [0.74, -0.34], [0.14, -0.76], [-0.24, -0.90], [-0.80, -0.68], [-1.04, -0.22], [-1.12, -0.08], [-1.12, 0.08], [-1.04, 0.22], [-0.80, 0.68], [-0.24, 0.90], [0.14, 0.76], [0.74, 0.34]],
+          accent: [[[0.36, -0.84], [-0.84, -0.84]], [[0.36, 0.84], [-0.84, 0.84]], [[1.50, 0], [-0.74, 0]]],
+          bridge: [0.28, 0, 0.22]
+        }
+      };
+
+      const LOD_PRESETS = {
+        near: {
+          shellSamples: 92,
+          shellWidth: 8,
+          shellAlpha: 0.95,
+          plexusNodes: 18,
+          plexusLinks: 3,
+          plexusJitter: 8,
+          mineParticles: 10,
+          mineArcs: true,
+          shieldCells: true,
+          shieldCellStep: 19,
+          shotsGlow: true,
+          label: "NEAR"
+        },
+        mid: {
+          shellSamples: 60,
+          shellWidth: 5,
+          shellAlpha: 0.72,
+          plexusNodes: 10,
+          plexusLinks: 2,
+          plexusJitter: 4,
+          mineParticles: 5,
+          mineArcs: false,
+          shieldCells: "impact-only",
+          shieldCellStep: 24,
+          shotsGlow: false,
+          label: "MID"
+        },
+        far: {
+          shellSamples: 34,
+          shellWidth: 3,
+          shellAlpha: 0.52,
+          plexusNodes: 0,
+          plexusLinks: 0,
+          plexusJitter: 0,
+          mineParticles: 0,
+          mineArcs: false,
+          shieldCells: false,
+          shieldCellStep: 30,
+          shotsGlow: false,
+          label: "FAR"
+        }
+      };
+
+      const world = {
+        width: 1680,
+        height: 980,
+        stars: [],
+        cellsCache: new Map()
+      };
+
+      const state = {
+        zoom: Number(controls.zoom.value),
+        stress: Number(controls.stress.value),
+        lodMode: controls.lodMode.value,
+        paletteKey: controls.palette.value,
+        cameraX: 0,
+        cameraY: 0,
+        pointerWorldX: 0,
+        pointerWorldY: 0,
+        autoShotTimer: 0,
+        time: 0,
+        ships: [],
+        mines: [],
+        shield: null
+      };
+
+      function clamp(value, min, max) {
+        return Math.max(min, Math.min(max, value));
+      }
+
+      function lerp(a, b, t) {
+        return a + (b - a) * t;
+      }
+
+      function easeOutCubic(t) {
+        const u = 1 - clamp(t, 0, 1);
+        return 1 - u * u * u;
+      }
+
+      function fract(v) {
+        return v - Math.floor(v);
+      }
+
+      function seeded(seed) {
+        return fract(Math.sin(seed * 127.1 + 311.7) * 43758.5453123);
+      }
+
+      function layeredNoise(seed, angle, time) {
+        return (
+          Math.sin(angle * 3.0 + time * 1.6 + seed * 0.21) * 0.55 +
+          Math.cos(angle * 5.0 - time * 0.9 + seed * 0.14) * 0.30 +
+          Math.sin(angle * 11.0 + time * 0.35 + seed * 0.07) * 0.15
+        );
+      }
+
+      function hexToRgb(hex) {
+        const clean = String(hex || "#000000").replace("#", "");
+        const value = parseInt(clean, 16) || 0;
+        return {
+          r: (value >> 16) & 255,
+          g: (value >> 8) & 255,
+          b: value & 255
+        };
+      }
+
+      function rgba(hex, alpha) {
+        const rgb = hexToRgb(hex);
+        return "rgba(" + rgb.r + "," + rgb.g + "," + rgb.b + "," + alpha + ")";
+      }
+
+      function rgbString(rgb, alpha) {
+        return "rgba(" + rgb + "," + alpha + ")";
+      }
+
+      function polygonPath(ctx2d, points, scale) {
+        if (!points || !points.length) return;
+        ctx2d.beginPath();
+        ctx2d.moveTo(points[0][0] * scale, points[0][1] * scale);
+        for (let i = 1; i < points.length; i += 1) {
+          ctx2d.lineTo(points[i][0] * scale, points[i][1] * scale);
+        }
+        ctx2d.closePath();
+      }
+
+      function getEffectiveLod() {
+        if (state.lodMode && state.lodMode !== "auto") return state.lodMode;
+        if (state.zoom < 0.77 || state.stress >= 82) return "far";
+        if (state.zoom < 1.05 || state.stress >= 42) return "mid";
+        return "near";
+      }
+
+      function getPalette() {
+        return PALETTES[state.paletteKey] || PALETTES.blue;
+      }
+
+      function resize() {
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        const width = window.innerWidth;
+        const height = window.innerHeight;
+        canvas.width = Math.floor(width * dpr);
+        canvas.height = Math.floor(height * dpr);
+        canvas.style.width = width + "px";
+        canvas.style.height = height + "px";
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      }
+
+      function worldToScreen(x, y) {
+        return {
+          x: canvas.clientWidth * 0.5 + (x - state.cameraX) * state.zoom,
+          y: canvas.clientHeight * 0.5 + (y - state.cameraY) * state.zoom
+        };
+      }
+
+      function screenToWorld(x, y) {
+        return {
+          x: state.cameraX + (x - canvas.clientWidth * 0.5) / state.zoom,
+          y: state.cameraY + (y - canvas.clientHeight * 0.5) / state.zoom
+        };
+      }
+
+      function makeStars() {
+        world.stars.length = 0;
+        for (let i = 0; i < 240; i += 1) {
+          world.stars.push({
+            x: seeded(i * 1.17) * world.width - world.width * 0.5,
+            y: seeded(i * 4.33) * world.height - world.height * 0.5,
+            size: 0.8 + seeded(i * 9.41) * 2.4,
+            alpha: 0.12 + seeded(i * 7.17) * 0.5,
+            parallax: 0.15 + seeded(i * 5.81) * 0.55
+          });
+        }
+      }
+
+      function createShip(id, type, x, y, realRadius, angle) {
+        return {
+          id,
+          type,
+          x,
+          y,
+          angle,
+          hullScale: realRadius * 0.34,
+          realRadius,
+          seed: id * 13.71,
+          sway: 0.5 + seeded(id * 2.21),
+          hitPulse: 0
+        };
+      }
+
+      function createMine(id, x, y, radius) {
+        return {
+          id,
+          x,
+          y,
+          radius,
+          seed: id * 23.17
+        };
+      }
+
+      function resetScene() {
+        state.ships = [
+          createShip(1, "fighter", -460, -120, 84, -0.22),
+          createShip(2, "destroyer", -150, 155, 118, 0.32),
+          createShip(3, "cruiser", 190, -110, 146, -0.14),
+          createShip(4, "battleship", 505, 150, 182, 0.18)
+        ];
+
+        state.mines = [
+          createMine(1, -610, 290, 58),
+          createMine(2, -300, 360, 66),
+          createMine(3, 20, 320, 74)
+        ];
+
+        state.shield = {
+          x: 520,
+          y: -250,
+          r: 122,
+          impacts: [],
+          shots: []
+        };
+      }
+
+      function boundaryRadius(ship, angle, time, lod) {
+        const base = ship.realRadius + 7;
+        const motion = layeredNoise(ship.seed, angle, time * (0.75 + ship.sway * 0.35));
+        const pulse = Math.sin(time * 2.1 + ship.seed * 0.12) * 2.2;
+        const intensity = lod === "near" ? 8.0 : lod === "mid" ? 4.3 : 1.7;
+        return base + motion * intensity + pulse;
+      }
+
+      function boundaryPoint(ship, angle, time, lod) {
+        const r = boundaryRadius(ship, angle, time, lod);
+        return {
+          x: ship.x + Math.cos(angle) * r,
+          y: ship.y + Math.sin(angle) * r
+        };
+      }
+
+      function drawBackground(time) {
+        ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
+
+        const grad = ctx.createRadialGradient(
+          canvas.clientWidth * 0.5,
+          canvas.clientHeight * 0.34,
+          40,
+          canvas.clientWidth * 0.5,
+          canvas.clientHeight * 0.34,
+          Math.max(canvas.clientWidth, canvas.clientHeight) * 0.75
+        );
+        grad.addColorStop(0, "rgba(18,33,63,0.42)");
+        grad.addColorStop(0.38, "rgba(6,12,24,0.18)");
+        grad.addColorStop(1, "rgba(3,6,12,0.96)");
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, canvas.clientWidth, canvas.clientHeight);
+
+        for (const star of world.stars) {
+          const sx = canvas.clientWidth * 0.5 + (star.x - state.cameraX * star.parallax) * state.zoom;
+          const sy = canvas.clientHeight * 0.5 + (star.y - state.cameraY * star.parallax) * state.zoom;
+          if (sx < -10 || sy < -10 || sx > canvas.clientWidth + 10 || sy > canvas.clientHeight + 10) continue;
+          const flicker = 0.75 + 0.25 * Math.sin(time * (0.4 + star.parallax) + star.x * 0.01);
+          ctx.fillStyle = "rgba(210,225,255," + (star.alpha * flicker).toFixed(3) + ")";
+          ctx.beginPath();
+          ctx.arc(sx, sy, star.size, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        const gridStep = 100 * state.zoom;
+        if (gridStep > 26) {
+          ctx.save();
+          ctx.strokeStyle = "rgba(120,170,255,0.045)";
+          ctx.lineWidth = 1;
+          const ox = ((canvas.clientWidth * 0.5 - state.cameraX * state.zoom) % gridStep + gridStep) % gridStep;
+          const oy = ((canvas.clientHeight * 0.5 - state.cameraY * state.zoom) % gridStep + gridStep) % gridStep;
+          for (let x = ox; x < canvas.clientWidth; x += gridStep) {
+            ctx.beginPath();
+            ctx.moveTo(x, 0);
+            ctx.lineTo(x, canvas.clientHeight);
+            ctx.stroke();
+          }
+          for (let y = oy; y < canvas.clientHeight; y += gridStep) {
+            ctx.beginPath();
+            ctx.moveTo(0, y);
+            ctx.lineTo(canvas.clientWidth, y);
+            ctx.stroke();
+          }
+          ctx.restore();
+        }
+      }
+
+      function drawShipHull(ship, palette, lodPreset, time) {
+        const spec = SHIP_SPECS[ship.type];
+        const p = worldToScreen(ship.x, ship.y);
+        const scale = ship.hullScale * state.zoom;
+
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(ship.angle + Math.sin(time * 0.35 + ship.seed) * 0.03);
+
+        if (lodPreset.label !== "FAR") {
+          const halo = ctx.createRadialGradient(0, 0, 0, 0, 0, scale * 3.2);
+          halo.addColorStop(0, rgbString(palette.glow, 0.18));
+          halo.addColorStop(1, rgbString(palette.glow, 0));
+          ctx.fillStyle = halo;
+          ctx.beginPath();
+          ctx.arc(0, 0, scale * 3.2, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        polygonPath(ctx, spec.outer, scale);
+        ctx.fillStyle = rgba(palette.shell, 0.96);
+        ctx.fill();
+        ctx.lineWidth = 1.2;
+        ctx.strokeStyle = rgba(palette.edge, 0.26);
+        ctx.stroke();
+
+        polygonPath(ctx, spec.inner, scale);
+        const fillGrad = ctx.createLinearGradient(scale * 1.6, 0, -scale * 1.3, scale * 0.8);
+        fillGrad.addColorStop(0, rgba(palette.edge, 0.82));
+        fillGrad.addColorStop(0.45, rgba(palette.core, 0.58));
+        fillGrad.addColorStop(1, rgba(palette.shell, 0.6));
+        ctx.fillStyle = fillGrad;
+        ctx.fill();
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = rgba(palette.bright, 0.30);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(scale * 1.55, 0);
+        ctx.lineTo(-scale * 0.72, 0);
+        ctx.strokeStyle = rgbString(palette.line, 0.38);
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        if (lodPreset.label !== "FAR") {
+          for (const line of spec.accent) {
+            ctx.beginPath();
+            ctx.moveTo(line[0][0] * scale, line[0][1] * scale);
+            ctx.lineTo(line[1][0] * scale, line[1][1] * scale);
+            ctx.strokeStyle = rgbString(palette.line, 0.23);
+            ctx.lineWidth = 0.9;
+            ctx.stroke();
+          }
+        }
+
+        ctx.fillStyle = rgba(palette.bright, 0.95);
+        ctx.beginPath();
+        ctx.arc(spec.bridge[0] * scale, spec.bridge[1] * scale, Math.max(1.5, spec.bridge[2] * scale), 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.restore();
+      }
+
+      function drawRealRadius(ship, palette) {
+        const p = worldToScreen(ship.x, ship.y);
+        const radius = ship.realRadius * state.zoom;
+        ctx.save();
+        ctx.setLineDash([8, 10]);
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = rgbString(palette.line, 0.20);
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      function drawVisualBoundary(ship, palette, lodKey, lodPreset, time) {
+        const samples = lodPreset.shellSamples;
+        const points = [];
+        for (let i = 0; i < samples; i += 1) {
+          const angle = (i / samples) * Math.PI * 2;
+          const pt = boundaryPoint(ship, angle, time, lodKey);
+          points.push(worldToScreen(pt.x, pt.y));
+        }
+
+        const center = worldToScreen(ship.x, ship.y);
+        const shellGrad = ctx.createRadialGradient(center.x, center.y, ship.realRadius * state.zoom * 0.7, center.x, center.y, (ship.realRadius + 26) * state.zoom);
+        shellGrad.addColorStop(0, rgbString(palette.glow, 0));
+        shellGrad.addColorStop(0.52, rgbString(palette.glow, 0.08 * lodPreset.shellAlpha));
+        shellGrad.addColorStop(0.82, rgbString(palette.glow, 0.20 * lodPreset.shellAlpha));
+        shellGrad.addColorStop(1, rgbString(palette.glow, 0));
+
+        ctx.save();
+        ctx.fillStyle = shellGrad;
+        ctx.beginPath();
+        ctx.arc(center.x, center.y, (ship.realRadius + 24) * state.zoom, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.moveTo(points[0].x, points[0].y);
+        for (let i = 1; i < points.length; i += 1) ctx.lineTo(points[i].x, points[i].y);
+        ctx.closePath();
+        ctx.strokeStyle = rgbString(palette.glow, 0.17 * lodPreset.shellAlpha);
+        ctx.lineWidth = lodPreset.shellWidth * 1.9;
+        ctx.stroke();
+
+        const sweepGrad = ctx.createLinearGradient(center.x - 90, center.y - 90, center.x + 120, center.y + 120);
+        sweepGrad.addColorStop(0, rgbString(palette.glow, 0.12));
+        sweepGrad.addColorStop(0.48, rgba(palette.bright, 0.48));
+        sweepGrad.addColorStop(1, rgbString(palette.glow, 0.16));
+        ctx.strokeStyle = sweepGrad;
+        ctx.lineWidth = lodPreset.shellWidth;
+        ctx.stroke();
+
+        ctx.restore();
+      }
+
+      function drawBoundaryPlexus(ship, palette, lodKey, lodPreset, time) {
+        if (lodPreset.plexusNodes <= 0) return;
+
+        const nodes = [];
+        const nodeCount = lodPreset.plexusNodes;
+        const jitter = lodPreset.plexusJitter;
+        for (let i = 0; i < nodeCount; i += 1) {
+          const baseAngle = (i / nodeCount) * Math.PI * 2;
+          const wobble = Math.sin(time * (0.8 + i * 0.02) + ship.seed * 0.3 + i * 1.7) * 0.15;
+          const angle = baseAngle + wobble;
+          const anchor = boundaryPoint(ship, angle, time, lodKey);
+          const tangent = angle + Math.PI * 0.5;
+          const tangentOffset = Math.sin(time * 1.7 + ship.seed + i * 0.9) * jitter;
+          const radialOffset = Math.cos(time * 2.1 + ship.seed * 0.2 + i) * jitter * 0.22;
+          nodes.push({
+            x: anchor.x + Math.cos(tangent) * tangentOffset + Math.cos(angle) * radialOffset,
+            y: anchor.y + Math.sin(tangent) * tangentOffset + Math.sin(angle) * radialOffset,
+            pulse: 0.6 + 0.4 * Math.sin(time * 2.4 + i * 0.8 + ship.seed)
+          });
+        }
+
+        ctx.save();
+        for (let i = 0; i < nodes.length; i += 1) {
+          for (let step = 1; step <= lodPreset.plexusLinks; step += 1) {
+            const j = (i + step) % nodes.length;
+            const dx = nodes[i].x - nodes[j].x;
+            const dy = nodes[i].y - nodes[j].y;
+            const dist = Math.hypot(dx, dy);
+            if (dist > ship.realRadius * (step === 1 ? 0.72 : 1.08)) continue;
+            const a = 0.05 + (1 - dist / (ship.realRadius * 1.12)) * 0.24;
+            const p0 = worldToScreen(nodes[i].x, nodes[i].y);
+            const p1 = worldToScreen(nodes[j].x, nodes[j].y);
+            ctx.beginPath();
+            ctx.moveTo(p0.x, p0.y);
+            ctx.lineTo(p1.x, p1.y);
+            ctx.strokeStyle = rgbString(palette.line, a);
+            ctx.lineWidth = step === 1 ? 1 : 0.8;
+            ctx.stroke();
+          }
+        }
+
+        for (const node of nodes) {
+          const p = worldToScreen(node.x, node.y);
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, 1.4 + node.pulse * 1.8, 0, Math.PI * 2);
+          ctx.fillStyle = rgba(palette.bright, 0.38 + node.pulse * 0.25);
+          ctx.fill();
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, 5 + node.pulse * 2, 0, Math.PI * 2);
+          ctx.fillStyle = rgbString(palette.glow, 0.08);
+          ctx.fill();
+        }
+        ctx.restore();
+      }
+
+      function drawMine(mine, palette, lodPreset, time) {
+        const cycle = fract(time * 0.08 + mine.seed * 0.19);
+        const charge = cycle < 0.55 ? cycle / 0.55 : 1;
+        const overload = cycle > 0.76 ? (cycle - 0.76) / 0.24 : 0;
+        const p = worldToScreen(mine.x, mine.y);
+        const radius = mine.radius * state.zoom;
+
+        ctx.save();
+
+        const outer = ctx.createRadialGradient(p.x, p.y, radius * 0.1, p.x, p.y, radius * 1.9);
+        outer.addColorStop(0, rgbString(palette.glow, 0.16 + overload * 0.10));
+        outer.addColorStop(1, rgbString(palette.glow, 0));
+        ctx.fillStyle = outer;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, radius * 1.9, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, radius * 1.26, 0, Math.PI * 2);
+        ctx.strokeStyle = rgbString(palette.line, 0.18);
+        ctx.lineWidth = 1;
+        ctx.setLineDash([6, 12]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        const spokes = 6;
+        for (let i = 0; i < spokes; i += 1) {
+          const a = time * 0.25 + mine.seed + i * (Math.PI * 2 / spokes);
+          const innerR = radius * 0.34;
+          const outerR = radius * (0.82 + charge * 0.12);
+          ctx.beginPath();
+          ctx.moveTo(p.x + Math.cos(a) * innerR, p.y + Math.sin(a) * innerR);
+          ctx.lineTo(p.x + Math.cos(a) * outerR, p.y + Math.sin(a) * outerR);
+          ctx.strokeStyle = rgbString(palette.line, 0.18 + charge * 0.20);
+          ctx.lineWidth = 1.3;
+          ctx.stroke();
+        }
+
+        const coreGrad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, radius * 0.60);
+        coreGrad.addColorStop(0, rgba(palette.bright, 0.94));
+        coreGrad.addColorStop(0.18, rgba(palette.edge, 0.85));
+        coreGrad.addColorStop(0.55, rgba(palette.core, 0.64 + charge * 0.20));
+        coreGrad.addColorStop(1, rgbString(palette.glow, 0));
+        ctx.fillStyle = coreGrad;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, radius * (0.30 + charge * 0.06), 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, radius * 0.74, 0, Math.PI * 2);
+        ctx.strokeStyle = rgba(palette.edge, 0.28);
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+
+        if (lodPreset.mineParticles > 0) {
+          for (let i = 0; i < lodPreset.mineParticles; i += 1) {
+            const orbitA = time * (0.8 + i * 0.04) + mine.seed * 0.3 + i * 0.77;
+            const orbitR = radius * (0.55 + seeded(mine.seed + i) * 0.46);
+            const px = p.x + Math.cos(orbitA) * orbitR;
+            const py = p.y + Math.sin(orbitA) * orbitR;
+            ctx.beginPath();
+            ctx.arc(px, py, 1.1 + seeded(i * 12.3 + mine.seed) * 1.7, 0, Math.PI * 2);
+            ctx.fillStyle = rgba(palette.bright, 0.36 + charge * 0.24);
+            ctx.fill();
+          }
+        }
+
+        if (lodPreset.mineArcs && overload > 0.02) {
+          const arcs = 3;
+          for (let i = 0; i < arcs; i += 1) {
+            const a0 = time * 3.2 + i * 2.1 + mine.seed;
+            const a1 = a0 + 0.55 + overload * 0.8;
+            ctx.beginPath();
+            const p0x = p.x + Math.cos(a0) * radius * 0.5;
+            const p0y = p.y + Math.sin(a0) * radius * 0.5;
+            const p1x = p.x + Math.cos((a0 + a1) * 0.5) * radius * 0.86;
+            const p1y = p.y + Math.sin((a0 + a1) * 0.5) * radius * 0.86;
+            const p2x = p.x + Math.cos(a1) * radius * 0.56;
+            const p2y = p.y + Math.sin(a1) * radius * 0.56;
+            ctx.moveTo(p0x, p0y);
+            ctx.quadraticCurveTo(p1x, p1y, p2x, p2y);
+            ctx.strokeStyle = rgba(palette.bright, 0.28 + overload * 0.35);
+            ctx.lineWidth = 1.1;
+            ctx.stroke();
+          }
+        }
+
+        ctx.fillStyle = "rgba(170, 220, 255, 0.75)";
+        ctx.font = "12px Segoe UI, Arial, sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(overload > 0.05 ? "charged / unstable" : charge > 0.6 ? "charged core" : "warming core", p.x, p.y + radius * 1.55);
+
+        ctx.restore();
+      }
+
+      function getShieldCells(radius, step) {
+        const key = radius + ":" + step;
+        if (world.cellsCache.has(key)) return world.cellsCache.get(key);
+
+        const cells = [];
+        const dx = step * 0.88;
+        const dy = step * 0.76;
+        const cols = Math.ceil(radius * 2.2 / dx);
+        const rows = Math.ceil(radius * 2.2 / dy);
+        for (let row = -rows; row <= rows; row += 1) {
+          for (let col = -cols; col <= cols; col += 1) {
+            const x = col * dx + (row % 2 === 0 ? 0 : dx * 0.5);
+            const y = row * dy;
+            const d = Math.hypot(x, y);
+            if (d > radius * 0.92) continue;
+            cells.push({ x, y });
+          }
+        }
+
+        world.cellsCache.set(key, cells);
+        return cells;
+      }
+
+      function spawnShieldHit(worldX, worldY) {
+        const shield = state.shield;
+        const dx = worldX - shield.x;
+        const dy = worldY - shield.y;
+        const dist = Math.hypot(dx, dy) || 1;
+        const hitX = shield.x + dx / dist * shield.r;
+        const hitY = shield.y + dy / dist * shield.r;
+        shield.impacts.push({
+          x: hitX,
+          y: hitY,
+          angle: Math.atan2(hitY - shield.y, hitX - shield.x),
+          t: 0,
+          duration: 0.9 + seeded(hitX * 0.017 + hitY * 0.023) * 0.35
+        });
+      }
+
+      function spawnShot() {
+        const shield = state.shield;
+        const angle = -2.4 + seeded(state.time * 13.1 + shield.impacts.length * 2.8) * 1.3;
+        const hitX = shield.x + Math.cos(angle) * shield.r;
+        const hitY = shield.y + Math.sin(angle) * shield.r;
+        const startX = shield.x - 420 - seeded(state.time * 17.3) * 120;
+        const startY = shield.y + Math.sin(state.time * 1.6 + angle * 2.4) * 220;
+        shield.shots.push({
+          fromX: startX,
+          fromY: startY,
+          toX: hitX,
+          toY: hitY,
+          progress: 0,
+          speed: 0.8 + seeded(state.time * 7.1) * 0.35
+        });
+      }
+
+      function drawShield(palette, lodPreset, dt, time) {
+        const shield = state.shield;
+        const center = worldToScreen(shield.x, shield.y);
+        const radius = shield.r * state.zoom;
+
+        for (let i = shield.impacts.length - 1; i >= 0; i -= 1) {
+          shield.impacts[i].t += dt;
+          if (shield.impacts[i].t >= shield.impacts[i].duration) shield.impacts.splice(i, 1);
+        }
+
+        for (let i = shield.shots.length - 1; i >= 0; i -= 1) {
+          const shot = shield.shots[i];
+          shot.progress += dt * shot.speed;
+          if (shot.progress >= 1) {
+            spawnShieldHit(shot.toX, shot.toY);
+            shield.shots.splice(i, 1);
+          }
+        }
+
+        const targetGlow = ctx.createRadialGradient(center.x, center.y, 0, center.x, center.y, radius * 1.8);
+        targetGlow.addColorStop(0, "rgba(255,255,255,0.08)");
+        targetGlow.addColorStop(0.55, rgba(palette.core, 0.10));
+        targetGlow.addColorStop(1, "rgba(0,0,0,0)");
+        ctx.fillStyle = targetGlow;
+        ctx.beginPath();
+        ctx.arc(center.x, center.y, radius * 1.8, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.arc(center.x, center.y, radius * 0.42, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(21, 28, 46, 0.98)";
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.arc(center.x, center.y, radius * 0.24, 0, Math.PI * 2);
+        ctx.fillStyle = rgba(palette.edge, 0.88);
+        ctx.fill();
+
+        const shellPulse = 0.72 + 0.28 * Math.sin(time * 2.8);
+        ctx.beginPath();
+        ctx.arc(center.x, center.y, radius + 5, 0, Math.PI * 2);
+        ctx.strokeStyle = rgbString(palette.glow, 0.12 * shellPulse);
+        ctx.lineWidth = 16;
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.arc(center.x, center.y, radius, 0, Math.PI * 2);
+        ctx.strokeStyle = rgba(palette.edge, 0.72);
+        ctx.lineWidth = 2.4;
+        ctx.stroke();
+
+        if (lodPreset.shieldCells) {
+          const cells = getShieldCells(radius, lodPreset.shieldCellStep);
+          for (const cell of cells) {
+            let intensity = lodPreset.shieldCells === true ? 0.06 : 0;
+            const wx = shield.x + cell.x / state.zoom;
+            const wy = shield.y + cell.y / state.zoom;
+            for (const impact of shield.impacts) {
+              const dist = Math.hypot(wx - impact.x, wy - impact.y);
+              const maxDist = shield.r * 0.44;
+              if (dist < maxDist) {
+                const wave = 1 - dist / maxDist;
+                const life = 1 - impact.t / impact.duration;
+                intensity = Math.max(intensity, wave * life * 0.92);
+              }
+            }
+            if (intensity <= 0.01) continue;
+            drawHex(center.x + cell.x, center.y + cell.y, lodPreset.shieldCellStep * 0.46, intensity, palette);
+          }
+        }
+
+        for (const impact of shield.impacts) {
+          const life = clamp(impact.t / impact.duration, 0, 1);
+          const fade = 1 - easeOutCubic(life);
+          const hit = worldToScreen(impact.x, impact.y);
+          ctx.beginPath();
+          ctx.arc(hit.x, hit.y, (12 + life * 18) * state.zoom, 0, Math.PI * 2);
+          ctx.fillStyle = rgba(palette.bright, 0.12 + fade * 0.24);
+          ctx.fill();
+
+          ctx.beginPath();
+          ctx.arc(hit.x, hit.y, (8 + life * 24) * state.zoom, impact.angle - 0.9, impact.angle + 0.9);
+          ctx.strokeStyle = rgba(palette.bright, 0.38 * fade);
+          ctx.lineWidth = 3.2;
+          ctx.stroke();
+
+          ctx.beginPath();
+          ctx.moveTo(hit.x, hit.y);
+          ctx.lineTo(center.x + Math.cos(impact.angle) * radius * 0.58, center.y + Math.sin(impact.angle) * radius * 0.58);
+          ctx.strokeStyle = rgbString(palette.line, 0.14 + fade * 0.20);
+          ctx.lineWidth = 1.2;
+          ctx.stroke();
+        }
+
+        for (const shot of shield.shots) {
+          const sx = lerp(shot.fromX, shot.toX, Math.max(0, shot.progress - 0.18));
+          const sy = lerp(shot.fromY, shot.toY, Math.max(0, shot.progress - 0.18));
+          const ex = lerp(shot.fromX, shot.toX, clamp(shot.progress, 0, 1));
+          const ey = lerp(shot.fromY, shot.toY, clamp(shot.progress, 0, 1));
+          const p0 = worldToScreen(sx, sy);
+          const p1 = worldToScreen(ex, ey);
+          ctx.beginPath();
+          ctx.moveTo(p0.x, p0.y);
+          ctx.lineTo(p1.x, p1.y);
+          ctx.strokeStyle = rgba(palette.core, 0.70);
+          ctx.lineWidth = 2.2;
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(p0.x, p0.y);
+          ctx.lineTo(p1.x, p1.y);
+          ctx.strokeStyle = rgba(palette.bright, 0.48);
+          ctx.lineWidth = 0.9;
+          ctx.stroke();
+          if (lodPreset.shotsGlow) {
+            ctx.beginPath();
+            ctx.arc(p1.x, p1.y, 7, 0, Math.PI * 2);
+            ctx.fillStyle = rgbString(palette.glow, 0.18);
+            ctx.fill();
+          }
+        }
+
+        ctx.fillStyle = "rgba(190, 214, 255, 0.85)";
+        ctx.font = "12px Segoe UI, Arial, sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("hex shield / local impacts", center.x, center.y + radius * 1.42);
+      }
+
+      function drawHex(x, y, radius, intensity, palette) {
+        ctx.beginPath();
+        for (let i = 0; i < 6; i += 1) {
+          const angle = Math.PI / 6 + i * Math.PI / 3;
+          const px = x + Math.cos(angle) * radius;
+          const py = y + Math.sin(angle) * radius;
+          if (i === 0) ctx.moveTo(px, py);
+          else ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+        ctx.fillStyle = rgbString(palette.glow, 0.05 + intensity * 0.14);
+        ctx.fill();
+        ctx.strokeStyle = rgba(palette.edge, 0.12 + intensity * 0.66);
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+
+      function drawOverlay(palette, lodKey) {
+        ctx.save();
+        ctx.fillStyle = "rgba(216, 230, 255, 0.86)";
+        ctx.font = "12px Consolas, Segoe UI, monospace";
+        ctx.textAlign = "left";
+        ctx.fillText("LOD: " + lodKey.toUpperCase() + " | zoom " + state.zoom.toFixed(2) + " | stress " + state.stress, 18, canvas.clientHeight - 40);
+        ctx.fillText("Ship shell = real radius + local visual offset. Plexus is client-side and can be cut aggressively in far LOD.", 18, canvas.clientHeight - 20);
+        ctx.restore();
+
+        statusLine.textContent =
+          "Thin ring = gameplay radius. Animated shell = local visual radius tied to the real one. " +
+          "Current LOD: " + lodKey.toUpperCase() + ".";
+
+        document.documentElement.style.setProperty("--accent", palette.core);
+      }
+
+      function updateShips(dt) {
+        for (let i = 0; i < state.ships.length; i += 1) {
+          const ship = state.ships[i];
+          ship.angle += Math.sin(state.time * 0.25 + ship.seed) * dt * 0.04;
+          ship.hitPulse = Math.max(0, ship.hitPulse - dt * 1.8);
+        }
+      }
+
+      function render(dt) {
+        const time = state.time;
+        const lodKey = getEffectiveLod();
+        const lodPreset = LOD_PRESETS[lodKey];
+        const palette = getPalette();
+
+        drawBackground(time);
+        updateShips(dt);
+
+        for (const ship of state.ships) drawRealRadius(ship, palette);
+        for (const ship of state.ships) drawVisualBoundary(ship, palette, lodKey, lodPreset, time);
+        for (const ship of state.ships) drawBoundaryPlexus(ship, palette, lodKey, lodPreset, time);
+        for (const ship of state.ships) drawShipHull(ship, palette, lodPreset, time);
+        for (const mine of state.mines) drawMine(mine, palette, lodPreset, time);
+        drawShield(palette, lodPreset, dt, time);
+        drawOverlay(palette, lodKey);
+      }
+
+      function frame(now) {
+        if (!frame.last) frame.last = now;
+        const dt = clamp((now - frame.last) / 1000, 0.001, 0.033);
+        frame.last = now;
+        state.time += dt;
+        state.autoShotTimer += dt;
+        if (state.autoShotTimer > 0.9) {
+          state.autoShotTimer = 0;
+          spawnShot();
+        }
+        render(dt);
+        requestAnimationFrame(frame);
+      }
+
+      controls.lodMode.addEventListener("change", () => {
+        state.lodMode = controls.lodMode.value;
+      });
+
+      controls.palette.addEventListener("change", () => {
+        state.paletteKey = controls.palette.value;
+      });
+
+      controls.zoom.addEventListener("input", () => {
+        state.zoom = Number(controls.zoom.value);
+      });
+
+      controls.stress.addEventListener("input", () => {
+        state.stress = Number(controls.stress.value);
+      });
+
+      controls.impactBtn.addEventListener("click", () => {
+        const shield = state.shield;
+        const a = -2.6 + seeded(state.time * 9.7 + shield.impacts.length * 1.11) * 1.8;
+        spawnShieldHit(shield.x + Math.cos(a) * shield.r, shield.y + Math.sin(a) * shield.r);
+      });
+
+      controls.paletteBtn.addEventListener("click", () => {
+        const keys = Object.keys(PALETTES);
+        const idx = keys.indexOf(state.paletteKey);
+        state.paletteKey = keys[(idx + 1) % keys.length];
+        controls.palette.value = state.paletteKey;
+      });
+
+      canvas.addEventListener("wheel", (event) => {
+        event.preventDefault();
+        const next = clamp(state.zoom * (event.deltaY > 0 ? 0.92 : 1.08), 0.58, 1.55);
+        state.zoom = next;
+        controls.zoom.value = String(next.toFixed(2));
+      }, { passive: false });
+
+      canvas.addEventListener("pointermove", (event) => {
+        const rect = canvas.getBoundingClientRect();
+        const worldPoint = screenToWorld(event.clientX - rect.left, event.clientY - rect.top);
+        state.pointerWorldX = worldPoint.x;
+        state.pointerWorldY = worldPoint.y;
+      });
+
+      canvas.addEventListener("pointerdown", (event) => {
+        const rect = canvas.getBoundingClientRect();
+        const worldPoint = screenToWorld(event.clientX - rect.left, event.clientY - rect.top);
+        spawnShieldHit(worldPoint.x, worldPoint.y);
+      });
+
+      window.addEventListener("resize", resize);
+
+      resize();
+      makeStars();
+      resetScene();
+      requestAnimationFrame(frame);
+    })();
+  </script>
+</body>
+</html>

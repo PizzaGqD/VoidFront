@@ -46,16 +46,46 @@ const MIME = {
   ".woff2":"font/woff2"
 };
 
+function resolveStaticPath(urlPath) {
+  const raw = (urlPath === "/" || urlPath === "")
+    ? "index.html"
+    : urlPath.replace(/^\//, "").replace(/[?].*$/, "");
+  const decoded = decodeURIComponent(raw);
+  const normalized = path.normalize(decoded);
+  const candidate = path.join(__dirname, normalized);
+  const root = __dirname;
+  const relative = path.relative(root, candidate);
+
+  if (relative.startsWith("..") || path.isAbsolute(relative)) return null;
+
+  try {
+    const stat = fs.statSync(candidate);
+    if (stat.isDirectory()) {
+      const indexPath = path.join(candidate, "index.html");
+      if (fs.existsSync(indexPath)) return indexPath;
+      return null;
+    }
+    if (stat.isFile()) return candidate;
+  } catch (_) {
+    if (!path.extname(candidate)) {
+      const indexPath = path.join(candidate, "index.html");
+      if (fs.existsSync(indexPath)) return indexPath;
+    }
+  }
+
+  return null;
+}
+
 const httpServer = http.createServer((req, res) => {
   const clientIp = req.socket.remoteAddress || "?";
   console.log("[HTTP]", req.method, req.url, "from", clientIp);
 
-  const raw = (req.url === "/" || req.url === "")
-    ? "index.html"
-    : req.url.replace(/^\//, "").replace(/[?].*$/, "");
-  const file = decodeURIComponent(raw);
-
-  const filePath = path.join(__dirname, file);
+  const filePath = resolveStaticPath(req.url || "/");
+  if (!filePath) {
+    console.log("[HTTP] 404", req.url);
+    res.writeHead(404);
+    return res.end();
+  }
   const ext = path.extname(filePath);
 
   fs.readFile(filePath, (err, data) => {

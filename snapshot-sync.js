@@ -284,6 +284,7 @@
             if (r.value != null) res.value = r.value;
             if (r._targetCity !== undefined) res._targetCity = r._targetCity;
             if (r._interceptProtectUntil !== undefined) res._interceptProtectUntil = r._interceptProtectUntil;
+            res._visualOnly = !!r._visualOnly;
           }
         }
         for (const id of [...state.res.keys()]) {
@@ -390,6 +391,50 @@
             if (mine && mine.gfx) resLayer.removeChild(mine.gfx);
             state.mines.delete(id);
           }
+        }
+      }
+
+      if (snap.mineFlows) {
+        const wantedFlowIds = new Set();
+        for (const f of snap.mineFlows) {
+          wantedFlowIds.add(f.id);
+          const mine = state.mines.get(f.id);
+          if (!mine) continue;
+          mine._flowRate = f.rate || 0;
+          mine._flowTargetPlayerId = f.targetPlayerId != null ? f.targetPlayerId : mine.ownerId;
+          mine._flowVisualTargetPlayerId = f.visualTargetPlayerId != null ? f.visualTargetPlayerId : null;
+          mine._flowInterceptUnitId = f.interceptUnitId != null ? f.interceptUnitId : null;
+          mine._flowInterceptX = f.interceptX != null ? f.interceptX : null;
+          mine._flowInterceptY = f.interceptY != null ? f.interceptY : null;
+          mine._flowInterceptT = f.interceptT != null ? f.interceptT : null;
+          mine._flowPhase = f.phase || "none";
+          mine._flowPhaseStartedAt = f.phaseStartedAt != null ? f.phaseStartedAt : state.t;
+          mine._flowVersion = f.version || 0;
+        }
+        for (const mine of state.mines.values()) {
+          if (mine.ownerId && mine.captureProgress >= 1 && !wantedFlowIds.has(mine.id)) {
+            mine._flowRate = 0;
+            mine._flowTargetPlayerId = mine.ownerId;
+            mine._flowVisualTargetPlayerId = null;
+            mine._flowInterceptUnitId = null;
+            mine._flowInterceptX = null;
+            mine._flowInterceptY = null;
+            mine._flowInterceptT = null;
+            mine._flowPhase = "none";
+            mine._flowPhaseStartedAt = state.t;
+          }
+        }
+      } else if (snap._fullSync) {
+        for (const mine of state.mines.values()) {
+          mine._flowRate = 0;
+          mine._flowTargetPlayerId = mine.ownerId;
+          mine._flowVisualTargetPlayerId = null;
+          mine._flowInterceptUnitId = null;
+          mine._flowInterceptX = null;
+          mine._flowInterceptY = null;
+          mine._flowInterceptT = null;
+          mine._flowPhase = "none";
+          mine._flowPhaseStartedAt = state.t;
         }
       }
 

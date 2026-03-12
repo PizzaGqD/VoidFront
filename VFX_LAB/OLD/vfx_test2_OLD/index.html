@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Zone VFX Variants</title>
+  <link rel="stylesheet" href="./zone-vfx.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <h1>Zone VFX Variants</h1>
+      <p>Здесь лежат старые 6 отдельных страниц плюс новые лаборатории `Zone x10` и `Ships x10`.</p>
+      <p>Во всех зонных страницах real contour считается authoritative, визуал считается только у клиента, имеет LOD и может локально подчеркивать продавливание более сильной зоной.</p>
+    </div>
+    <div class="controls">
+      <div class="control">
+        <label>Focus</label>
+        <select disabled>
+          <option selected>Zone Visual Exploration</option>
+        </select>
+      </div>
+      <div class="control">
+        <label>Gameplay Rule</label>
+        <select disabled>
+          <option selected>Real contour unchanged</option>
+        </select>
+      </div>
+      <div class="control">
+        <label>LOD</label>
+        <select disabled>
+          <option selected>Near / Mid / Far</option>
+        </select>
+      </div>
+      <div class="control">
+        <label>Pressure</label>
+        <select disabled>
+          <option selected>Strong zone crushes weak VFX only</option>
+        </select>
+      </div>
+    </div>
+    <div class="actions">
+      <button type="button" disabled>Open Variants Below</button>
+      <button type="button" disabled>Compare Side By Side In Browser Tabs</button>
+    </div>
+  </header>
+
+  <nav class="nav">
+    <a href="./index.html" class="active">Overview</a>
+    <a href="./zone-pressure-lab.html">Zone x10</a>
+    <a href="./ship-variants-lab.html">Ships x10</a>
+    <a href="./01-pressure-lattice.html">01</a>
+    <a href="./02-fluid-front.html">02</a>
+    <a href="./03-shard-bastion.html">03</a>
+    <a href="./04-ion-drape.html">04</a>
+    <a href="./05-grav-skin.html">05</a>
+    <a href="./06-pulse-crown.html">06</a>
+  </nav>
+
+  <main class="overview">
+    <article class="variant-card">
+      <h2>Zone Pressure Lab</h2>
+      <p>Новая большая лаборатория: 10 режимов зонной границы, drag центров слабой и сильной зоны, LOD и акцент на Plexus-электричестве именно на фронте давления.</p>
+      <div class="tags">
+        <span class="tag">10 variants</span>
+        <span class="tag">Drag centers</span>
+        <span class="tag">Pressure front electricity</span>
+      </div>
+      <a href="./zone-pressure-lab.html">Открыть Zone x10</a>
+    </article>
+
+    <article class="variant-card">
+      <h2>Ship Variants Lab</h2>
+      <p>Отдельная лаборатория с 10 новыми корпусами кораблей. Совсем другой язык форм: split noses, stepped armor, trench cuts и forked tails.</p>
+      <div class="tags">
+        <span class="tag">10 ship designs</span>
+        <span class="tag">New silhouette language</span>
+        <span class="tag">LOD aware</span>
+      </div>
+      <a href="./ship-variants-lab.html">Открыть Ships x10</a>
+    </article>
+
+    <article class="variant-card">
+      <h2>01. Pressure Lattice</h2>
+      <p>Самый тактический и читаемый вариант. Хорош для ясного RTS-фронта и видимого структурного продавливания слабой зоны.</p>
+      <div class="tags">
+        <span class="tag">Nodes</span>
+        <span class="tag">Links</span>
+        <span class="tag">Best readability</span>
+      </div>
+      <a href="./01-pressure-lattice.html">Открыть вариант 01</a>
+    </article>
+
+    <article class="variant-card">
+      <h2>02. Fluid Front</h2>
+      <p>Более мягкий и живой вариант. Хорош, если хочется ощущение энергетической жидкости, а не жесткой тех-сетки.</p>
+      <div class="tags">
+        <span class="tag">Flowing shell</span>
+        <span class="tag">Soft sci-fi</span>
+        <span class="tag">Smooth pressure</span>
+      </div>
+      <a href="./02-fluid-front.html">Открыть вариант 02</a>
+    </article>
+
+    <article class="variant-card">
+      <h2>03. Shard Bastion</h2>
+      <p>Бастионная бронеподобная кромка. Подходит для более сурового mil-tech и хорошо режется в дальний LOD.</p>
+      <div class="tags">
+        <span class="tag">Armor shards</span>
+        <span class="tag">Mil-tech</span>
+        <span class="tag">Hard compression</span>
+      </div>
+      <a href="./03-shard-bastion.html">Открыть вариант 03</a>
+    </article>
+
+    <article class="variant-card">
+      <h2>04. Ion Drape</h2>
+      <p>Ионные ленты вдоль периметра. Визуал получается живой, направленный и хорошо ощущается как поле с током.</p>
+      <div class="tags">
+        <span class="tag">Ribbons</span>
+        <span class="tag">Field flow</span>
+        <span class="tag">Directionality</span>
+      </div>
+      <a href="./04-ion-drape.html">Открыть вариант 04</a>
+    </article>
+
+    <article class="variant-card">
+      <h2>05. Grav Skin</h2>
+      <p>Самый сильный акцент на доминировании сильной зоны. Продавливание выглядит физично и локально понятно.</p>
+      <div class="tags">
+        <span class="tag">Compression bands</span>
+        <span class="tag">Heavy field</span>
+        <span class="tag">Best pressure read</span>
+      </div>
+      <a href="./05-grav-skin.html">Открыть вариант 05</a>
+    </article>
+
+    <article class="variant-card">
+      <h2>06. Pulse Crown</h2>
+      <p>Самая декоративная и "игровая" корона по границе. Сильный акцент на важности зоны и хорошем ритме по контуру.</p>
+      <div class="tags">
+        <span class="tag">Pulse spikes</span>
+        <span class="tag">Decorative</span>
+        <span class="tag">LOD-friendly rhythm</span>
+      </div>
+      <a href="./06-pulse-crown.html">Открыть вариант 06</a>
+    </article>
+  </main>
+</body>
+</html>

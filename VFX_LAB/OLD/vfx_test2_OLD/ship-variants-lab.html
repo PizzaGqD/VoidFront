@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ship Variants Lab</title>
+  <link rel="stylesheet" href="./zone-vfx.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <h1>Ship Variants Lab</h1>
+      <p id="shipTitle">10 completely new ship designs</p>
+      <p id="statusLine">Новый язык корпусов: split noses, stepped armor, trench cuts, forked tails and asymmetric military silhouettes. LOD controls how many internal plates remain visible.</p>
+    </div>
+
+    <div class="controls">
+      <div class="control">
+        <label for="palette">Palette</label>
+        <select id="palette">
+          <option value="blue" selected>Blue</option>
+          <option value="red">Red</option>
+          <option value="green">Green</option>
+          <option value="purple">Purple</option>
+          <option value="amber">Amber</option>
+        </select>
+      </div>
+      <div class="control">
+        <label for="lodMode">LOD</label>
+        <select id="lodMode">
+          <option value="auto" selected>Auto</option>
+          <option value="near">Near</option>
+          <option value="mid">Mid</option>
+          <option value="far">Far</option>
+        </select>
+      </div>
+      <div class="control">
+        <label for="distance">Distance</label>
+        <input id="distance" type="range" min="0" max="100" step="1" value="18">
+      </div>
+      <div class="control">
+        <label for="stress">Stress</label>
+        <input id="stress" type="range" min="0" max="100" step="1" value="18">
+      </div>
+      <div class="control">
+        <label for="focusShip">Focus</label>
+        <select id="focusShip">
+          <option value="all" selected>All 10</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button id="cycleMotion" type="button">Cycle Motion</button>
+      <button id="shufflePalette" type="button">Cycle Palette</button>
+      <button id="focusAll" type="button">Show All</button>
+    </div>
+  </header>
+
+  <nav class="nav">
+    <a href="./index.html">Overview</a>
+    <a href="./zone-pressure-lab.html">Zone x10</a>
+    <a href="./ship-variants-lab.html" class="active">Ships x10</a>
+    <a href="./01-pressure-lattice.html">01</a>
+    <a href="./02-fluid-front.html">02</a>
+    <a href="./03-shard-bastion.html">03</a>
+    <a href="./04-ion-drape.html">04</a>
+    <a href="./05-grav-skin.html">05</a>
+    <a href="./06-pulse-crown.html">06</a>
+  </nav>
+
+  <div class="scene-wrap">
+    <canvas id="scene"></canvas>
+  </div>
+
+  <section class="legend">
+    <div class="legend-card">
+      <h3>Design Goal</h3>
+      <p id="legendGoal">Нужен полностью новый язык силуэтов, не похожий на текущие игровые корпуса. Здесь сделаны 10 новых направлений.</p>
+    </div>
+    <div class="legend-card">
+      <h3>LOD</h3>
+      <p id="legendLod">Near показывает deck plates, trenches, vents and cuts. Mid оставляет крупные панели. Far схлопывает корпус до читаемого outer/inner mass.</p>
+    </div>
+    <div class="legend-card">
+      <h3>Usage</h3>
+      <p id="legendUsage">Можно смотреть все 10 сразу или выбрать один через Focus. Wheel здесь не нужен — distance slider управляет тем, насколько агрессивно режется детализация.</p>
+    </div>
+  </section>
+
+  <script src="./ship-variants-lab.js"></script>
+</body>
+</html>

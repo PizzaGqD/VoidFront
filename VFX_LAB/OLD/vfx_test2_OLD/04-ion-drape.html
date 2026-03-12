@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Zone VFX 04 - Ion Drape</title>
+  <link rel="stylesheet" href="./zone-vfx.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <h1 id="variantTitle">04. Ion Drape</h1>
+      <p id="variantSubtitle">Ионные ленты и драпировка вдоль контура. Граница ощущается как поле, у которого есть течение и направление.</p>
+      <p id="statusLine">Real contour is unchanged. Local shell is client-only and gets compressed where the stronger zone dominates.</p>
+    </div>
+    <div class="controls">
+      <div class="control">
+        <label for="palette">Palette</label>
+        <select id="palette">
+          <option value="blue" selected>Blue</option>
+          <option value="red">Red</option>
+          <option value="green">Green</option>
+          <option value="purple">Purple</option>
+          <option value="amber">Amber</option>
+        </select>
+      </div>
+      <div class="control">
+        <label for="lodMode">LOD</label>
+        <select id="lodMode">
+          <option value="auto" selected>Auto</option>
+          <option value="near">Near</option>
+          <option value="mid">Mid</option>
+          <option value="far">Far</option>
+        </select>
+      </div>
+      <div class="control">
+        <label for="distance">Distance</label>
+        <input id="distance" type="range" min="0" max="100" step="1" value="26">
+      </div>
+      <div class="control">
+        <label for="stress">Stress</label>
+        <input id="stress" type="range" min="0" max="100" step="1" value="16">
+      </div>
+    </div>
+    <div class="actions">
+      <button id="pulsePressure" type="button">Pulse Pressure</button>
+      <button id="motionBurst" type="button">Motion Burst</button>
+    </div>
+  </header>
+
+  <nav class="nav">
+    <a href="./index.html">Overview</a>
+    <a href="./01-pressure-lattice.html">01</a>
+    <a href="./02-fluid-front.html">02</a>
+    <a href="./03-shard-bastion.html">03</a>
+    <a href="./04-ion-drape.html" class="active">04</a>
+    <a href="./05-grav-skin.html">05</a>
+    <a href="./06-pulse-crown.html">06</a>
+  </nav>
+
+  <div class="scene-wrap">
+    <canvas id="scene"></canvas>
+  </div>
+
+  <section class="legend">
+    <div class="legend-card">
+      <h3>Real Zone</h3>
+      <p id="legendReal"></p>
+    </div>
+    <div class="legend-card">
+      <h3>Local Visual</h3>
+      <p id="legendLocal"></p>
+    </div>
+    <div class="legend-card">
+      <h3>Ship Language</h3>
+      <p id="legendShips"></p>
+    </div>
+  </section>
+
+  <script>
+    window.ZONE_VARIANT_CONFIG = {
+      variantId: "04",
+      title: "04. Ion Drape",
+      subtitle: "Ленточная ионная оболочка. Дает ощущение живого тока вдоль зоны и красиво переживает снижение LOD.",
+      style: "ribbons",
+      auraDepth: 24,
+      noiseAmp: 11,
+      pressureAmp: 26,
+      pressureInset: 32,
+      shellWidth: 7,
+      flowSpeed: 1.7,
+      spikeLen: 10,
+      ribbonLen: 48,
+      localFormula: "Серверная/реальная зона остается стабильной. Ленты — чисто локальный клиентский орнамент поверх нее.",
+      pressureNote: "Когда сильная зона давит, ионные ленты изгибаются, укорачиваются и стягиваются к real contour слабой зоны, но сам contour остается прежним.",
+      shipNote: "Новые корпуса с split-prong и ray-силуэтами здесь выглядят особенно уместно: они как будто скользят по направлению потока поля."
+    };
+  </script>
+  <script src="./zone-vfx-common.js"></script>
+</body>
+</html>

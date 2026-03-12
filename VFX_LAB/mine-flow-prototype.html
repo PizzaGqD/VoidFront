@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mine Flow Prototype 01</title>
+  <link rel="stylesheet" href="./vfx-lab.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <h2 id="variantTitle">Mine Flow Prototype Mix</h2>
+      <p id="variantSubtitle">Можно назначать разные style direction для Money и XP шахт, а затем смотреть, как они живут вместе с общим splice-перехватом потока.</p>
+      <p>Тяни шахты, ядра и блокирующие корабли мышью. Ресурсы считаются логически без пакетов, а пакеты здесь живут как чистый клиентский VFX.</p>
+    </div>
+    <div class="controls">
+      <div class="control">
+        <label>Money Style</label>
+        <select id="moneyVariantSelect"></select>
+      </div>
+      <div class="control">
+        <label>XP Style</label>
+        <select id="xpVariantSelect"></select>
+      </div>
+      <div class="control">
+        <label>LOD</label>
+        <select id="lodMode">
+          <option value="auto">Auto</option>
+          <option value="near">Near</option>
+          <option value="mid">Mid</option>
+          <option value="far">Far</option>
+        </select>
+      </div>
+      <div class="control">
+        <label>Traffic</label>
+        <input id="packetRate" type="range" min="35" max="150" value="80">
+      </div>
+      <div class="control">
+        <label>Enemy Ships</label>
+        <input id="shipCount" type="range" min="0" max="5" value="3">
+      </div>
+      <div class="control">
+        <label>Redirect Softness</label>
+        <input id="redirectSoftness" type="range" min="20" max="95" value="56">
+      </div>
+      <div class="control">
+        <label>Pulse Burst</label>
+        <input id="beamPulse" type="range" min="0" max="100" value="58">
+      </div>
+    </div>
+    <div class="actions">
+      <button type="button" id="pulseHarvest">Pulse Harvest</button>
+      <button type="button" id="shuffleShips">Shuffle Ships</button>
+      <button type="button" id="randomizeLayout">Randomize Layout</button>
+    </div>
+  </header>
+
+  <nav class="nav">
+    <a href="./index.html">Overview</a>
+    <a href="./zone-pressure-prototype.html">Zone Prototype 01</a>
+    <a href="./ships-prototype.html">Ships Prototype 01</a>
+    <a href="./mine-flow-prototype.html" class="active">Mine Flow Prototype 01</a>
+    <a href="./OLD/vfx_test2_OLD/index.html">OLD vfx_test2</a>
+  </nav>
+
+  <main class="scene-wrap">
+    <canvas id="scene"></canvas>
+  </main>
+
+  <div id="statusLine" class="status-line">
+    Mines produce logic-only income while captured. The beam, pulses and packets below are fully client-side, and Money / XP lanes can now use different visual styles in the same scene.
+  </div>
+
+  <section class="legend">
+    <article class="legend-card">
+      <h3>Mining Logic</h3>
+      <p id="legendLogic">Шахта просто дает деньги или опыт, пока захвачена. Пакеты не определяют доход, а лишь визуализируют поток для клиента.</p>
+    </article>
+    <article class="legend-card">
+      <h3>Redirect Rule</h3>
+      <p id="legendRedirect">Если вражеское судно встает на трассу, луч визуально режется до splice point, а новая ветка достраивается от точки перехвата к ядру перехватчика. Это только VFX-редирект без серверной логики.</p>
+    </article>
+    <article class="legend-card">
+      <h3>Prototype Focus</h3>
+      <p id="legendFocus">Теперь можно миксовать два направления сразу: отдельно для Money, отдельно для XP, и оценивать форму луча, packet style и splice-анимацию в одной сцене.</p>
+    </article>
+  </section>
+
+  <script src="./mine-flow-prototype.js"></script>
+</body>
+</html>

@@ -41,7 +41,7 @@
     "pendingCardPicks", "xpZonePct", "xpGainMul",
     "_levelBonusMul", "rerollCount",
     "shieldHp", "shieldMaxHp", "shieldRegenCd", "shieldRegenBonus", "_cardPicksCount",
-    "mineYieldBonus", "cityTargetBonus", "attackEffect", "attackEffects",
+    "mineYieldBonus", "cityTargetBonus", "turretTargetBonus", "attackEffect", "attackEffects",
     "_patrolCount", "_patrols"
   ];
   const PLAYER_FULL_KEYS = [
@@ -203,6 +203,26 @@
         bullets: state.bullets.slice()
       };
 
+      if (state.mines && state.mines.size > 0) {
+        gs.mineFlows = [];
+        for (const m of state.mines.values()) {
+          if (!m.ownerId || m.captureProgress < 1) continue;
+          gs.mineFlows.push({
+            id: m.id,
+            rate: roundN(m._flowRate || 0, 1000),
+            targetPlayerId: m._flowTargetPlayerId,
+            visualTargetPlayerId: m._flowVisualTargetPlayerId,
+            interceptUnitId: m._flowInterceptUnitId,
+            interceptX: m._flowInterceptX != null ? roundN(m._flowInterceptX, 10) : null,
+            interceptY: m._flowInterceptY != null ? roundN(m._flowInterceptY, 10) : null,
+            interceptT: m._flowInterceptT != null ? roundN(m._flowInterceptT, 1000) : null,
+            phase: m._flowPhase || "none",
+            phaseStartedAt: m._flowPhaseStartedAt != null ? roundN(m._flowPhaseStartedAt, 1000) : state.t,
+            version: m._flowVersion || 0
+          });
+        }
+      }
+
       if (isZoneSync && !isFull) {
         const resDelta = [];
         for (const r of state.res.values()) {
@@ -235,10 +255,12 @@
             if (r._targetCity != null) ro._targetCity = r._targetCity;
             if (r._interceptProtectUntil != null) ro._interceptProtectUntil = r._interceptProtectUntil;
             if (r.isCredit) ro.isCredit = true;
+            if (r._visualOnly) ro._visualOnly = true;
           }
           if (r.type === "orb" && r._targetCity != null) {
             ro._targetCity = r._targetCity;
             if (r._interceptProtectUntil != null) ro._interceptProtectUntil = r._interceptProtectUntil;
+            if (r._visualOnly) ro._visualOnly = true;
           }
           resources.push(ro);
         }

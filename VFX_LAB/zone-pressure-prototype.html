@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Zone Pressure Prototype 01</title>
+  <link rel="stylesheet" href="./vfx-lab.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <h2 id="variantTitle">Zone Pressure Prototype 01</h2>
+      <p id="variantSubtitle">Новый тест отталкивается от реального игрового языка зоны: segmented edge, inner rings, radial markers и contact seam.</p>
+      <p>Тяни центры зон мышью и смотри, как большая зона продавливает радиус другой до управляемого минимума.</p>
+    </div>
+    <div class="controls">
+      <div class="control">
+        <label>Style Direction</label>
+        <select id="variantSelect"></select>
+      </div>
+      <div class="control">
+        <label>Palette</label>
+        <select id="palette">
+          <option value="blue">Blue / Red</option>
+          <option value="green">Green / Ember</option>
+          <option value="purple">Purple / Cyan</option>
+          <option value="amber">Amber / Steel</option>
+        </select>
+      </div>
+      <div class="control">
+        <label>LOD</label>
+        <select id="lodMode">
+          <option value="auto">Auto</option>
+          <option value="near">Near</option>
+          <option value="mid">Mid</option>
+          <option value="far">Far</option>
+        </select>
+      </div>
+      <div class="control">
+        <label>Stress</label>
+        <input id="stress" type="range" min="0" max="100" value="42">
+      </div>
+      <div class="control">
+        <label>Strong Pressure</label>
+        <input id="strongPressure" type="range" min="100" max="360" value="220">
+      </div>
+      <div class="control">
+        <label>Weak Min Radius %</label>
+        <input id="minRadius" type="range" min="18" max="55" value="28">
+      </div>
+    </div>
+    <div class="actions">
+      <button type="button" id="pulsePressure">Pulse Pressure</button>
+      <button type="button" id="randomizeCenters">Randomize Centers</button>
+      <button type="button" id="resetCenters">Reset Centers</button>
+    </div>
+  </header>
+
+  <nav class="nav">
+    <a href="./index.html">Overview</a>
+    <a href="./zone-pressure-prototype.html" class="active">Zone Prototype 01</a>
+    <a href="./ships-prototype.html">Ships Prototype 01</a>
+    <a href="./mine-flow-prototype.html">Mine Flow Prototype 01</a>
+    <a href="./OLD/vfx_test2_OLD/index.html">OLD vfx_test2</a>
+  </nav>
+
+  <main class="scene-wrap">
+    <canvas id="scene"></canvas>
+  </main>
+
+  <div id="statusLine" class="status-line">
+    Prototype boots from the real game rule: stronger pressure pushes overlapping rays inward, then the shell exaggerates that crush locally.
+  </div>
+
+  <section class="legend">
+    <article class="legend-card">
+      <h3>In-Game Basis</h3>
+      <p id="legendReal">`stepCities()` давит лучи зоны внутрь при overlap, а `ZoneRenderer` рисует мягкую заливку, coverage band, внутренние кольца, dashed edge и sensor nodes. Real contour здесь не плавает.</p>
+    </article>
+    <article class="legend-card">
+      <h3>Pressure Goal</h3>
+      <p id="legendPressure">Новая цель: real contour остается authoritative, а поверх него уже visual shell отдельно конфликтует с другой visual shell и дает более драматичный seam.</p>
+    </article>
+    <article class="legend-card">
+      <h3>Prototype Focus</h3>
+      <p id="legendInteraction">Шесть style directions на одной логической основе: bastion, fracture, relay, plexus, siege и null-front.</p>
+    </article>
+  </section>
+
+  <script src="./zone-pressure-prototype.js"></script>
+</body>
+</html>

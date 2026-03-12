@@ -24,6 +24,7 @@
       updateCombatUI,
       updateFloatingDamage,
       updateAbilityAnnouncements,
+      updateMineFlowVisuals,
       drawBullets,
       drawStorm,
       drawNebulae,
@@ -76,6 +77,9 @@
       } else {
         contactGfx.clear();
         for (const p of state.players.values()) {
+          if (p.zoneGfx) p.zoneGfx.clear();
+          if (p.zoneGlow) p.zoneGlow.clear();
+          if (p.zoneShellGfx) p.zoneShellGfx.clear();
           if (p.zoneLightGfx) p.zoneLightGfx.clear();
         }
       }
@@ -95,6 +99,7 @@
       if (vfc % 3 === 0) updateCombatUI();
       updateFloatingDamage(dt);
       updateAbilityAnnouncements(dt);
+      updateMineFlowVisuals(dt);
       drawBullets();
       drawStorm();
       drawNebulae();

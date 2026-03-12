@@ -1,0 +1,1668 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hoi2D VFX Test 2</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #040712;
+      --panel: rgba(7, 12, 24, 0.82);
+      --panel-2: rgba(11, 18, 36, 0.9);
+      --border: rgba(126, 182, 255, 0.18);
+      --text: #dce8ff;
+      --muted: #90a5cb;
+      --accent: #7eb6ff;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      min-height: 100%;
+      background:
+        radial-gradient(circle at top, rgba(31, 52, 96, 0.24), transparent 36%),
+        radial-gradient(circle at 20% 90%, rgba(18, 29, 54, 0.36), transparent 34%),
+        linear-gradient(180deg, #050813 0%, #03060f 100%);
+      color: var(--text);
+      font: 14px/1.45 Inter, Segoe UI, Roboto, Arial, sans-serif;
+    }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 30;
+      display: grid;
+      grid-template-columns: 1.3fr 1fr 1fr 1fr;
+      gap: 12px;
+      padding: 14px 16px;
+      border-bottom: 1px solid rgba(126, 182, 255, 0.08);
+      background: rgba(4, 7, 16, 0.84);
+      backdrop-filter: blur(14px);
+    }
+
+    .brand {
+      min-width: 0;
+    }
+
+    .brand h1 {
+      margin: 0 0 4px;
+      font-size: 17px;
+      font-weight: 650;
+      letter-spacing: 0.02em;
+    }
+
+    .brand p,
+    .status {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .controls,
+    .actions {
+      display: grid;
+      gap: 8px;
+      align-content: start;
+    }
+
+    .controls {
+      grid-template-columns: 1fr 1fr;
+    }
+
+    .control {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    label {
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    select,
+    input[type="range"],
+    button {
+      width: 100%;
+    }
+
+    select,
+    button {
+      border: 1px solid rgba(126, 182, 255, 0.15);
+      border-radius: 10px;
+      background: rgba(13, 21, 42, 0.88);
+      color: var(--text);
+      font: inherit;
+      padding: 9px 10px;
+    }
+
+    input[type="range"] {
+      accent-color: var(--accent);
+    }
+
+    .actions {
+      grid-template-columns: 1fr 1fr;
+    }
+
+    .layout {
+      padding: 16px;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(320px, 1fr));
+      gap: 16px;
+    }
+
+    .card {
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      overflow: hidden;
+      background: linear-gradient(180deg, rgba(8, 13, 26, 0.94) 0%, rgba(5, 9, 18, 0.98) 100%);
+      box-shadow: 0 24px 80px rgba(0, 0, 0, 0.25);
+    }
+
+    .card-head {
+      padding: 14px 16px 10px;
+      border-bottom: 1px solid rgba(126, 182, 255, 0.08);
+      background: linear-gradient(180deg, rgba(12, 20, 40, 0.82), rgba(8, 14, 28, 0.68));
+    }
+
+    .card-head h2 {
+      margin: 0 0 4px;
+      font-size: 15px;
+      font-weight: 600;
+    }
+
+    .card-head p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .demo {
+      display: block;
+      width: 100%;
+      height: 320px;
+      background: linear-gradient(180deg, rgba(7, 11, 22, 0.85), rgba(3, 6, 12, 0.96));
+    }
+
+    .card-foot {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      padding: 10px 16px 14px;
+      border-top: 1px solid rgba(126, 182, 255, 0.06);
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .pill {
+      padding: 4px 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(126, 182, 255, 0.15);
+      background: rgba(126, 182, 255, 0.06);
+      color: #b8cff8;
+    }
+
+    @media (max-width: 1160px) {
+      .topbar {
+        grid-template-columns: 1fr;
+      }
+
+      .layout {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <h1>Hoi2D VFX Test 2</h1>
+      <p>Zone boundary, ship geometry, ripple shield, 3-ship formation teleport, gravity bomb, mines + flow/hijack.</p>
+      <p class="status" id="statusLine">LOD: AUTO. Keyboard: `Space` hijack, `M` money, `E` xp.</p>
+    </div>
+
+    <div class="controls">
+      <div class="control">
+        <label for="palette">Palette</label>
+        <select id="palette">
+          <option value="blue" selected>Blue team</option>
+          <option value="red">Red team</option>
+          <option value="green">Green team</option>
+          <option value="purple">Purple team</option>
+          <option value="amber">Amber team</option>
+        </select>
+      </div>
+      <div class="control">
+        <label for="lodMode">LOD</label>
+        <select id="lodMode">
+          <option value="auto" selected>Auto</option>
+          <option value="near">Near</option>
+          <option value="mid">Mid</option>
+          <option value="far">Far</option>
+        </select>
+      </div>
+      <div class="control">
+        <label for="distance">Distance</label>
+        <input id="distance" type="range" min="0" max="100" step="1" value="24">
+      </div>
+      <div class="control">
+        <label for="stress">Stress</label>
+        <input id="stress" type="range" min="0" max="100" step="1" value="18">
+      </div>
+    </div>
+
+    <div class="actions">
+      <button id="shieldBtn" type="button">Shield Hit</button>
+      <button id="teleportBtn" type="button">Trigger Teleport</button>
+      <button id="gravityBtn" type="button">Trigger Gravity Bomb</button>
+      <button id="hijackBtn" type="button">Toggle Hijack</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <article class="card">
+      <div class="card-head">
+        <h2>1. Zone Influence Boundary</h2>
+        <p>Real boundary shifts too, while the richer shell and node network ride on top of the authoritative contour.</p>
+      </div>
+      <canvas id="zoneCanvas" class="demo"></canvas>
+      <div class="card-foot">
+        <span class="pill">Real boundary = moving</span>
+        <span class="pill">Visual shell = richer local layer</span>
+        <span class="pill">LOD collapses shell first</span>
+      </div>
+    </article>
+
+    <article class="card">
+      <div class="card-head">
+        <h2>2. Ship Geometry</h2>
+        <p>New hull silhouettes with layered panels, harder mil-tech framing and readable class separation.</p>
+      </div>
+      <canvas id="shipCanvas" class="demo"></canvas>
+      <div class="card-foot">
+        <span class="pill">Panel cuts</span>
+        <span class="pill">Class readability</span>
+        <span class="pill">Far LOD drops fine panels</span>
+      </div>
+    </article>
+
+    <article class="card">
+      <div class="card-head">
+        <h2>3. Ripple Shield</h2>
+        <p>Soft shell waves with localized impacts. Click this canvas to spawn a hit exactly where you want.</p>
+      </div>
+      <canvas id="shieldCanvas" class="demo"></canvas>
+      <div class="card-foot">
+        <span class="pill">Pointer click = impact</span>
+        <span class="pill">Ripple shell</span>
+        <span class="pill">Global button also triggers</span>
+      </div>
+    </article>
+
+    <article class="card">
+      <div class="card-head">
+        <h2>4. Formation Teleport</h2>
+        <p>Three ships jump in one synchronized field from point A to point B while preserving formation offsets.</p>
+      </div>
+      <canvas id="teleportCanvas" class="demo"></canvas>
+      <div class="card-foot">
+        <span class="pill">Shared field</span>
+        <span class="pill">Dissolve + transit + reform</span>
+        <span class="pill">Back-and-forth cycle</span>
+      </div>
+    </article>
+
+    <article class="card">
+      <div class="card-head">
+        <h2>5. Gravity Bomb</h2>
+        <p>Charged core, implosion, pull and late shock ring. Styled as a game-ready ability prototype.</p>
+      </div>
+      <canvas id="gravityCanvas" class="demo"></canvas>
+      <div class="card-foot">
+        <span class="pill">Charged core</span>
+        <span class="pill">Implosion pull</span>
+        <span class="pill">Shockwave residue</span>
+      </div>
+    </article>
+
+    <article class="card">
+      <div class="card-head">
+        <h2>6. Mines + Resource Flow</h2>
+        <p>Charged mines plus readable resource packets. Hijack reroutes player flow through an intercept node to enemy base.</p>
+      </div>
+      <canvas id="mineCanvas" class="demo"></canvas>
+      <div class="card-foot">
+        <span class="pill">Space = hijack</span>
+        <span class="pill">M = money</span>
+        <span class="pill">E = xp</span>
+      </div>
+    </article>
+  </main>
+
+  <script>
+    (() => {
+      "use strict";
+
+      const TAU = Math.PI * 2;
+      const statusLine = document.getElementById("statusLine");
+
+      const controls = {
+        palette: document.getElementById("palette"),
+        lodMode: document.getElementById("lodMode"),
+        distance: document.getElementById("distance"),
+        stress: document.getElementById("stress"),
+        shieldBtn: document.getElementById("shieldBtn"),
+        teleportBtn: document.getElementById("teleportBtn"),
+        gravityBtn: document.getElementById("gravityBtn"),
+        hijackBtn: document.getElementById("hijackBtn")
+      };
+
+      const PALETTES = {
+        blue: {
+          core: "#67a5ff",
+          edge: "#d3e4ff",
+          bright: "#f5fbff",
+          shell: "#0b1427",
+          hull: "#122340",
+          panel: "#17315a",
+          glow: "103,165,255",
+          line: "150,198,255"
+        },
+        red: {
+          core: "#ff6f86",
+          edge: "#ffd6df",
+          bright: "#fff5f7",
+          shell: "#22111a",
+          hull: "#3e1825",
+          panel: "#612035",
+          glow: "255,111,134",
+          line: "255,162,178"
+        },
+        green: {
+          core: "#63d39a",
+          edge: "#d7ffe9",
+          bright: "#f3fff8",
+          shell: "#0b1c17",
+          hull: "#143328",
+          panel: "#1a503d",
+          glow: "99,211,154",
+          line: "151,236,191"
+        },
+        purple: {
+          core: "#b988ff",
+          edge: "#eddcff",
+          bright: "#fcf7ff",
+          shell: "#171122",
+          hull: "#2b1d42",
+          panel: "#412969",
+          glow: "185,136,255",
+          line: "215,182,255"
+        },
+        amber: {
+          core: "#ffba5c",
+          edge: "#ffe7bf",
+          bright: "#fff9ef",
+          shell: "#23180b",
+          hull: "#3f2912",
+          panel: "#664017",
+          glow: "255,186,92",
+          line: "255,216,151"
+        }
+      };
+
+      const LOD_PRESETS = {
+        near: {
+          zoneSamples: 80,
+          zoneNodes: 14,
+          zoneNodeLinks: 2,
+          zoneShellWidth: 10,
+          shipPanels: true,
+          shipMicroLines: true,
+          shieldBands: 8,
+          shieldImpactPasses: 3,
+          teleportMotes: 34,
+          teleportBeamAlpha: 0.24,
+          gravityParticles: 64,
+          gravityPullLines: 22,
+          minePackets: 10,
+          mineOrbits: 10,
+          flowGlow: true
+        },
+        mid: {
+          zoneSamples: 54,
+          zoneNodes: 8,
+          zoneNodeLinks: 1,
+          zoneShellWidth: 6,
+          shipPanels: true,
+          shipMicroLines: false,
+          shieldBands: 5,
+          shieldImpactPasses: 2,
+          teleportMotes: 18,
+          teleportBeamAlpha: 0.16,
+          gravityParticles: 34,
+          gravityPullLines: 10,
+          minePackets: 6,
+          mineOrbits: 5,
+          flowGlow: true
+        },
+        far: {
+          zoneSamples: 34,
+          zoneNodes: 0,
+          zoneNodeLinks: 0,
+          zoneShellWidth: 3,
+          shipPanels: false,
+          shipMicroLines: false,
+          shieldBands: 2,
+          shieldImpactPasses: 1,
+          teleportMotes: 8,
+          teleportBeamAlpha: 0.10,
+          gravityParticles: 14,
+          gravityPullLines: 0,
+          minePackets: 3,
+          mineOrbits: 0,
+          flowGlow: false
+        }
+      };
+
+      const SHIP_LIBRARY = {
+        interceptor: {
+          label: "Interceptor",
+          outer: [[2.70, 0], [1.10, -0.56], [0.18, -1.02], [-0.88, -0.74], [-0.40, 0], [-0.88, 0.74], [0.18, 1.02], [1.10, 0.56]],
+          inner: [[1.92, 0], [0.76, -0.34], [0.08, -0.62], [-0.46, -0.38], [-0.06, 0], [-0.46, 0.38], [0.08, 0.62], [0.76, 0.34]],
+          panels: [
+            [[1.20, -0.32], [0.52, -0.18], [0.10, -0.56], [0.62, -0.58]],
+            [[1.20, 0.32], [0.52, 0.18], [0.10, 0.56], [0.62, 0.58]]
+          ],
+          lines: [
+            [[1.72, 0], [-0.42, 0]],
+            [[0.64, -0.30], [0.10, -0.72]],
+            [[0.64, 0.30], [0.10, 0.72]]
+          ],
+          engines: [[-0.62, -0.16], [-0.62, 0.16]]
+        },
+        destroyer: {
+          label: "Destroyer",
+          outer: [[2.80, 0], [1.32, -0.60], [0.22, -1.08], [-0.94, -0.84], [-1.24, -0.22], [-1.24, 0.22], [-0.94, 0.84], [0.22, 1.08], [1.32, 0.60]],
+          inner: [[1.98, 0], [0.86, -0.36], [0.10, -0.70], [-0.70, -0.50], [-0.90, -0.16], [-0.90, 0.16], [-0.70, 0.50], [0.10, 0.70], [0.86, 0.36]],
+          panels: [
+            [[1.54, -0.44], [0.78, -0.28], [0.28, -0.66], [0.94, -0.74]],
+            [[1.54, 0.44], [0.78, 0.28], [0.28, 0.66], [0.94, 0.74]],
+            [[0.10, -0.68], [-0.36, -0.56], [-0.78, -0.22], [-0.46, -0.10], [0.02, -0.22]],
+            [[0.10, 0.68], [-0.36, 0.56], [-0.78, 0.22], [-0.46, 0.10], [0.02, 0.22]]
+          ],
+          lines: [
+            [[1.94, 0], [-0.84, 0]],
+            [[0.36, -0.84], [-0.68, -0.58]],
+            [[0.36, 0.84], [-0.68, 0.58]]
+          ],
+          engines: [[-0.92, -0.26], [-0.92, 0.26], [-0.72, 0]]
+        },
+        cruiser: {
+          label: "Cruiser",
+          outer: [[3.02, 0], [1.46, -0.66], [0.34, -1.18], [-0.46, -1.28], [-1.22, -0.96], [-1.62, -0.34], [-1.72, -0.10], [-1.72, 0.10], [-1.62, 0.34], [-1.22, 0.96], [-0.46, 1.28], [0.34, 1.18], [1.46, 0.66]],
+          inner: [[2.12, 0], [0.96, -0.42], [0.18, -0.78], [-0.26, -0.88], [-0.98, -0.70], [-1.22, -0.22], [-1.28, -0.08], [-1.28, 0.08], [-1.22, 0.22], [-0.98, 0.70], [-0.26, 0.88], [0.18, 0.78], [0.96, 0.42]],
+          panels: [
+            [[1.78, -0.54], [0.88, -0.34], [0.20, -0.86], [0.96, -0.96]],
+            [[1.78, 0.54], [0.88, 0.34], [0.20, 0.86], [0.96, 0.96]],
+            [[0.10, -0.92], [-0.52, -0.82], [-1.14, -0.38], [-0.72, -0.18], [-0.12, -0.26]],
+            [[0.10, 0.92], [-0.52, 0.82], [-1.14, 0.38], [-0.72, 0.18], [-0.12, 0.26]]
+          ],
+          lines: [
+            [[2.14, 0], [-1.10, 0]],
+            [[0.44, -1.02], [-0.92, -0.62]],
+            [[0.44, 1.02], [-0.92, 0.62]],
+            [[1.28, -0.18], [0.48, 0]],
+            [[1.28, 0.18], [0.48, 0]]
+          ],
+          engines: [[-1.18, -0.32], [-1.18, 0.32], [-1.34, 0]]
+        },
+        battleship: {
+          label: "Battleship",
+          outer: [[3.30, 0], [1.62, -0.76], [0.44, -1.30], [-0.36, -1.44], [-1.18, -1.10], [-1.72, -0.54], [-1.94, -0.18], [-1.94, 0.18], [-1.72, 0.54], [-1.18, 1.10], [-0.36, 1.44], [0.44, 1.30], [1.62, 0.76]],
+          inner: [[2.30, 0], [1.08, -0.46], [0.26, -0.86], [-0.18, -1.00], [-0.98, -0.80], [-1.34, -0.28], [-1.44, -0.08], [-1.44, 0.08], [-1.34, 0.28], [-0.98, 0.80], [-0.18, 1.00], [0.26, 0.86], [1.08, 0.46]],
+          panels: [
+            [[1.98, -0.58], [1.08, -0.38], [0.32, -0.94], [1.16, -1.02]],
+            [[1.98, 0.58], [1.08, 0.38], [0.32, 0.94], [1.16, 1.02]],
+            [[0.14, -1.02], [-0.50, -0.94], [-1.22, -0.46], [-0.76, -0.20], [-0.10, -0.30]],
+            [[0.14, 1.02], [-0.50, 0.94], [-1.22, 0.46], [-0.76, 0.20], [-0.10, 0.30]]
+          ],
+          lines: [
+            [[2.36, 0], [-1.28, 0]],
+            [[0.58, -1.10], [-1.06, -0.66]],
+            [[0.58, 1.10], [-1.06, 0.66]],
+            [[1.42, -0.24], [0.56, 0]],
+            [[1.42, 0.24], [0.56, 0]]
+          ],
+          engines: [[-1.38, -0.34], [-1.38, 0.34], [-1.58, 0]]
+        }
+      };
+
+      function clamp(value, min, max) {
+        return Math.max(min, Math.min(max, value));
+      }
+
+      function lerp(a, b, t) {
+        return a + (b - a) * t;
+      }
+
+      function smoothstep(a, b, x) {
+        if (a === b) return x >= b ? 1 : 0;
+        const t = clamp((x - a) / (b - a), 0, 1);
+        return t * t * (3 - 2 * t);
+      }
+
+      function fract(v) {
+        return v - Math.floor(v);
+      }
+
+      function seeded(seed) {
+        return fract(Math.sin(seed * 127.1 + 311.7) * 43758.5453123);
+      }
+
+      function layeredNoise(seed, x, t) {
+        return (
+          Math.sin(x * 2.9 + t * 1.3 + seed * 0.13) * 0.55 +
+          Math.cos(x * 5.4 - t * 0.7 + seed * 0.27) * 0.28 +
+          Math.sin(x * 9.2 + t * 0.36 + seed * 0.08) * 0.17
+        );
+      }
+
+      function hexToRgb(hex) {
+        const clean = String(hex || "#000000").replace("#", "");
+        const value = parseInt(clean, 16) || 0;
+        return {
+          r: (value >> 16) & 255,
+          g: (value >> 8) & 255,
+          b: value & 255
+        };
+      }
+
+      function rgba(hex, alpha) {
+        const rgb = hexToRgb(hex);
+        return "rgba(" + rgb.r + "," + rgb.g + "," + rgb.b + "," + alpha + ")";
+      }
+
+      function rgbaRgb(rgb, alpha) {
+        return "rgba(" + rgb + "," + alpha + ")";
+      }
+
+      function buildStars(seed, count) {
+        const out = [];
+        for (let i = 0; i < count; i += 1) {
+          out.push({
+            x: seeded(seed + i * 1.13),
+            y: seeded(seed + i * 2.71),
+            size: 0.7 + seeded(seed + i * 5.31) * 2,
+            alpha: 0.12 + seeded(seed + i * 3.17) * 0.40,
+            speed: 0.45 + seeded(seed + i * 7.91) * 0.75
+          });
+        }
+        return out;
+      }
+
+      function makeView(id, seed) {
+        const canvas = document.getElementById(id);
+        return {
+          canvas,
+          ctx: canvas.getContext("2d"),
+          seed,
+          stars: buildStars(seed, 100),
+          width: 0,
+          height: 0
+        };
+      }
+
+      const views = {
+        zone: makeView("zoneCanvas", 11),
+        ships: makeView("shipCanvas", 29),
+        shield: makeView("shieldCanvas", 47),
+        teleport: makeView("teleportCanvas", 71),
+        gravity: makeView("gravityCanvas", 97),
+        mines: makeView("mineCanvas", 131)
+      };
+
+      const state = {
+        time: 0,
+        paletteKey: controls.palette.value,
+        lodMode: controls.lodMode.value,
+        distance: Number(controls.distance.value),
+        stress: Number(controls.stress.value),
+        showMoney: true,
+        showXP: true,
+        shieldImpacts: [],
+        shieldAutoTimer: 0,
+        teleportStart: 0,
+        teleportSwap: false,
+        gravityStart: 0,
+        gravitySeedParticles: [],
+        mineIntercept: false,
+        minePackets: []
+      };
+
+      const mineScene = {
+        playerBase: { x: 132, y: 236, label: "Player Base", colorRole: "core" },
+        enemyBase: { x: 748, y: 96, label: "Enemy Base", color: "#ff976f" },
+        interceptNode: { x: 548, y: 120 },
+        mines: [
+          { id: 1, x: 250, y: 88, type: "money", owner: "player", label: "Money Mine", rich: false },
+          { id: 2, x: 356, y: 182, type: "xp", owner: "player", label: "XP Mine", rich: true },
+          { id: 3, x: 468, y: 256, type: "money", owner: "enemy", label: "Money Mine", rich: false },
+          { id: 4, x: 312, y: 278, type: "xp", owner: "enemy", label: "XP Mine", rich: false }
+        ]
+      };
+
+      function getPalette() {
+        return PALETTES[state.paletteKey] || PALETTES.blue;
+      }
+
+      function getLodKey() {
+        if (state.lodMode !== "auto") return state.lodMode;
+        if (state.distance > 70 || state.stress > 78) return "far";
+        if (state.distance > 34 || state.stress > 40) return "mid";
+        return "near";
+      }
+
+      function getLod() {
+        return LOD_PRESETS[getLodKey()];
+      }
+
+      function resizeView(view) {
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        const rect = view.canvas.getBoundingClientRect();
+        const width = Math.max(10, Math.floor(rect.width));
+        const height = Math.max(10, Math.floor(rect.height));
+        view.canvas.width = Math.floor(width * dpr);
+        view.canvas.height = Math.floor(height * dpr);
+        view.canvas.style.width = width + "px";
+        view.canvas.style.height = height + "px";
+        view.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        view.width = width;
+        view.height = height;
+      }
+
+      function resizeAll() {
+        Object.values(views).forEach(resizeView);
+      }
+
+      function drawBackdrop(view, time, palette) {
+        const ctx = view.ctx;
+        const w = view.width;
+        const h = view.height;
+        const glow = hexToRgb(palette.core);
+
+        ctx.clearRect(0, 0, w, h);
+
+        const bg = ctx.createRadialGradient(w * 0.5, h * 0.16, 0, w * 0.5, h * 0.16, Math.max(w, h) * 0.9);
+        bg.addColorStop(0, "rgba(" + glow.r + "," + glow.g + "," + glow.b + ",0.13)");
+        bg.addColorStop(0.38, "rgba(8,14,26,0.78)");
+        bg.addColorStop(1, "rgba(3,5,10,0.98)");
+        ctx.fillStyle = bg;
+        ctx.fillRect(0, 0, w, h);
+
+        for (const star of view.stars) {
+          const sx = star.x * w;
+          const sy = star.y * h;
+          const pulse = 0.72 + 0.28 * Math.sin(time * star.speed + star.x * 11);
+          ctx.fillStyle = "rgba(220,232,255," + (star.alpha * pulse).toFixed(3) + ")";
+          ctx.beginPath();
+          ctx.arc(sx, sy, star.size, 0, TAU);
+          ctx.fill();
+        }
+
+        ctx.save();
+        ctx.strokeStyle = "rgba(" + palette.line + ",0.045)";
+        ctx.lineWidth = 1;
+        const step = 56;
+        for (let x = 0.5; x < w; x += step) {
+          ctx.beginPath();
+          ctx.moveTo(x, 0);
+          ctx.lineTo(x, h);
+          ctx.stroke();
+        }
+        for (let y = 0.5; y < h; y += step) {
+          ctx.beginPath();
+          ctx.moveTo(0, y);
+          ctx.lineTo(w, y);
+          ctx.stroke();
+        }
+        ctx.restore();
+
+        const vignette = ctx.createLinearGradient(0, 0, 0, h);
+        vignette.addColorStop(0, "rgba(0,0,0,0)");
+        vignette.addColorStop(1, "rgba(0,0,0,0.22)");
+        ctx.fillStyle = vignette;
+        ctx.fillRect(0, 0, w, h);
+      }
+
+      function pathPolygon(ctx, points, scale) {
+        ctx.beginPath();
+        ctx.moveTo(points[0][0] * scale, points[0][1] * scale);
+        for (let i = 1; i < points.length; i += 1) {
+          ctx.lineTo(points[i][0] * scale, points[i][1] * scale);
+        }
+        ctx.closePath();
+      }
+
+      function pathSmoothClosed(ctx, pts) {
+        if (!pts || pts.length < 3) return;
+        const last = pts[pts.length - 1];
+        const first = pts[0];
+        const mx = (last.x + first.x) * 0.5;
+        const my = (last.y + first.y) * 0.5;
+        ctx.beginPath();
+        ctx.moveTo(mx, my);
+        for (let i = 0; i < pts.length; i += 1) {
+          const cur = pts[i];
+          const next = pts[(i + 1) % pts.length];
+          const nx = (cur.x + next.x) * 0.5;
+          const ny = (cur.y + next.y) * 0.5;
+          ctx.quadraticCurveTo(cur.x, cur.y, nx, ny);
+        }
+        ctx.closePath();
+      }
+
+      function scalePoints(points, cx, cy, scale) {
+        return points.map((pt) => ({
+          x: cx + (pt.x - cx) * scale,
+          y: cy + (pt.y - cy) * scale
+        }));
+      }
+
+      function drawText(ctx, text, x, y, color) {
+        ctx.fillStyle = color || "rgba(220, 232, 255, 0.82)";
+        ctx.font = "12px Inter, Segoe UI, Arial, sans-serif";
+        ctx.fillText(text, x, y);
+      }
+
+      function drawZoneScene(view, time, lod, palette) {
+        drawBackdrop(view, time, palette);
+        const ctx = view.ctx;
+        const w = view.width;
+        const h = view.height;
+        const cx = w * 0.5;
+        const cy = h * 0.56;
+        const baseR = Math.min(w, h) * 0.24;
+        const realPts = [];
+        const shellPts = [];
+        const samples = lod.zoneSamples;
+
+        for (let i = 0; i < samples; i += 1) {
+          const a = (i / samples) * TAU;
+          const macro = Math.sin(a * 3 + time * 0.52) * 18 + Math.cos(a * 5 - time * 0.27) * 10;
+          const realShift = layeredNoise(21, a, time * 0.8) * (lod.zoneSamples > 60 ? 14 : lod.zoneSamples > 40 ? 8 : 4);
+          const realR = baseR + macro + realShift;
+          const shellR = realR + 14 + layeredNoise(61, a + 0.12, time * 1.35) * (lod.zoneSamples > 60 ? 16 : lod.zoneSamples > 40 ? 9 : 4);
+          realPts.push({ x: cx + Math.cos(a) * realR, y: cy + Math.sin(a) * realR });
+          shellPts.push({ x: cx + Math.cos(a) * shellR, y: cy + Math.sin(a) * shellR });
+        }
+
+        const innerPts = scalePoints(realPts, cx, cy, 0.78);
+        const fillGrad = ctx.createRadialGradient(cx, cy, baseR * 0.2, cx, cy, baseR * 1.25);
+        fillGrad.addColorStop(0, rgbaRgb(palette.glow, 0.12));
+        fillGrad.addColorStop(0.55, rgbaRgb(palette.glow, 0.05));
+        fillGrad.addColorStop(1, rgbaRgb(palette.glow, 0));
+        pathSmoothClosed(ctx, realPts);
+        ctx.fillStyle = fillGrad;
+        ctx.fill();
+
+        pathSmoothClosed(ctx, innerPts);
+        ctx.strokeStyle = rgbaRgb(palette.line, 0.09);
+        ctx.lineWidth = 1.2;
+        ctx.setLineDash([8, 10]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        pathSmoothClosed(ctx, realPts);
+        ctx.strokeStyle = rgba(palette.edge, 0.65);
+        ctx.lineWidth = 1.35;
+        ctx.setLineDash([9, 6]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        pathSmoothClosed(ctx, shellPts);
+        ctx.strokeStyle = rgbaRgb(palette.glow, 0.14);
+        ctx.lineWidth = lod.zoneShellWidth * 1.9;
+        ctx.stroke();
+
+        const shellSweep = ctx.createLinearGradient(cx - baseR, cy - baseR, cx + baseR, cy + baseR);
+        shellSweep.addColorStop(0, rgbaRgb(palette.glow, 0.06));
+        shellSweep.addColorStop(0.45, rgba(palette.bright, 0.40));
+        shellSweep.addColorStop(1, rgbaRgb(palette.glow, 0.12));
+        pathSmoothClosed(ctx, shellPts);
+        ctx.strokeStyle = shellSweep;
+        ctx.lineWidth = lod.zoneShellWidth;
+        ctx.stroke();
+
+        if (lod.zoneNodes > 0) {
+          const nodes = [];
+          const step = Math.max(1, Math.floor(shellPts.length / lod.zoneNodes));
+          for (let i = 0; i < shellPts.length; i += step) {
+            nodes.push(shellPts[i]);
+          }
+
+          for (let i = 0; i < nodes.length; i += 1) {
+            for (let link = 1; link <= lod.zoneNodeLinks; link += 1) {
+              const j = (i + link) % nodes.length;
+              ctx.beginPath();
+              ctx.moveTo(nodes[i].x, nodes[i].y);
+              ctx.lineTo(nodes[j].x, nodes[j].y);
+              ctx.strokeStyle = rgbaRgb(palette.line, link === 1 ? 0.18 : 0.10);
+              ctx.lineWidth = link === 1 ? 1 : 0.8;
+              ctx.stroke();
+            }
+          }
+
+          for (const node of nodes) {
+            ctx.beginPath();
+            ctx.arc(node.x, node.y, 2.5, 0, TAU);
+            ctx.fillStyle = rgba(palette.bright, 0.82);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(node.x, node.y, 8, 0, TAU);
+            ctx.fillStyle = rgbaRgb(palette.glow, 0.10);
+            ctx.fill();
+          }
+        }
+
+        ctx.beginPath();
+        ctx.arc(cx, cy, 5, 0, TAU);
+        ctx.fillStyle = rgba(palette.bright, 0.95);
+        ctx.fill();
+
+        drawText(ctx, "authoritative contour: moving", 18, 26);
+        drawText(ctx, "visual shell: richer local layer", 18, 44, "rgba(220, 232, 255, 0.66)");
+      }
+
+      function drawShipShape(ctx, spec, x, y, scale, rot, palette, lod, time, glowScale) {
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(rot);
+
+        const halo = ctx.createRadialGradient(0, 0, 0, 0, 0, scale * 3.8);
+        halo.addColorStop(0, rgbaRgb(palette.glow, 0.18));
+        halo.addColorStop(1, rgbaRgb(palette.glow, 0));
+        ctx.fillStyle = halo;
+        ctx.beginPath();
+        ctx.arc(0, 0, scale * (3.4 + glowScale), 0, TAU);
+        ctx.fill();
+
+        pathPolygon(ctx, spec.outer, scale);
+        ctx.fillStyle = rgba(palette.shell, 0.96);
+        ctx.fill();
+        ctx.lineWidth = 1.25;
+        ctx.strokeStyle = rgba(palette.edge, 0.26);
+        ctx.stroke();
+
+        pathPolygon(ctx, spec.inner, scale);
+        const hullGrad = ctx.createLinearGradient(scale * 1.7, 0, -scale * 1.2, scale * 0.7);
+        hullGrad.addColorStop(0, rgba(palette.edge, 0.82));
+        hullGrad.addColorStop(0.45, rgba(palette.core, 0.56));
+        hullGrad.addColorStop(1, rgba(palette.hull, 0.80));
+        ctx.fillStyle = hullGrad;
+        ctx.fill();
+        ctx.strokeStyle = rgba(palette.bright, 0.24);
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        if (lod.shipPanels) {
+          for (const panel of spec.panels) {
+            pathPolygon(ctx, panel, scale);
+            ctx.fillStyle = rgba(palette.panel, 0.64);
+            ctx.fill();
+            ctx.strokeStyle = rgba(palette.edge, 0.12);
+            ctx.lineWidth = 0.8;
+            ctx.stroke();
+          }
+        }
+
+        for (const engine of spec.engines) {
+          const px = engine[0] * scale;
+          const py = engine[1] * scale;
+          const pulse = 0.75 + 0.25 * Math.sin(time * 4.2 + px * 0.01);
+          const engineGrad = ctx.createRadialGradient(px, py, 0, px, py, scale * 0.46);
+          engineGrad.addColorStop(0, rgba(palette.bright, 0.82));
+          engineGrad.addColorStop(0.35, rgba(palette.core, 0.70 * pulse));
+          engineGrad.addColorStop(1, rgbaRgb(palette.glow, 0));
+          ctx.fillStyle = engineGrad;
+          ctx.beginPath();
+          ctx.arc(px, py, scale * 0.28, 0, TAU);
+          ctx.fill();
+        }
+
+        for (const line of spec.lines) {
+          ctx.beginPath();
+          ctx.moveTo(line[0][0] * scale, line[0][1] * scale);
+          ctx.lineTo(line[1][0] * scale, line[1][1] * scale);
+          ctx.strokeStyle = rgbaRgb(palette.line, lod.shipMicroLines ? 0.34 : 0.20);
+          ctx.lineWidth = lod.shipMicroLines ? 1 : 0.9;
+          ctx.stroke();
+        }
+
+        ctx.beginPath();
+        ctx.arc(scale * 0.34, 0, Math.max(1.4, scale * 0.11), 0, TAU);
+        ctx.fillStyle = rgba(palette.bright, 0.96);
+        ctx.fill();
+
+        ctx.restore();
+      }
+
+      function drawShipScene(view, time, lod, palette) {
+        drawBackdrop(view, time, palette);
+        const ctx = view.ctx;
+        const w = view.width;
+        const h = view.height;
+        const ships = [
+          { key: "interceptor", x: w * 0.16, y: h * 0.56, scale: 20, rot: -0.12 },
+          { key: "destroyer", x: w * 0.38, y: h * 0.56, scale: 24, rot: -0.05 },
+          { key: "cruiser", x: w * 0.63, y: h * 0.56, scale: 27, rot: 0.02 },
+          { key: "battleship", x: w * 0.86, y: h * 0.56, scale: 31, rot: 0.10 }
+        ];
+
+        for (const item of ships) {
+          ctx.beginPath();
+          ctx.arc(item.x, item.y, item.scale * 3.6, 0, TAU);
+          ctx.fillStyle = rgbaRgb(palette.glow, 0.08);
+          ctx.fill();
+
+          drawShipShape(
+            ctx,
+            SHIP_LIBRARY[item.key],
+            item.x,
+            item.y,
+            item.scale,
+            item.rot + Math.sin(time * 0.55 + item.x * 0.01) * 0.035,
+            palette,
+            lod,
+            time,
+            0.5
+          );
+
+          ctx.fillStyle = "rgba(220, 232, 255, 0.84)";
+          ctx.font = "12px Inter, Segoe UI, Arial, sans-serif";
+          ctx.textAlign = "center";
+          ctx.fillText(SHIP_LIBRARY[item.key].label, item.x, h - 26);
+        }
+
+        ctx.textAlign = "left";
+        drawText(ctx, "layered panel language / mil-tech silhouette upgrade", 18, 26);
+      }
+
+      function triggerShieldImpact(angle) {
+        state.shieldImpacts.push({
+          angle,
+          bornAt: state.time,
+          duration: 1.05
+        });
+      }
+
+      function drawShieldScene(view, time, lod, palette) {
+        drawBackdrop(view, time, palette);
+        const ctx = view.ctx;
+        const w = view.width;
+        const h = view.height;
+        const cx = w * 0.5;
+        const cy = h * 0.54;
+        const r = Math.min(w, h) * 0.23;
+
+        state.shieldAutoTimer += 1 / 60;
+        if (state.shieldAutoTimer >= 1.35) {
+          state.shieldAutoTimer = 0;
+          triggerShieldImpact(-2.7 + seeded(time * 12.3 + state.shieldImpacts.length * 0.7) * 2.2);
+        }
+
+        for (let i = state.shieldImpacts.length - 1; i >= 0; i -= 1) {
+          if (time - state.shieldImpacts[i].bornAt > state.shieldImpacts[i].duration) {
+            state.shieldImpacts.splice(i, 1);
+          }
+        }
+
+        const coreGlow = ctx.createRadialGradient(cx, cy, 0, cx, cy, r * 1.6);
+        coreGlow.addColorStop(0, rgbaRgb(palette.glow, 0.12));
+        coreGlow.addColorStop(1, rgbaRgb(palette.glow, 0));
+        ctx.fillStyle = coreGlow;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r * 1.6, 0, TAU);
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.arc(cx, cy, r * 0.46, 0, TAU);
+        ctx.fillStyle = "rgba(20, 27, 43, 0.96)";
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.arc(cx, cy, r * 0.23, 0, TAU);
+        ctx.fillStyle = rgba(palette.edge, 0.86);
+        ctx.fill();
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, 0, TAU);
+        ctx.clip();
+
+        for (let i = 0; i < lod.shieldBands; i += 1) {
+          const bandY = cy - r + (i + 0.8) * (r * 2 / (lod.shieldBands + 1));
+          const amp = 5 + i * 1.5;
+          const phase = time * (1.6 + i * 0.11) + i * 0.9;
+          ctx.beginPath();
+          for (let x = cx - r * 1.1; x <= cx + r * 1.1; x += 6) {
+            const local = (x - cx) / r;
+            const curve = Math.sin(local * 5.2 + phase) * amp + Math.cos(local * 2.7 - phase * 0.8) * amp * 0.35;
+            const y = bandY + curve;
+            if (x === cx - r * 1.1) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+          }
+          ctx.strokeStyle = rgbaRgb(palette.line, 0.06 + i * 0.012);
+          ctx.lineWidth = 1.1;
+          ctx.stroke();
+        }
+
+        for (const impact of state.shieldImpacts) {
+          const p = clamp((time - impact.bornAt) / impact.duration, 0, 1);
+          const fade = 1 - p;
+          const ix = cx + Math.cos(impact.angle) * r;
+          const iy = cy + Math.sin(impact.angle) * r;
+
+          for (let pass = 0; pass < lod.shieldImpactPasses; pass += 1) {
+            ctx.beginPath();
+            ctx.arc(ix, iy, 10 + p * 34 + pass * 5, 0, TAU);
+            ctx.strokeStyle = rgba(palette.bright, (0.22 - pass * 0.05) * fade);
+            ctx.lineWidth = 2.6 - pass * 0.5;
+            ctx.stroke();
+          }
+
+          ctx.beginPath();
+          ctx.arc(cx, cy, r - 4 + p * 8, impact.angle - 0.54 - p * 0.25, impact.angle + 0.54 + p * 0.25);
+          ctx.strokeStyle = rgba(palette.edge, 0.46 * fade);
+          ctx.lineWidth = 3.4;
+          ctx.stroke();
+
+          ctx.beginPath();
+          ctx.moveTo(ix, iy);
+          ctx.lineTo(cx + Math.cos(impact.angle) * r * 0.52, cy + Math.sin(impact.angle) * r * 0.52);
+          ctx.strokeStyle = rgbaRgb(palette.line, 0.18 * fade);
+          ctx.lineWidth = 1.2;
+          ctx.stroke();
+        }
+        ctx.restore();
+
+        ctx.beginPath();
+        ctx.arc(cx, cy, r + 4, 0, TAU);
+        ctx.strokeStyle = rgbaRgb(palette.glow, 0.12 * (0.75 + 0.25 * Math.sin(time * 3.1)));
+        ctx.lineWidth = 15;
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, 0, TAU);
+        ctx.strokeStyle = rgba(palette.edge, 0.68);
+        ctx.lineWidth = 2.2;
+        ctx.stroke();
+
+        drawText(ctx, "ripple shell / local impacts", 18, 26);
+      }
+
+      function drawPad(ctx, x, y, radius, palette, label) {
+        const grad = ctx.createRadialGradient(x, y, 0, x, y, radius * 1.8);
+        grad.addColorStop(0, rgbaRgb(palette.glow, 0.12));
+        grad.addColorStop(1, rgbaRgb(palette.glow, 0));
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(x, y, radius * 1.8, 0, TAU);
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.arc(x, y, radius, 0, TAU);
+        ctx.strokeStyle = rgbaRgb(palette.line, 0.24);
+        ctx.lineWidth = 1.6;
+        ctx.setLineDash([10, 10]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        ctx.fillStyle = "rgba(220, 232, 255, 0.76)";
+        ctx.font = "12px Inter, Segoe UI, Arial, sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(label, x, y - radius - 10);
+      }
+
+      function drawTeleportScene(view, time, lod, palette) {
+        drawBackdrop(view, time, palette);
+        const ctx = view.ctx;
+        const w = view.width;
+        const h = view.height;
+        const cycle = 6.4;
+        if (time - state.teleportStart > cycle) {
+          state.teleportStart = time;
+          state.teleportSwap = !state.teleportSwap;
+        }
+
+        const t = clamp((time - state.teleportStart) / cycle, 0, 1);
+        const charge = smoothstep(0.00, 0.16, t);
+        const dissolve = smoothstep(0.16, 0.36, t);
+        const transit = smoothstep(0.32, 0.70, t);
+        const reform = smoothstep(0.62, 0.88, t);
+        const settle = smoothstep(0.88, 1.00, t);
+
+        const left = { x: w * 0.24, y: h * 0.58 };
+        const right = { x: w * 0.76, y: h * 0.42 };
+        const source = state.teleportSwap ? right : left;
+        const target = state.teleportSwap ? left : right;
+        const dx = target.x - source.x;
+        const dy = target.y - source.y;
+        const formation = [
+          { x: -26, y: 18 },
+          { x: 0, y: -18 },
+          { x: 26, y: 18 }
+        ];
+
+        drawPad(ctx, source.x, source.y, 32 + charge * 12, palette, "origin");
+        drawPad(ctx, target.x, target.y, 30 + reform * 14, palette, "target");
+
+        ctx.beginPath();
+        ctx.moveTo(source.x, source.y);
+        ctx.lineTo(target.x, target.y);
+        ctx.strokeStyle = rgbaRgb(palette.glow, lod.teleportBeamAlpha * Math.max(charge, reform));
+        ctx.lineWidth = 18;
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(source.x, source.y);
+        ctx.lineTo(target.x, target.y);
+        ctx.strokeStyle = rgba(palette.bright, lod.teleportBeamAlpha * 0.32 * Math.max(dissolve, reform));
+        ctx.lineWidth = 3.4;
+        ctx.stroke();
+
+        for (let i = 0; i < lod.teleportMotes; i += 1) {
+          const phase = fract(i / Math.max(1, lod.teleportMotes) + t * 1.6);
+          const mx = source.x + dx * phase;
+          const my = source.y + dy * phase;
+          const sway = Math.sin(phase * TAU * 3 + time * 4 + i) * 8;
+          const nx = -dy / (Math.hypot(dx, dy) || 1);
+          const ny = dx / (Math.hypot(dx, dy) || 1);
+          ctx.beginPath();
+          ctx.arc(mx + nx * sway, my + ny * sway, 1.2 + (1 - phase) * 1.5, 0, TAU);
+          ctx.fillStyle = rgba(palette.bright, (0.16 + 0.34 * Math.sin((phase + 0.2) * Math.PI)) * Math.max(dissolve, reform));
+          ctx.fill();
+        }
+
+        for (let i = 0; i < formation.length; i += 1) {
+          const offset = formation[i];
+          const srcX = source.x + offset.x;
+          const srcY = source.y + offset.y;
+          const dstX = target.x + offset.x;
+          const dstY = target.y + offset.y;
+
+          const sourceAlpha = t < 0.16 ? 1 : 1 - dissolve;
+          const targetAlpha = t < 0.52 ? 0 : reform;
+          const stretch = 1 + dissolve * 0.7;
+
+          if (sourceAlpha > 0.01) {
+            ctx.save();
+            ctx.globalAlpha = sourceAlpha;
+            drawShipShape(ctx, SHIP_LIBRARY.destroyer, srcX, srcY, 10, -0.18, palette, lod, time, 0.2);
+            if (dissolve > 0.03) {
+              ctx.beginPath();
+              ctx.moveTo(srcX, srcY);
+              ctx.lineTo(srcX + dx * dissolve * 0.24, srcY + dy * dissolve * 0.24);
+              ctx.strokeStyle = rgbaRgb(palette.line, 0.20 * dissolve);
+              ctx.lineWidth = 6 * stretch;
+              ctx.stroke();
+            }
+            ctx.restore();
+          }
+
+          if (targetAlpha > 0.01) {
+            ctx.save();
+            ctx.globalAlpha = targetAlpha;
+            drawShipShape(ctx, SHIP_LIBRARY.destroyer, dstX, dstY, 10, -0.18, palette, lod, time, 0.4);
+            for (let scan = 0; scan < 3; scan += 1) {
+              const y = dstY - 12 + scan * 9 + Math.sin(time * 8 + scan) * 2;
+              ctx.beginPath();
+              ctx.moveTo(dstX - 16, y);
+              ctx.lineTo(dstX + 16, y);
+              ctx.strokeStyle = rgba(palette.edge, 0.10 * targetAlpha);
+              ctx.lineWidth = 1;
+              ctx.stroke();
+            }
+            ctx.restore();
+          }
+        }
+
+        if (settle > 0.01) {
+          ctx.beginPath();
+          ctx.arc(target.x, target.y, 22 + settle * 12, 0, TAU);
+          ctx.strokeStyle = rgbaRgb(palette.glow, 0.16 * (1 - settle));
+          ctx.lineWidth = 3;
+          ctx.stroke();
+        }
+
+        drawText(ctx, "3-ship synchronized formation jump", 18, 26);
+      }
+
+      function ensureGravityParticles() {
+        if (state.gravitySeedParticles.length > 0) return;
+        for (let i = 0; i < 76; i += 1) {
+          state.gravitySeedParticles.push({
+            phase: seeded(i * 1.19) * TAU,
+            orbit: 0.36 + seeded(i * 2.91) * 0.92,
+            speed: 0.4 + seeded(i * 4.37) * 1.5,
+            size: 1 + seeded(i * 6.11) * 2.4,
+            bias: seeded(i * 8.21)
+          });
+        }
+      }
+
+      function drawGravityScene(view, time, lod, palette) {
+        drawBackdrop(view, time, palette);
+        ensureGravityParticles();
+        const ctx = view.ctx;
+        const w = view.width;
+        const h = view.height;
+        const cycle = 6.8;
+        if (time - state.gravityStart > cycle) state.gravityStart = time;
+        const t = clamp((time - state.gravityStart) / cycle, 0, 1);
+        const charge = smoothstep(0.00, 0.34, t);
+        const implode = smoothstep(0.34, 0.58, t);
+        const shock = smoothstep(0.58, 0.76, t);
+        const residue = smoothstep(0.76, 1.00, t);
+        const cx = w * 0.5;
+        const cy = h * 0.55;
+        const baseR = Math.min(w, h) * 0.13;
+
+        ctx.beginPath();
+        ctx.arc(cx, cy, baseR * (1.8 - implode * 0.7 + shock * 0.8), 0, TAU);
+        ctx.fillStyle = rgbaRgb(palette.glow, 0.05 + charge * 0.10);
+        ctx.fill();
+
+        for (let i = 0; i < lod.gravityParticles; i += 1) {
+          const p = state.gravitySeedParticles[i];
+          const orbitMul = p.orbit * (1.34 - implode * 0.96);
+          const angle = p.phase + time * p.speed * 0.7;
+          const orbitR = baseR * 2.4 * orbitMul;
+          const px = cx + Math.cos(angle) * orbitR;
+          const py = cy + Math.sin(angle) * orbitR * (0.84 + p.bias * 0.22);
+          ctx.beginPath();
+          ctx.arc(px, py, p.size * (1 + charge * 0.16), 0, TAU);
+          ctx.fillStyle = rgba(palette.bright, 0.16 + charge * 0.18);
+          ctx.fill();
+        }
+
+        for (let i = 0; i < lod.gravityPullLines; i += 1) {
+          const a = i / Math.max(1, lod.gravityPullLines) * TAU + time * 0.4;
+          const outerR = baseR * 3.2;
+          const ix = cx + Math.cos(a) * outerR;
+          const iy = cy + Math.sin(a) * outerR;
+          ctx.beginPath();
+          ctx.moveTo(ix, iy);
+          ctx.lineTo(lerp(ix, cx, implode), lerp(iy, cy, implode));
+          ctx.strokeStyle = rgbaRgb(palette.line, 0.10 * implode);
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        }
+
+        const coreGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, baseR * (1.1 + charge * 0.6));
+        coreGrad.addColorStop(0, rgba(palette.bright, 0.96));
+        coreGrad.addColorStop(0.18, rgba(palette.edge, 0.82));
+        coreGrad.addColorStop(0.45, rgba(palette.core, 0.66 + charge * 0.20));
+        coreGrad.addColorStop(1, rgbaRgb(palette.glow, 0));
+        ctx.fillStyle = coreGrad;
+        ctx.beginPath();
+        ctx.arc(cx, cy, baseR * (0.44 + charge * 0.26 - implode * 0.16), 0, TAU);
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.arc(cx, cy, baseR * (0.62 + charge * 0.42 - implode * 0.28), 0, TAU);
+        ctx.strokeStyle = rgba(palette.edge, 0.26 + charge * 0.18);
+        ctx.lineWidth = 1.6;
+        ctx.stroke();
+
+        if (shock > 0.01) {
+          ctx.beginPath();
+          ctx.arc(cx, cy, baseR * (0.8 + shock * 4.6), 0, TAU);
+          ctx.strokeStyle = rgba(palette.bright, 0.28 * (1 - shock));
+          ctx.lineWidth = 4.4 - shock * 2.5;
+          ctx.stroke();
+        }
+
+        if (residue > 0.01) {
+          ctx.beginPath();
+          ctx.arc(cx, cy, baseR * (2.5 + residue * 1.6), 0, TAU);
+          ctx.strokeStyle = rgbaRgb(palette.glow, 0.08 * (1 - residue));
+          ctx.lineWidth = 8;
+          ctx.stroke();
+        }
+
+        drawText(ctx, "charged core -> implosion -> shock ring", 18, 26);
+      }
+
+      function routeForMine(mine) {
+        const isHijacked = state.mineIntercept && mine.owner === "player";
+        if (isHijacked) {
+          return [
+            { x: mine.x, y: mine.y },
+            { x: mineScene.interceptNode.x, y: mineScene.interceptNode.y },
+            { x: mineScene.enemyBase.x, y: mineScene.enemyBase.y }
+          ];
+        }
+        const target = mine.owner === "player" ? mineScene.playerBase : mineScene.enemyBase;
+        return [{ x: mine.x, y: mine.y }, { x: target.x, y: target.y }];
+      }
+
+      function quadraticPoint(p0, p1, p2, t) {
+        const u = 1 - t;
+        return {
+          x: u * u * p0.x + 2 * u * t * p1.x + t * t * p2.x,
+          y: u * u * p0.y + 2 * u * t * p1.y + t * t * p2.y
+        };
+      }
+
+      function routePoint(route, t) {
+        const start = route[0];
+        if (route.length === 2) {
+          const end = route[1];
+          const mx = (start.x + end.x) * 0.5;
+          const my = (start.y + end.y) * 0.5;
+          const dx = end.x - start.x;
+          const dy = end.y - start.y;
+          const len = Math.hypot(dx, dy) || 1;
+          const nx = -dy / len;
+          const ny = dx / len;
+          const control = { x: mx + nx * 28, y: my + ny * 28 };
+          return quadraticPoint(start, control, end, t);
+        }
+
+        if (t < 0.5) {
+          return routePoint([route[0], route[1]], t * 2);
+        }
+        return routePoint([route[1], route[2]], (t - 0.5) * 2);
+      }
+
+      function drawFlowRoute(ctx, route, colorA, colorB, weight, glow) {
+        const start = route[0];
+        if (route.length === 2) {
+          const end = route[1];
+          const mx = (start.x + end.x) * 0.5;
+          const my = (start.y + end.y) * 0.5;
+          const dx = end.x - start.x;
+          const dy = end.y - start.y;
+          const len = Math.hypot(dx, dy) || 1;
+          const nx = -dy / len;
+          const ny = dx / len;
+          const control = { x: mx + nx * 28, y: my + ny * 28 };
+          const grad = ctx.createLinearGradient(start.x, start.y, end.x, end.y);
+          grad.addColorStop(0, colorA);
+          grad.addColorStop(0.5, colorB);
+          grad.addColorStop(1, colorA);
+          ctx.beginPath();
+          ctx.moveTo(start.x, start.y);
+          ctx.quadraticCurveTo(control.x, control.y, end.x, end.y);
+          ctx.strokeStyle = grad;
+          ctx.lineWidth = glow ? weight * 4 : weight;
+          ctx.stroke();
+          return;
+        }
+
+        drawFlowRoute(ctx, [route[0], route[1]], colorA, colorB, weight, glow);
+        drawFlowRoute(ctx, [route[1], route[2]], colorA, colorB, weight, glow);
+      }
+
+      function drawBaseNode(ctx, base, palette, enemy) {
+        const col = enemy ? "#ff976f" : palette.core;
+        const glow = enemy ? "255,151,111" : palette.glow;
+        const g = ctx.createRadialGradient(base.x, base.y, 0, base.x, base.y, 46);
+        g.addColorStop(0, "rgba(255,255,255,0.10)");
+        g.addColorStop(0.35, rgbaRgb(glow, 0.18));
+        g.addColorStop(1, "rgba(0,0,0,0)");
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(base.x, base.y, 46, 0, TAU);
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.arc(base.x, base.y, 20, 0, TAU);
+        ctx.strokeStyle = "rgba(220,235,255,0.18)";
+        ctx.lineWidth = 1.4;
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.arc(base.x, base.y, 8, 0, TAU);
+        ctx.fillStyle = col;
+        ctx.fill();
+
+        drawText(ctx, base.label, base.x - 30, base.y - 28);
+      }
+
+      function drawMineNode(ctx, mine, palette, lod, time) {
+        const ownerColor = mine.owner === "player" ? palette.core : "#ff976f";
+        const ownerGlow = mine.owner === "player" ? palette.glow : "255,151,111";
+        const resourceCore = mine.type === "money" ? "#ffd56a" : "#75d8ff";
+        const resourceGlow = mine.type === "money" ? "255,213,106" : "117,216,255";
+        const charge = 0.5 + 0.5 * Math.sin(time * 2.4 + mine.id * 0.6);
+        const radius = mine.rich ? 20 : 16;
+
+        const outer = ctx.createRadialGradient(mine.x, mine.y, 0, mine.x, mine.y, 40);
+        outer.addColorStop(0, "rgba(255,255,255,0.05)");
+        outer.addColorStop(0.4, rgbaRgb(ownerGlow, 0.18));
+        outer.addColorStop(1, "rgba(0,0,0,0)");
+        ctx.fillStyle = outer;
+        ctx.beginPath();
+        ctx.arc(mine.x, mine.y, 40, 0, TAU);
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.arc(mine.x, mine.y, radius + 14, 0, TAU);
+        ctx.strokeStyle = rgbaRgb(ownerGlow, 0.12);
+        ctx.lineWidth = 1.2;
+        ctx.setLineDash([7, 10]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        for (let i = 0; i < lod.mineOrbits; i += 1) {
+          const a = time * (0.8 + i * 0.04) + mine.id + i * 0.7;
+          const orbitR = radius * (1.0 + seeded(mine.id * 10 + i) * 0.5);
+          ctx.beginPath();
+          ctx.arc(mine.x + Math.cos(a) * orbitR, mine.y + Math.sin(a) * orbitR, 1.3, 0, TAU);
+          ctx.fillStyle = rgba(resourceCore, 0.34 + charge * 0.20);
+          ctx.fill();
+        }
+
+        ctx.beginPath();
+        ctx.arc(mine.x, mine.y, radius, 0, TAU);
+        ctx.strokeStyle = rgba(ownerColor, 0.24);
+        ctx.lineWidth = 1.3;
+        ctx.stroke();
+
+        const core = ctx.createRadialGradient(mine.x, mine.y, 0, mine.x, mine.y, radius);
+        core.addColorStop(0, "rgba(255,255,255,0.92)");
+        core.addColorStop(0.28, rgba(resourceCore, 0.86));
+        core.addColorStop(0.72, rgbaRgb(resourceGlow, 0.10 + charge * 0.28));
+        core.addColorStop(1, rgbaRgb(resourceGlow, 0));
+        ctx.fillStyle = core;
+        ctx.beginPath();
+        ctx.arc(mine.x, mine.y, radius * (0.42 + charge * 0.10), 0, TAU);
+        ctx.fill();
+
+        ctx.fillStyle = "rgba(220,236,255,0.80)";
+        ctx.font = "11px Inter, Segoe UI, Arial, sans-serif";
+        ctx.fillText(mine.label, mine.x - 28, mine.y - 24);
+      }
+
+      function ensureMinePackets() {
+        if (state.minePackets.length > 0) return;
+        for (const mine of mineScene.mines) {
+          for (let i = 0; i < 10; i += 1) {
+            state.minePackets.push({
+              mineId: mine.id,
+              tOffset: i / 10,
+              speed: 0.07 + seeded(mine.id * 17 + i) * 0.06,
+              wobble: seeded(mine.id * 31 + i * 9) * TAU
+            });
+          }
+        }
+      }
+
+      function drawPacket(ctx, point, type, hijacked, time, wobblePhase) {
+        const wobbleX = Math.cos(time * 2.0 + wobblePhase) * 2.8;
+        const wobbleY = Math.sin(time * 2.6 + wobblePhase) * 2.0;
+        const x = point.x + wobbleX;
+        const y = point.y + wobbleY;
+
+        if (type === "money") {
+          ctx.save();
+          ctx.translate(x, y);
+          ctx.rotate(time * 1.6 + wobblePhase);
+          ctx.fillStyle = hijacked ? "rgba(255,140,140,0.96)" : "rgba(255,213,106,0.96)";
+          ctx.strokeStyle = "rgba(255,244,220,0.20)";
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          for (let i = 0; i < 6; i += 1) {
+            const a = TAU * i / 6 + Math.PI / 6;
+            const px = Math.cos(a) * 5.4;
+            const py = Math.sin(a) * 5.4;
+            if (i === 0) ctx.moveTo(px, py);
+            else ctx.lineTo(px, py);
+          }
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+          ctx.restore();
+          return;
+        }
+
+        const g = ctx.createRadialGradient(x, y, 0, x, y, 8);
+        if (hijacked) {
+          g.addColorStop(0, "rgba(255,235,235,0.92)");
+          g.addColorStop(0.42, "rgba(255,120,120,0.84)");
+          g.addColorStop(1, "rgba(255,120,120,0)");
+        } else {
+          g.addColorStop(0, "rgba(235,248,255,0.92)");
+          g.addColorStop(0.42, "rgba(117,216,255,0.84)");
+          g.addColorStop(1, "rgba(117,216,255,0)");
+        }
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(x, y, 7, 0, TAU);
+        ctx.fill();
+      }
+
+      function drawMineScene(view, time, lod, palette) {
+        drawBackdrop(view, time, palette);
+        ensureMinePackets();
+        const ctx = view.ctx;
+        drawBaseNode(ctx, mineScene.playerBase, palette, false);
+        drawBaseNode(ctx, mineScene.enemyBase, palette, true);
+
+        if (state.mineIntercept) {
+          const pulse = 0.5 + 0.5 * Math.sin(time * 4.0);
+          const node = mineScene.interceptNode;
+          const g = ctx.createRadialGradient(node.x, node.y, 0, node.x, node.y, 26 + pulse * 18);
+          g.addColorStop(0, "rgba(255,255,255,0.14)");
+          g.addColorStop(0.35, "rgba(255,120,180,0.22)");
+          g.addColorStop(1, "rgba(255,120,180,0)");
+          ctx.fillStyle = g;
+          ctx.beginPath();
+          ctx.arc(node.x, node.y, 26 + pulse * 18, 0, TAU);
+          ctx.fill();
+          ctx.beginPath();
+          ctx.arc(node.x, node.y, 12, 0, TAU);
+          ctx.strokeStyle = "rgba(255,170,220,0.32)";
+          ctx.lineWidth = 1.6;
+          ctx.stroke();
+        }
+
+        for (const mine of mineScene.mines) {
+          const visible = (mine.type === "money" && state.showMoney) || (mine.type === "xp" && state.showXP);
+          const route = routeForMine(mine);
+          const hijacked = state.mineIntercept && mine.owner === "player";
+          if (visible) {
+            if (mine.type === "money") {
+              drawFlowRoute(
+                ctx,
+                route,
+                "rgba(255,213,106,0.04)",
+                hijacked ? "rgba(255,120,120,0.18)" : "rgba(255,213,106,0.18)",
+                lod.flowGlow ? 8 : 2,
+                lod.flowGlow
+              );
+            } else {
+              drawFlowRoute(
+                ctx,
+                route,
+                "rgba(117,216,255,0.04)",
+                hijacked ? "rgba(255,120,120,0.16)" : "rgba(117,216,255,0.18)",
+                lod.flowGlow ? 8 : 2,
+                lod.flowGlow
+              );
+            }
+            drawFlowRoute(ctx, route, "rgba(220,236,255,0.05)", "rgba(235,245,255,0.12)", 1.1, false);
+          }
+          drawMineNode(ctx, mine, palette, lod, time);
+        }
+
+        const visiblePacketsPerMine = lod.minePackets;
+        for (const packet of state.minePackets) {
+          const mine = mineScene.mines.find((item) => item.id === packet.mineId);
+          if (!mine) continue;
+          if (mine.type === "money" && !state.showMoney) continue;
+          if (mine.type === "xp" && !state.showXP) continue;
+          const countIdx = Math.round(packet.tOffset * 10);
+          if (countIdx >= visiblePacketsPerMine) continue;
+          const route = routeForMine(mine);
+          const hijacked = state.mineIntercept && mine.owner === "player";
+          const tt = fract(packet.tOffset + time * packet.speed * 0.24);
+          const point = routePoint(route, tt);
+          drawPacket(ctx, point, mine.type, hijacked, time, packet.wobble);
+        }
+
+        drawText(ctx, "charged mines + readable resource flow + hijack reroute", 18, 26);
+      }
+
+      function render() {
+        const palette = getPalette();
+        const lodKey = getLodKey();
+        const lod = getLod();
+        drawZoneScene(views.zone, state.time, lod, palette);
+        drawShipScene(views.ships, state.time, lod, palette);
+        drawShieldScene(views.shield, state.time, lod, palette);
+        drawTeleportScene(views.teleport, state.time, lod, palette);
+        drawGravityScene(views.gravity, state.time, lod, palette);
+        drawMineScene(views.mines, state.time, lod, palette);
+
+        document.documentElement.style.setProperty("--accent", palette.core);
+        statusLine.textContent =
+          "LOD: " + lodKey.toUpperCase() +
+          " | distance " + state.distance +
+          " | stress " + state.stress +
+          " | hijack " + (state.mineIntercept ? "ON" : "OFF") +
+          " | keyboard: Space hijack, M money, E xp.";
+      }
+
+      function frame(now) {
+        state.time = now / 1000;
+        render();
+        requestAnimationFrame(frame);
+      }
+
+      controls.palette.addEventListener("change", () => {
+        state.paletteKey = controls.palette.value;
+      });
+
+      controls.lodMode.addEventListener("change", () => {
+        state.lodMode = controls.lodMode.value;
+      });
+
+      controls.distance.addEventListener("input", () => {
+        state.distance = Number(controls.distance.value);
+      });
+
+      controls.stress.addEventListener("input", () => {
+        state.stress = Number(controls.stress.value);
+      });
+
+      controls.shieldBtn.addEventListener("click", () => {
+        triggerShieldImpact(-2.6 + seeded(state.time * 13.7 + state.shieldImpacts.length) * 2.3);
+      });
+
+      controls.teleportBtn.addEventListener("click", () => {
+        state.teleportStart = state.time;
+        state.teleportSwap = !state.teleportSwap;
+      });
+
+      controls.gravityBtn.addEventListener("click", () => {
+        state.gravityStart = state.time;
+      });
+
+      controls.hijackBtn.addEventListener("click", () => {
+        state.mineIntercept = !state.mineIntercept;
+      });
+
+      views.shield.canvas.addEventListener("pointerdown", (event) => {
+        const rect = views.shield.canvas.getBoundingClientRect();
+        const x = event.clientX - rect.left;
+        const y = event.clientY - rect.top;
+        const cx = views.shield.width * 0.5;
+        const cy = views.shield.height * 0.54;
+        triggerShieldImpact(Math.atan2(y - cy, x - cx));
+      });
+
+      window.addEventListener("keydown", (event) => {
+        if (event.code === "Space") {
+          event.preventDefault();
+          state.mineIntercept = !state.mineIntercept;
+        }
+        if (event.code === "KeyM") state.showMoney = !state.showMoney;
+        if (event.code === "KeyE") state.showXP = !state.showXP;
+      });
+
+      window.addEventListener("resize", resizeAll);
+
+      resizeAll();
+      requestAnimationFrame(frame);
+    })();
+  </script>
+</body>
+</html>
