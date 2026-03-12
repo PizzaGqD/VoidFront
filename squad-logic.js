@@ -17,6 +17,7 @@
     formationRecalcCooldown: 2.0,
     spawnAutoGroupWindow: 3.0,
     waypointReachRadius: 28,
+    mineCaptureDoneRadius: 55,
     autoJoinDistanceThreshold: 300,
     zoneMergeOverlap: 0.5,
     facingLerpSpeed: 3.0,
@@ -976,6 +977,30 @@
     let desFacing = squad.formation.targetFacing ?? squad.formation.facing ?? 0;
 
     if (order.type === "move" || order.type === "capture") {
+      if (order.type === "capture" && order.mineId != null && state.mines) {
+        const mine = state.mines.get(order.mineId);
+        if (!mine) {
+          squad.order = squad.combat.queuedOrder ? cloneOrder(squad.combat.queuedOrder) : { type: "idle", waypoints: [] };
+          if (squad.combat.queuedOrder) { squad.combat.queuedOrder = null; squad.combat.resumeOrder = null; }
+          applyCompatibility(state, squad);
+          return;
+        }
+        const distToMine = d(center.x, center.y, mine.x, mine.y);
+        const inRadius = distToMine <= (config.mineCaptureDoneRadius || 55);
+        const mineOurs = mine.ownerId === squad.ownerId && (mine.captureProgress >= 1 || mine.captureProgress === undefined);
+        const weCapturing = mine._capturingOwner === squad.ownerId;
+        if (inRadius && (mineOurs || weCapturing)) {
+          if (squad.combat.queuedOrder) {
+            squad.order = cloneOrder(squad.combat.queuedOrder);
+            squad.combat.queuedOrder = null;
+            squad.combat.resumeOrder = null;
+          } else {
+            squad.order = { type: "idle", waypoints: [] };
+          }
+          applyCompatibility(state, squad);
+          return;
+        }
+      }
       if (order.waypoints && order.waypoints.length > 0) {
         const wp = order.waypoints[0];
         desX = wp.x; desY = wp.y;

@@ -1089,6 +1089,45 @@
       osc.stop(start + 0.2);
     }
   }
+  const MINE_INCOME_SOUND_THROTTLE = 2.2;
+  function playMineIncomeSound() {
+    if (!audioCtx || audioCtx.state !== "running") return;
+    if (state._lastMineIncomeSoundAt != null && (state.t - state._lastMineIncomeSoundAt) < MINE_INCOME_SOUND_THROTTLE) return;
+    state._lastMineIncomeSoundAt = state.t;
+    const t0 = audioCtx.currentTime;
+    const osc = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(280, t0);
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(0.018, t0 + 0.006);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.022);
+    osc.connect(g).connect(audioCtx.destination);
+    osc.start(t0);
+    osc.stop(t0 + 0.025);
+  }
+  const COLLECT_SOUND_THROTTLE = 0.06;
+  function playCollectSound() {
+    if (!audioCtx || audioCtx.state !== "running") return;
+    if (state._lastCollectSoundAt != null && (state.t - state._lastCollectSoundAt) < COLLECT_SOUND_THROTTLE) return;
+    state._lastCollectSoundAt = state.t;
+    const t0 = audioCtx.currentTime;
+    const notes = [880, 1108];
+    const gain = 0.055;
+    for (let i = 0; i < notes.length; i++) {
+      const osc = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      osc.type = "sine";
+      const start = t0 + i * 0.04;
+      osc.frequency.setValueAtTime(notes[i], start);
+      g.gain.setValueAtTime(0.0001, start);
+      g.gain.exponentialRampToValueAtTime(gain, start + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, start + 0.06);
+      osc.connect(g).connect(audioCtx.destination);
+      osc.start(start);
+      osc.stop(start + 0.07);
+    }
+  }
 
   // ── Version ──────────────────────────────────────────────────
   const GAME_VERSION = "0.5A";
@@ -1895,12 +1934,14 @@
     turrets: new Map(),
     mines: new Map(),
     mineGems: [],
+    mineFlowPackets: [],
     nebulae: [],
     nextTurretId: 1,
     ghosts: [],
     bullets: [],
     nextUnitId: 1,
     nextResId: 1,
+    nextMineFlowPacketId: 1,
     fogEnabled: CFG.FOG_ENABLED,
     zonesEnabled: CFG.ZONES_ENABLED,
     targetPoints: [],
@@ -2018,6 +2059,7 @@
       mineYieldBonus: 0,
       unitCostMul: 1,
       cityTargetBonus: 0,
+      turretTargetBonus: 0,
       attackEffect: null,
       attackEffects: {},
 
@@ -2078,7 +2120,7 @@
     { id: "c7", name: "Усиление турелей", desc: "+10% HP турелей", rarity: "common", emoji: "🏗️", turretHpMul: 1.10 },
     { id: "c8", name: "Точные орудия", desc: "+10% урон турелей", rarity: "common", emoji: "🎯", turretDmgMul: 1.10 },
     { id: "c9", name: "Экспансия", desc: "+5% скорость зоны влияния", rarity: "common", emoji: "🌐", influenceSpeedMul: 1.05 },
-    { id: "c10", name: "Оптимизация добычи", desc: "+1 к добыче шахт", rarity: "common", emoji: "⛏️", mineYieldBonus: 1 },
+    { id: "c10", name: "Оптимизация добычи", desc: "+10% к добыче шахт", rarity: "common", emoji: "⛏️", mineYieldBonus: 10 },
     { id: "c11", name: "Экономия ресурсов", desc: "-5% стоимость кораблей", rarity: "common", emoji: "💰", unitCostMul: 0.95 },
 
     { id: "u1", name: "Титановый корпус", desc: "+12% HP кораблей", rarity: "uncommon", emoji: "🛡️", unitHpMul: 1.12 },
@@ -2090,7 +2132,7 @@
     { id: "u7", name: "Укреплённые турели", desc: "+18% HP турелей", rarity: "uncommon", emoji: "🏗️", turretHpMul: 1.18 },
     { id: "u8", name: "Тяжёлые орудия", desc: "+15% урон турелей", rarity: "uncommon", emoji: "🎯", turretDmgMul: 1.15 },
     { id: "u9", name: "Терраформирование", desc: "+10% скорость зоны", rarity: "uncommon", emoji: "🌐", influenceSpeedMul: 1.10 },
-    { id: "u10", name: "Улучшенная добыча", desc: "+2 к добыче шахт", rarity: "uncommon", emoji: "⛏️", mineYieldBonus: 2 },
+    { id: "u10", name: "Улучшенная добыча", desc: "+20% к добыче шахт", rarity: "uncommon", emoji: "⛏️", mineYieldBonus: 20 },
     { id: "u11", name: "Оптовые закупки", desc: "-8% стоимость кораблей", rarity: "uncommon", emoji: "💰", unitCostMul: 0.92 },
 
     { id: "r1", name: "Нанокомпозит", desc: "+18% HP кораблей", rarity: "rare", emoji: "🛡️", unitHpMul: 1.18 },
@@ -2102,7 +2144,7 @@
     { id: "r7", name: "Бастион", desc: "+20% HP, +10% радиус турелей", rarity: "rare", emoji: "🏗️", turretHpMul: 1.20, turretRangeMul: 1.10 },
     { id: "r8", name: "Артиллерийские турели", desc: "+20% урон турелей", rarity: "rare", emoji: "🎯", turretDmgMul: 1.20 },
     { id: "r9", name: "Империя", desc: "+18% скорость зоны", rarity: "rare", emoji: "🌐", influenceSpeedMul: 1.18 },
-    { id: "r10", name: "Глубокое бурение", desc: "+3 к добыче шахт", rarity: "rare", emoji: "⛏️", mineYieldBonus: 3 },
+    { id: "r10", name: "Глубокое бурение", desc: "+30% к добыче шахт", rarity: "rare", emoji: "⛏️", mineYieldBonus: 30 },
     { id: "r11", name: "Военный контракт", desc: "-12% стоимость кораблей", rarity: "rare", emoji: "💰", unitCostMul: 0.88 },
     { id: "r12", name: "Дальнобойные турели", desc: "+15% радиус турелей", rarity: "rare", emoji: "📡", turretRangeMul: 1.15 },
 
@@ -2114,7 +2156,7 @@
     { id: "e6", name: "Система наведения", desc: "+25% дальность атаки", rarity: "epic", emoji: "📡", unitAtkRangeMul: 1.25 },
     { id: "e7", name: "Суперфорт", desc: "+30% урон и HP турелей", rarity: "epic", emoji: "🏗️", turretDmgMul: 1.30, turretHpMul: 1.20 },
     { id: "e8", name: "Доминирование", desc: "+30% скорость зоны", rarity: "epic", emoji: "🌐", influenceSpeedMul: 1.30 },
-    { id: "e9", name: "Мульти-прицел", desc: "Планета стреляет по +1 цели", rarity: "epic", emoji: "🎯", cityTargetBonus: 1 },
+    { id: "e9", name: "Мульти-прицел", desc: "Каждая турель стреляет по +1 цели", rarity: "epic", emoji: "🎯", turretTargetBonus: 1 },
     { id: "e10", name: "Промышленная революция", desc: "-18% стоимость кораблей", rarity: "epic", emoji: "💰", unitCostMul: 0.82 },
 
     { id: "L1", name: "Нейтронный корпус", desc: "+40% HP кораблей", rarity: "legendary", emoji: "🛡️", unitHpMul: 1.40 },
@@ -2125,7 +2167,7 @@
     { id: "L6", name: "Всевидящее око", desc: "+40% дальность атаки", rarity: "legendary", emoji: "📡", unitAtkRangeMul: 1.40 },
     { id: "L7", name: "Крепость богов", desc: "+50% HP, +25% радиус турелей", rarity: "legendary", emoji: "🏗️", turretHpMul: 1.50, turretRangeMul: 1.25 },
     { id: "L8", name: "Абсолютная экспансия", desc: "+45% скорость зоны", rarity: "legendary", emoji: "🌐", influenceSpeedMul: 1.45 },
-    { id: "L9", name: "Мульти-залп", desc: "Планета стреляет по +2 целям", rarity: "legendary", emoji: "🎯", cityTargetBonus: 2 },
+    { id: "L9", name: "Мульти-залп", desc: "Каждая турель стреляет по +2 целям", rarity: "legendary", emoji: "🎯", turretTargetBonus: 2 },
     { id: "L10", name: "Нулевая стоимость", desc: "-30% стоимость кораблей", rarity: "legendary", emoji: "💰", unitCostMul: 0.70 },
     { id: "L11", name: "Абсолютно легендарный щит", desc: "+0.5 реген щита/с, +100 населения", rarity: "legendary", emoji: "🛡️", shieldRegenBonus: 0.5, populationBonus: 100, maxPicks: 3 },
     { id: "P1", name: "Патрульный", desc: "Патруль по границе зоны. Двойной выстрел, малый радиус, несколько целей. Получает апгрейды от турелей. Макс. 4", rarity: "legendary", emoji: "🔦", patrolBonus: 1, maxPicks: 4 },
@@ -2152,7 +2194,7 @@
     if (card.popBonus) return "pop";
     if (card.mineYieldBonus) return "mineYield";
     if (card.unitCostMul) return "unitCost";
-    if (card.cityTargetBonus) return "cityTarget";
+    if (card.turretTargetBonus) return "turretTarget";
     const keys = Object.keys(card);
     if (keys.some(k => k.startsWith("unitHp"))) return "unitHp";
     if (keys.some(k => k.startsWith("unitDmg") && !k.startsWith("unitDmgMul"))) return "unitDmg";
@@ -2243,8 +2285,8 @@
       p.mineYieldBonus = (p.mineYieldBonus || 0) + card.mineYieldBonus;
       return;
     }
-    if (card.cityTargetBonus) {
-      p.cityTargetBonus = (p.cityTargetBonus || 0) + card.cityTargetBonus;
+    if (card.turretTargetBonus) {
+      p.turretTargetBonus = (p.turretTargetBonus || 0) + card.turretTargetBonus;
       return;
     }
     if (card.attackEffect) {
@@ -2452,13 +2494,15 @@
   function makeZoneVisual(p) {
     const g = new PIXI.Graphics();
     const glow = new PIXI.Graphics();
+    const shell = new PIXI.Graphics();
     const light = new PIXI.Graphics();
 
-    zonesLayer.addChild(glow, g);
+    zonesLayer.addChild(glow, g, shell);
     zoneEffectsLayer.addChild(light);
 
     p.zoneGfx = g;
     p.zoneGlow = glow;
+    p.zoneShellGfx = shell;
     p.zoneLightGfx = light;
     p._lightT = Math.random(); // stagger each player's light position
     redrawZone(p);
@@ -2500,9 +2544,28 @@
   const PATROL_ATTACK_RATE = 1.2;
   const PATROL_DMG = 3;
 
+  function getTurretOrbitRadius(p) {
+    return getPlanetRadius(p) + Math.max(22, getPlanetRadius(p) * 1.55);
+  }
+
+  function getTurretOrbitState(p, t) {
+    const phase = ((((t || 0) % 1) + 1) % 1) * Math.PI * 2 - Math.PI / 2;
+    const orbitR = getTurretOrbitRadius(p);
+    const nx = Math.cos(phase);
+    const ny = Math.sin(phase);
+    return {
+      x: p.x + nx * orbitR,
+      y: p.y + ny * orbitR,
+      angle: phase + Math.PI / 2,
+      orbitR,
+      nx,
+      ny
+    };
+  }
+
   function getPatrolOrbitState(p, t) {
     const phase = ((((t || 0) % 1) + 1) % 1) * Math.PI * 2 - Math.PI / 2;
-    const orbitR = shieldRadius(p) + Math.max(18, getPlanetRadius(p) * 1.25);
+    const orbitR = getTurretOrbitRadius(p) + Math.max(12, getPlanetRadius(p) * 0.75);
     return {
       x: p.x + Math.cos(phase) * orbitR,
       y: p.y + Math.sin(phase) * orbitR,
@@ -2652,132 +2715,128 @@
   }
 
   function redrawZone(p) {
-    ZoneRenderer.redraw(p, { INFLUENCE_ARMY_MARGIN: CFG.INFLUENCE_ARMY_MARGIN, zoom: cam.zoom });
+    ZoneRenderer.redraw(p, {
+      INFLUENCE_ARMY_MARGIN: CFG.INFLUENCE_ARMY_MARGIN,
+      zoom: cam.zoom,
+      time: state.t,
+      players: [...state.players.values()]
+    });
   }
 
   // ------------------------------------------------------------
   // Border Turrets
   // ------------------------------------------------------------
   function rebuildTurrets(p) {
-    const poly = p.influencePolygon;
-    if (!poly || poly.length < 3) return;
-    const margin = CFG.INFLUENCE_ARMY_MARGIN ?? 42;
-    const numRays = poly.length;
-
-    const borderPts = [];
-    for (let i = 0; i < numRays; i++) {
-      const angle = (i / numRays) * Math.PI * 2;
-      const outerD = p.influenceRayDistances ? (p.influenceRayDistances[i] ?? 0) : Math.hypot(poly[i].x - p.x, poly[i].y - p.y);
-      const d = outerD - margin * 0.5;
-      if (d < 25) continue;
-      const nx = Math.cos(angle), ny = Math.sin(angle);
-      borderPts.push({ x: p.x + nx * d, y: p.y + ny * d, nx, ny });
-    }
-    if (borderPts.length < 3) return;
-
-    let perim = 0;
-    const segLens = [];
-    for (let i = 0; i < borderPts.length; i++) {
-      const j = (i + 1) % borderPts.length;
-      const sl = Math.hypot(borderPts[j].x - borderPts[i].x, borderPts[j].y - borderPts[i].y);
-      segLens.push(sl);
-      perim += sl;
-    }
-
-    const existingCount = (p.turretIds || []).filter(tid => state.turrets.has(tid)).length;
-    const fixedCount = p._fixedTurretCount || 0;
-    const turretCount = fixedCount > 0 ? fixedCount : Math.max(3, Math.floor(perim / (CFG.TURRET_SPACING ?? 55)));
-    if (fixedCount === 0) p._fixedTurretCount = turretCount;
-    const stepDist = perim / turretCount;
-
+    const turretCount = 6;
+    p._fixedTurretCount = turretCount;
     const turretHpMul = (p.turretHpMul != null ? p.turretHpMul : 1) * getLevelBonusMul(p);
     const maxHp = Math.max(1, Math.round(p.pop * (CFG.TURRET_HP_RATIO ?? 0.1) * turretHpMul));
 
-    const oldTurrets = new Map();
+    const oldTurrets = [];
     for (const tid of (p.turretIds || [])) {
       const t = state.turrets.get(tid);
-      if (t) oldTurrets.set(tid, t);
+      if (t) oldTurrets.push(t);
     }
+    oldTurrets.sort((a, b) => (a.orbitSlot ?? 0) - (b.orbitSlot ?? 0));
 
     const newPositions = [];
-    let cumDist = 0;
-    let nextTarget = 0;
-    for (let i = 0; i < borderPts.length && newPositions.length < turretCount; i++) {
-      const segLen = segLens[i];
-      const j = (i + 1) % borderPts.length;
-      while (nextTarget <= cumDist + segLen && newPositions.length < turretCount) {
-        const frac = segLen > 0.01 ? (nextTarget - cumDist) / segLen : 0;
-        const x = borderPts[i].x + (borderPts[j].x - borderPts[i].x) * frac;
-        const y = borderPts[i].y + (borderPts[j].y - borderPts[i].y) * frac;
-        const nx = borderPts[i].nx + (borderPts[j].nx - borderPts[i].nx) * frac;
-        const ny = borderPts[i].ny + (borderPts[j].ny - borderPts[i].ny) * frac;
-        const nl = Math.hypot(nx, ny) || 1;
-        newPositions.push({ x, y, nx: nx / nl, ny: ny / nl });
-        nextTarget += stepDist;
-      }
-      cumDist += segLen;
+    for (let i = 0; i < turretCount; i++) {
+      const orbitT = i / turretCount;
+      const orbit = getTurretOrbitState(p, orbitT + state.t * 0.012);
+      newPositions.push({ x: orbit.x, y: orbit.y, nx: orbit.nx, ny: orbit.ny, orbitSlot: i, orbitT });
     }
 
-    const matched = new Set();
     const newTurretIds = [];
+    const reused = new Set();
     for (const pos of newPositions) {
-      let bestId = null, bestD = 50 * 50;
-      for (const [tid, t] of oldTurrets) {
-        if (matched.has(tid)) continue;
-        const d = (t.x - pos.x) ** 2 + (t.y - pos.y) ** 2;
-        if (d < bestD) { bestD = d; bestId = tid; }
-      }
-      if (bestId != null) {
-        const t = oldTurrets.get(bestId);
-        t.x = pos.x; t.y = pos.y; t.nx = pos.nx; t.ny = pos.ny;
+      let t = oldTurrets.find(ot => !reused.has(ot.id) && (ot.orbitSlot ?? -1) === pos.orbitSlot);
+      if (!t) t = oldTurrets.find(ot => !reused.has(ot.id));
+      if (t) {
+        t.x = pos.x;
+        t.y = pos.y;
+        t.nx = pos.nx;
+        t.ny = pos.ny;
+        t.orbitSlot = pos.orbitSlot;
+        t.orbitT = pos.orbitT;
         if (!t._diedAt) {
           t.maxHp = maxHp;
           if (t.hp > maxHp) t.hp = maxHp;
         }
-        matched.add(bestId);
-        newTurretIds.push(bestId);
+        reused.add(t.id);
+        newTurretIds.push(t.id);
       } else {
         const tid = state.nextTurretId++;
-        const t = { id: tid, owner: p.id, x: pos.x, y: pos.y, nx: pos.nx, ny: pos.ny, hp: maxHp, maxHp, atkCd: 0, gfx: null, labelGfx: null, radiusGfx: null };
+        const t = {
+          id: tid,
+          owner: p.id,
+          x: pos.x,
+          y: pos.y,
+          nx: pos.nx,
+          ny: pos.ny,
+          orbitSlot: pos.orbitSlot,
+          orbitT: pos.orbitT,
+          hp: maxHp,
+          maxHp,
+          atkCd: 0,
+          gfx: null,
+          labelGfx: null,
+          radiusGfx: null
+        };
         state.turrets.set(tid, t);
         newTurretIds.push(tid);
       }
     }
-    for (const [tid, t] of oldTurrets) {
-      if (!matched.has(tid) && !t._diedAt) {
+    for (const t of oldTurrets) {
+      if (!reused.has(t.id) && !t._diedAt) {
         if (t.gfx) turretLayer.removeChild(t.gfx);
         if (t.labelGfx) turretLayer.removeChild(t.labelGfx);
         if (t.radiusGfx) turretLayer.removeChild(t.radiusGfx);
-        state.turrets.delete(tid);
+        state.turrets.delete(t.id);
       }
     }
     p.turretIds = newTurretIds;
+  }
+
+  function syncTurretOrbit(t, p) {
+    if (!t || !p) return;
+    const orbitT = (t.orbitT != null ? t.orbitT : ((t.orbitSlot || 0) / Math.max(1, p._fixedTurretCount || 6))) + state.t * 0.012;
+    const orbit = getTurretOrbitState(p, orbitT);
+    t.x = orbit.x;
+    t.y = orbit.y;
+    if (!t._aimUntil || state.t > t._aimUntil) {
+      t.nx = orbit.nx;
+      t.ny = orbit.ny;
+    }
   }
 
   function drawTurrets() {
     for (const t of state.turrets.values()) {
       const p = state.players.get(t.owner);
       if (!p) continue;
+      syncTurretOrbit(t, p);
       const offScreen = !inView(t.x, t.y);
       if (offScreen) {
         if (t.gfx) t.gfx.visible = false;
         if (t.radiusGfx) t.radiusGfx.visible = false;
         if (t.labelGfx) t.labelGfx.visible = false;
+        if (t._skullGfx) t._skullGfx.visible = false;
+        if (t._respawnTxt) t._respawnTxt.visible = false;
         continue;
       }
       const color = p.color;
       const turretRangeMul = p.turretRangeMul != null ? p.turretRangeMul : 1;
       const radius = (CFG.TURRET_ATTACK_RADIUS ?? 45) * turretRangeMul * 1.6;
       const alive = t.hp > 0;
+      const hovered = !!(state._hoverWorld && Math.hypot(state._hoverWorld.x - t.x, state._hoverWorld.y - t.y) <= 16);
       if (t.gfx) t.gfx.visible = alive;
-      if (t.radiusGfx) t.radiusGfx.visible = alive;
+      if (t.radiusGfx) t.radiusGfx.visible = alive && hovered;
 
       if (!t.radiusGfx) {
         t.radiusGfx = new PIXI.Graphics();
         turretLayer.addChild(t.radiusGfx);
       }
       t.radiusGfx.clear();
-      DefenseRenderer.drawTurretRadius(t.radiusGfx, t.x, t.y, radius, color, cam.zoom);
+      if (hovered) DefenseRenderer.drawTurretRadius(t.radiusGfx, t.x, t.y, radius, color, cam.zoom);
 
       if (!t.gfx) {
         t.gfx = new PIXI.Graphics();
@@ -2808,7 +2867,7 @@
       }
       if (alive) {
         t.gfx.visible = true;
-        t.labelGfx.visible = true;
+        t.labelGfx.visible = hovered;
         const turretDmgMul = (p.turretDmgMul != null ? p.turretDmgMul : 1) * getLevelBonusMul(p);
         const dps = ((CFG.TURRET_ATTACK_DMG ?? 3) * (CFG.TURRET_ATTACK_RATE ?? 1.2) * turretDmgMul).toFixed(1);
         t.labelGfx.text = t.hp + "hp " + dps + "dps";
@@ -2838,6 +2897,7 @@
       if (t.hp <= 0) continue;
       const p = state.players.get(t.owner);
       if (!p) continue;
+      syncTurretOrbit(t, p);
       t.atkCd -= dt;
       if (t.atkCd > 0) continue;
 
@@ -2845,45 +2905,53 @@
       const range = (CFG.TURRET_ATTACK_RADIUS ?? 45) * turretRangeMul * 1.6;
       const range2 = range * range;
       const nearby = queryHash(t.x, t.y, range);
-      let bestTarget = null, bestD = 1e18;
-      let targetIsTurret = false;
+      const candidates = [];
       for (let i = 0; i < nearby.length; i++) {
         const u = nearby[i];
         if (u.owner === t.owner) continue;
         const d = (u.x - t.x) ** 2 + (u.y - t.y) ** 2;
-        if (d < bestD) { bestD = d; bestTarget = u; targetIsTurret = false; }
+        if (d <= range2) candidates.push({ target: u, d, isTurret: false });
       }
-      if (!bestTarget) {
-        for (const ot of state.turrets.values()) {
-          if (ot.owner === t.owner || ot.hp <= 0) continue;
-          const d = (ot.x - t.x) ** 2 + (ot.y - t.y) ** 2;
-          if (d <= range2 && d < bestD) { bestD = d; bestTarget = ot; targetIsTurret = true; }
-        }
+      for (const ot of state.turrets.values()) {
+        if (ot.owner === t.owner || ot.hp <= 0) continue;
+        const d = (ot.x - t.x) ** 2 + (ot.y - t.y) ** 2;
+        if (d <= range2) candidates.push({ target: ot, d, isTurret: true });
       }
-      if (bestTarget) {
+      if (candidates.length > 0) {
+        candidates.sort((a, b) => a.d - b.d);
+        const shotCount = Math.min(candidates.length, (CFG.CITY_BASE_TARGETS || 1) + (p.turretTargetBonus || p.cityTargetBonus || 0));
         const turretDmgMul = (p.turretDmgMul != null ? p.turretDmgMul : 1) * getLevelBonusMul(p);
         const dmg = Math.max(1, Math.round((CFG.TURRET_ATTACK_DMG ?? 3) * turretDmgMul));
         t.atkCd = 1 / (CFG.TURRET_ATTACK_RATE ?? 1.2);
-        const bx = bestTarget.x;
-        const by = bestTarget.y;
-        const isUnit = !targetIsTurret && bestTarget.x != null && bestTarget.y != null && state.units.has(bestTarget.id);
-        state.bullets.push({
-          fromX: t.x, fromY: t.y, toX: bx, toY: by,
-          x: t.x, y: t.y,
-          speed: CFG.CITY_BULLET_SPEED * 0.4,
-          hitR: 4,
-          ownerId: t.owner,
-          dmg,
-          color: p.color,
-          type: "ranged",
-          aoe: true,
-          maxDist: range * 1.5,
-          traveled: 0,
-          big: false,
-          canHitTurrets: targetIsTurret,
-          targetId: isUnit ? bestTarget.id : undefined,
-          targetType: isUnit ? "unit" : undefined
-        });
+        for (let i = 0; i < shotCount; i++) {
+          const entry = candidates[i];
+          const bestTarget = entry.target;
+          const bx = bestTarget.x;
+          const by = bestTarget.y;
+          const dx = bx - t.x;
+          const dy = by - t.y;
+          const dl = Math.hypot(dx, dy) || 1;
+          t.nx = dx / dl;
+          t.ny = dy / dl;
+          t._aimUntil = state.t + 0.18;
+          if (typeof playLaserSound === "function") playLaserSound(t.x, t.y, bx, by);
+          state.bullets.push({
+            type: "laser",
+            fromX: t.x,
+            fromY: t.y,
+            toX: bx,
+            toY: by,
+            color: p.color,
+            ownerId: t.owner,
+            dmg,
+            duration: 0.38,
+            progress: 0,
+            targetId: bestTarget.id,
+            targetType: entry.isTurret ? "turret" : "unit",
+            attackEffect: p ? p.attackEffect : null,
+            attackEffects: p ? p.attackEffects : null
+          });
+        }
       }
     }
 
@@ -2942,22 +3010,19 @@
         for (let shot = 0; shot < 2; shot++) {
           const tgt = targets[shot % targets.length];
           if (!tgt) continue;
+          if (typeof playLaserSound === "function") playLaserSound(pos.x, pos.y, tgt.x, tgt.y);
           state.bullets.push({
+            type: "laser",
             fromX: pos.x, fromY: pos.y, toX: tgt.x, toY: tgt.y,
-            x: pos.x, y: pos.y,
-            speed: (CFG.CITY_BULLET_SPEED ?? 280) * 0.35,
-            hitR: 5,
             ownerId: p.id,
             dmg,
             color: p.color,
-            type: "ranged",
-            aoe: true,
-            maxDist: range * 1.8,
-            traveled: 0,
-            big: false,
-            canHitTurrets: false,
+            duration: 0.38,
+            progress: 0,
             targetId: tgt.id,
-            targetType: "unit"
+            targetType: "unit",
+            attackEffect: p.attackEffect ?? null,
+            attackEffects: p.attackEffects ?? null
           });
         }
       }
@@ -3063,14 +3128,7 @@
 
   function updateActivityZones() {
     destroyChildren(activityZoneLayer);
-    const g = new PIXI.Graphics();
-    for (const p of state.players.values()) {
-      const cityR = CFG.CITY_ATTACK_RADIUS * (p.waterBonus ? 1.25 : 1);
-      g.beginFill(p.color, 0.05);
-      g.drawCircle(p.x, p.y, cityR);
-      g.endFill();
-    }
-    activityZoneLayer.addChild(g);
+    // No full-zone fill — zone visual is edges-only (real contour + Plexus). Activity range not drawn as fill.
   }
 
   function updateCityPopLabels() {
@@ -3982,6 +4040,20 @@
         } else if (leader._orderType === "attackPirateBase" && state.pirateBase && state.pirateBase.hp > 0) {
           targetPos = { x: state.pirateBase.x, y: state.pirateBase.y };
         }
+        if (!targetPos && leader.squadId != null) {
+          const sq = state.squads.get(leader.squadId);
+          if (sq && sq.order) {
+            if (sq.order.type === "attackUnit" && sq.order.targetUnitId != null) {
+              const tu = state.units.get(sq.order.targetUnitId);
+              if (tu && tu.hp > 0) targetPos = { x: tu.x, y: tu.y };
+            } else if (sq.order.type === "siege" && sq.order.targetCityId != null) {
+              const city = state.players.get(sq.order.targetCityId);
+              if (city && !city.eliminated) targetPos = { x: city.x, y: city.y };
+            } else if (sq.order.type === "attackPirateBase" && state.pirateBase && state.pirateBase.hp > 0) {
+              targetPos = { x: state.pirateBase.x, y: state.pirateBase.y };
+            }
+          }
+        }
         if (targetPos) {
           const atkPts = [{ x: leader.x, y: leader.y }, targetPos];
           const ag = new PIXI.Graphics();
@@ -4370,6 +4442,13 @@
     centerMine._captureProtectedUntil = 0;
     updateMineVisual(centerMine);
 
+    const centerRingR = 100;
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2 + (rndFn ? rndFn() : Math.random()) * 0.08;
+      const resType = i % 2 === 0 ? "money" : "xp";
+      createMine(cx + Math.cos(a) * centerRingR, cy + Math.sin(a) * centerRingR, null, false, resType);
+    }
+
     const inflR = CFG.INFLUENCE_R(CFG.POP_START);
     const rnd = rndFn || (() => Math.random());
     for (const entry of entries) {
@@ -4400,6 +4479,24 @@
           null, false, neutralType
         );
       }
+    }
+
+    const margin = 90;
+    const cornerMineStep = inflR * 0.28;
+    const corners = [
+      [margin, margin, 1, 1],
+      [CFG.WORLD_W - margin, margin, -1, 1],
+      [CFG.WORLD_W - margin, CFG.WORLD_H - margin, -1, -1],
+      [margin, CFG.WORLD_H - margin, 1, -1]
+    ];
+    for (const [cpx, cpy, dx, dy] of corners) {
+      const norm = Math.hypot(dx, dy) || 1;
+      createMine(cpx, cpy, null, false, "money");
+      createMine(
+        cpx + (dx / norm) * cornerMineStep,
+        cpy + (dy / norm) * cornerMineStep,
+        null, false, "xp"
+      );
     }
   }
 
@@ -4503,11 +4600,163 @@
     makeMineVisual(mine);
   }
 
+  const MINE_FLOW_PHASE_NONE = "none";
+  const MINE_FLOW_PHASE_ENTER = "enter";
+  const MINE_FLOW_PHASE_HOLD = "hold";
+  const MINE_FLOW_PHASE_EXIT = "exit";
+  const MINE_FLOW_ANIM_TIME = 2.0;
+
+  function mineYieldMul(p) {
+    return 1 + ((p && p.mineYieldBonus) || 0) / 100;
+  }
+
+  function getMineYieldPerSecond(mine, owner) {
+    let rate = (CFG.MINE_YIELD_PER_SEC || 1) * mineYieldMul(owner);
+    if (mine && mine.isRich) rate *= (CFG.MINE_RICH_MULTIPLIER || 1);
+    return rate;
+  }
+
+  function getPlayerMineRates(playerId) {
+    let moneyPerSec = 0;
+    let xpPerSec = 0;
+    for (const mine of state.mines.values()) {
+      if (!mine.ownerId || mine.captureProgress < 1) continue;
+      const owner = state.players.get(mine.ownerId);
+      if (!owner || owner.pop <= 0) continue;
+      const rate = mine._flowRate > 0 ? mine._flowRate : getMineYieldPerSecond(mine, owner);
+      const targetId = mine._flowTargetPlayerId || mine.ownerId;
+      if (targetId !== playerId) continue;
+      if (mine.resourceType === "money") moneyPerSec += rate;
+      else xpPerSec += rate;
+    }
+    return { moneyPerSec, xpPerSec };
+  }
+
+  function distToSegment(px, py, ax, ay, bx, by) {
+    const dx = bx - ax;
+    const dy = by - ay;
+    const len2 = dx * dx + dy * dy;
+    if (len2 <= 1e-6) return Math.hypot(px - ax, py - ay);
+    const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len2));
+    const qx = ax + dx * t;
+    const qy = ay + dy * t;
+    return Math.hypot(px - qx, py - qy);
+  }
+
+  function closestPointOnSegment(px, py, ax, ay, bx, by) {
+    const dx = bx - ax;
+    const dy = by - ay;
+    const len2 = dx * dx + dy * dy;
+    if (len2 <= 1e-6) return { x: ax, y: ay, t: 0 };
+    const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len2));
+    return {
+      x: ax + dx * t,
+      y: ay + dy * t,
+      t
+    };
+  }
+
+  function clearMineFlowState(mine) {
+    const hadFlow =
+      (mine._flowPhase && mine._flowPhase !== MINE_FLOW_PHASE_NONE) ||
+      mine._flowVisualTargetPlayerId != null ||
+      mine._flowInterceptUnitId != null;
+    mine._flowRate = 0;
+    mine._flowTargetPlayerId = mine.ownerId || null;
+    mine._flowVisualTargetPlayerId = null;
+    mine._flowInterceptUnitId = null;
+    mine._flowInterceptX = null;
+    mine._flowInterceptY = null;
+    mine._flowInterceptT = null;
+    mine._flowPhase = MINE_FLOW_PHASE_NONE;
+    mine._flowPhaseStartedAt = state.t;
+    if (hadFlow) mine._flowVersion = (mine._flowVersion || 0) + 1;
+  }
+
+  function getMineFlowProgress(mine) {
+    if (!mine || !mine._flowPhase || mine._flowPhase === MINE_FLOW_PHASE_NONE || mine._flowPhase === MINE_FLOW_PHASE_HOLD) return 1;
+    return Math.max(0, Math.min(1, (state.t - (mine._flowPhaseStartedAt || state.t)) / MINE_FLOW_ANIM_TIME));
+  }
+
+  function findMineFlowInterceptor(mine, owner) {
+    if (!mine || !owner) return null;
+    let best = null;
+    let bestDist = Infinity;
+    for (const u of state.units.values()) {
+      if (!u || u.hp <= 0) continue;
+      if (u.owner === mine.ownerId) continue;
+      const interceptorOwner = state.players.get(u.owner);
+      if (!interceptorOwner || interceptorOwner.pop <= 0) continue;
+      const touchR = Math.max((CFG.MINE_GEM_INTERCEPT_R || 30), getUnitHitRadius(u) + 6);
+      const d = distToSegment(u.x, u.y, mine.x, mine.y, owner.x, owner.y);
+      if (d > touchR) continue;
+      if (d < bestDist) {
+        bestDist = d;
+        const point = closestPointOnSegment(u.x, u.y, mine.x, mine.y, owner.x, owner.y);
+        best = { unit: u, point };
+      }
+    }
+    return best;
+  }
+
+  function updateMineFlowState(mine, owner, interceptor) {
+    const phase = mine._flowPhase || MINE_FLOW_PHASE_NONE;
+    const progress = getMineFlowProgress(mine);
+    if (!mine.ownerId || !owner || owner.pop <= 0) {
+      clearMineFlowState(mine);
+      return;
+    }
+
+    mine._flowRate = getMineYieldPerSecond(mine, owner);
+    mine._flowTargetPlayerId = mine.ownerId;
+
+    if (interceptor) {
+      const interceptOwnerId = interceptor.unit.owner;
+      const sameIntercept =
+        (mine._flowVisualTargetPlayerId === interceptOwnerId) &&
+        (mine._flowInterceptUnitId === interceptor.unit.id) &&
+        (phase === MINE_FLOW_PHASE_ENTER || phase === MINE_FLOW_PHASE_HOLD);
+
+      mine._flowVisualTargetPlayerId = interceptOwnerId;
+      mine._flowInterceptUnitId = interceptor.unit.id;
+      mine._flowInterceptX = interceptor.point.x;
+      mine._flowInterceptY = interceptor.point.y;
+      mine._flowInterceptT = interceptor.point.t;
+      mine._flowTargetPlayerId = interceptOwnerId;
+
+      if (!sameIntercept) {
+        mine._flowPhase = MINE_FLOW_PHASE_ENTER;
+        mine._flowPhaseStartedAt = state.t;
+        mine._flowVersion = (mine._flowVersion || 0) + 1;
+      } else if (phase === MINE_FLOW_PHASE_ENTER && progress >= 1) {
+        mine._flowPhase = MINE_FLOW_PHASE_HOLD;
+        mine._flowPhaseStartedAt = state.t;
+      }
+      return;
+    }
+
+    if (phase === MINE_FLOW_PHASE_ENTER || phase === MINE_FLOW_PHASE_HOLD) {
+      mine._flowPhase = MINE_FLOW_PHASE_EXIT;
+      mine._flowPhaseStartedAt = state.t;
+      mine._flowVersion = (mine._flowVersion || 0) + 1;
+      return;
+    }
+
+    if (phase === MINE_FLOW_PHASE_EXIT) {
+      if (progress >= 1) clearMineFlowState(mine);
+      return;
+    }
+
+    mine._flowPhase = MINE_FLOW_PHASE_NONE;
+    mine._flowTargetPlayerId = mine.ownerId;
+  }
+
   // ── Mine step: capture + yield ──
   function stepMines(dt) {
     for (const mine of state.mines.values()) {
       const ownersInRadius = new Map();
       for (const u of state.units.values()) {
+        if (u.owner === PIRATE_OWNER_ID) continue;
         if (Math.hypot(u.x - mine.x, u.y - mine.y) <= CFG.MINE_CAPTURE_RADIUS) {
           if (mine.ownerId && u.owner === mine.ownerId) continue;
           ownersInRadius.set(u.owner, (ownersInRadius.get(u.owner) || 0) + 1);
@@ -4550,30 +4799,29 @@
 
       if (mine.ownerId && mine.captureProgress >= 1) {
         const owner = state.players.get(mine.ownerId);
-        if (!owner || owner.pop <= 0) { mine.ownerId = null; mine.captureProgress = 0; updateMineVisual(mine); continue; }
-
-        const maxGems = CFG.MINE_MAX_GEMS || 10;
-        let activeGems = 0;
-        for (const gm of state.mineGems) {
-          if (gm.alive && gm._mineId === mine.id) activeGems++;
+        if (!owner || owner.pop <= 0) {
+          mine.ownerId = null;
+          mine.captureProgress = 0;
+          clearMineFlowState(mine);
+          updateMineVisual(mine);
+          continue;
         }
 
-        const totalVal = (CFG.MINE_BASE_YIELD_VALUE * 0.7 + (owner.mineYieldBonus || 0)) * (mine.isRich ? CFG.MINE_RICH_MULTIPLIER : 1);
-        const spawnInterval = Math.max(0.5, 2.5 - totalVal * 0.15);
-        mine.yieldAcc += dt;
-        while (mine.yieldAcc >= spawnInterval) {
-          mine.yieldAcc -= spawnInterval;
-          const batchVal = totalVal * spawnInterval;
-          if (activeGems >= maxGems) {
-            const oldest = state.mineGems.find(g => g.alive && g._mineId === mine.id);
-            if (oldest) oldest.value += batchVal;
+        const interceptor = findMineFlowInterceptor(mine, owner);
+        updateMineFlowState(mine, owner, interceptor);
+
+        const targetPlayer = state.players.get(mine._flowTargetPlayerId || mine.ownerId) || owner;
+        const gain = (mine._flowRate || 0) * dt;
+        if (gain > 0 && targetPlayer && targetPlayer.pop > 0) {
+          if (mine.resourceType === "money") {
+            targetPlayer.eCredits = (targetPlayer.eCredits || 0) + gain;
+            if (targetPlayer.id === state.myPlayerId) playMineIncomeSound();
           } else {
-            const isCredit = mine.resourceType === "money";
-            const variedVal = batchVal * (0.6 + Math.random() * 0.8);
-            spawnMineGem(mine, owner, variedVal, isCredit);
-            activeGems++;
+            gainXP(targetPlayer, gain);
           }
         }
+      } else {
+        clearMineFlowState(mine);
       }
 
       if (mine.gfx) updateMineProgressBar(mine);
@@ -4760,37 +5008,7 @@
   }
 
   function stepMineGemsRemote(dt) {
-    for (const mine of state.mines.values()) {
-      if (!mine.ownerId || mine.captureProgress < 1) continue;
-      const owner = state.players.get(mine.ownerId);
-      if (!owner || owner.pop <= 0) continue;
-
-      if (!mine._remoteGemAcc) mine._remoteGemAcc = Math.random() * 2;
-      mine._remoteGemAcc += dt;
-      const totalVal = (CFG.MINE_BASE_YIELD_VALUE * 0.7 + (owner.mineYieldBonus || 0)) * (mine.isRich ? CFG.MINE_RICH_MULTIPLIER : 1);
-      const spawnInterval = Math.max(0.5, 2.5 - totalVal * 0.15);
-      if (mine._remoteGemAcc >= spawnInterval) {
-        mine._remoteGemAcc -= spawnInterval;
-        const batchVal = totalVal * spawnInterval;
-        const isCredit = mine.resourceType === "money";
-        const variedVal = batchVal * (0.6 + Math.random() * 0.8);
-        const gem = {
-          id: state.nextResId++,
-          x: mine.x, y: mine.y,
-          targetPlayerId: owner.id,
-          _mineId: mine.id,
-          value: variedVal,
-          isCredit: !!isCredit,
-          speed: CFG.MINE_GEM_SPEED * (0.7 + variedVal * 0.15) * (0.95 + Math.random() * 0.1),
-          drift: (Math.random() - 0.5) * 12,
-          alive: true,
-          _visualOnly: true,
-          gfx: null
-        };
-        makeGemVisual(gem);
-        state.mineGems.push(gem);
-      }
-    }
+    return;
   }
 
   function stepMineGems(dt) {
@@ -4810,7 +5028,7 @@
             gainXP(target, g.value);
           }
         }
-        if (target.id === state.myPlayerId) tickSound(1480, 0.03, 0.04);
+        if (target.id === state.myPlayerId) playCollectSound();
         g.alive = false;
         removeGemVisual(g);
         state.mineGems.splice(i, 1);
@@ -4845,6 +5063,450 @@
           }
         }
       }
+    }
+  }
+
+  const MINE_FLOW_VARIANTS = {
+    money: {
+      routeStyle: "braid",
+      beamDash: [11, 9],
+      laneCount: 2,
+      laneOffset: 10,
+      pulseSpeed: 0.22,
+      packetSpeed: 0.22,
+      arcBias: 20,
+      arcMul: 0.12,
+      packetStyle: "prism"
+    },
+    xp: {
+      routeStyle: "ladder",
+      beamDash: [6, 9],
+      laneCount: 1,
+      laneOffset: 0,
+      pulseSpeed: 0.21,
+      packetSpeed: 0.20,
+      arcBias: 16,
+      arcMul: 0.09,
+      packetStyle: "relay"
+    }
+  };
+
+  function mfClamp(v, min, max) {
+    return Math.max(min, Math.min(max, v));
+  }
+
+  function mfLerp(a, b, t) {
+    return a + (b - a) * t;
+  }
+
+  function getMineFlowVariant(mine) {
+    return MINE_FLOW_VARIANTS[mine && mine.resourceType === "xp" ? "xp" : "money"];
+  }
+
+  function getMineFlowDetail() {
+    const level = LOD.getLevel(cam.zoom || 0.22);
+    if (level === LOD.LEVELS.FAR) {
+      return { routeSamples: 12, maxPacketsPerMine: 2, beamAlpha: 0.48, shimmer: false, bridges: false, packetScale: 0.72 };
+    }
+    if (level === LOD.LEVELS.MID) {
+      return { routeSamples: 22, maxPacketsPerMine: 5, beamAlpha: 0.72, shimmer: false, bridges: true, packetScale: 0.88 };
+    }
+    return { routeSamples: 36, maxPacketsPerMine: 9, beamAlpha: 1.0, shimmer: true, bridges: true, packetScale: 1.0 };
+  }
+
+  function ensureMineFlowVisuals() {
+    if (!state._mineFlowBeamGfx || !state._mineFlowBeamGfx.parent) {
+      state._mineFlowBeamGfx = new PIXI.Graphics();
+      abilityFxLayer.addChild(state._mineFlowBeamGfx);
+    }
+    if (!state._mineFlowPacketGfx || !state._mineFlowPacketGfx.parent) {
+      state._mineFlowPacketGfx = new PIXI.Graphics();
+      abilityFxLayer.addChild(state._mineFlowPacketGfx);
+    }
+  }
+
+  function mfSamplePath(points, t) {
+    if (!points || points.length < 2) return { x: 0, y: 0, angle: 0 };
+    const scaled = mfClamp(t, 0, 1) * (points.length - 1);
+    const i0 = Math.floor(scaled);
+    const i1 = Math.min(points.length - 1, i0 + 1);
+    const frac = scaled - i0;
+    const a = points[i0];
+    const b = points[i1];
+    return {
+      x: mfLerp(a.x, b.x, frac),
+      y: mfLerp(a.y, b.y, frac),
+      angle: Math.atan2(b.y - a.y, b.x - a.x)
+    };
+  }
+
+  function mfBuildPathSlice(points, t0, t1) {
+    if (!points || points.length < 2) return [];
+    const from = mfClamp(t0, 0, 1);
+    const to = mfClamp(t1, 0, 1);
+    if (to <= from) {
+      const a = mfSamplePath(points, from);
+      const b = mfSamplePath(points, to);
+      return [{ x: a.x, y: a.y }, { x: b.x, y: b.y }];
+    }
+    const count = Math.max(2, Math.ceil((to - from) * 24));
+    const out = [];
+    for (let i = 0; i <= count; i++) {
+      const s = mfSamplePath(points, mfLerp(from, to, i / count));
+      out.push({ x: s.x, y: s.y });
+    }
+    return out;
+  }
+
+  function mfBuildRoutePoints(start, end, seed, variant, detail, laneSign, rerouteMul) {
+    const points = [];
+    const count = detail.routeSamples;
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const dirX = dx / len;
+    const dirY = dy / len;
+    const perpX = -dirY;
+    const perpY = dirX;
+    const seedNorm = ((seed || 0) * 0.6180339887) % 1;
+    const seedSign = seedNorm > 0.5 ? 1 : -1;
+    const laneOffset = (laneSign || 0) * variant.laneOffset;
+    const ampBase = variant.arcBias + len * variant.arcMul;
+
+    for (let i = 0; i <= count; i++) {
+      const t = i / count;
+      const baseX = mfLerp(start.x, end.x, t);
+      const baseY = mfLerp(start.y, end.y, t);
+      let offset = 0;
+      if (variant.routeStyle === "braid") {
+        offset = Math.sin(Math.PI * t) * (9 + ampBase * 0.25) * seedSign * 0.42;
+        offset += Math.sin(t * Math.PI * 4 + state.t * 0.8 + seedNorm * 5) * 4.2 * rerouteMul;
+      } else if (variant.routeStyle === "ladder") {
+        const sq = Math.sin(t * Math.PI * 4 + seedNorm * 7) >= 0 ? 1 : -1;
+        const gate = Math.sin(Math.PI * t);
+        offset = sq * (5 + ampBase * 0.18) * gate * 0.95;
+      } else {
+        offset = Math.sin(Math.PI * t) * (8 + ampBase * 0.22) * seedSign * 0.36;
+      }
+      offset += laneOffset * Math.sin(Math.PI * t);
+      points.push({
+        x: baseX + perpX * offset,
+        y: baseY + perpY * offset
+      });
+    }
+    return points;
+  }
+
+  function buildMineFlowRoute(mine, detail) {
+    const owner = state.players.get(mine.ownerId);
+    if (!owner || owner.pop <= 0 || mine.captureProgress < 1) return null;
+    const variant = getMineFlowVariant(mine);
+    const phase = mine._flowPhase || MINE_FLOW_PHASE_NONE;
+    const visualTargetId = (phase === MINE_FLOW_PHASE_ENTER || phase === MINE_FLOW_PHASE_HOLD || phase === MINE_FLOW_PHASE_EXIT)
+      ? (mine._flowVisualTargetPlayerId || mine.ownerId)
+      : mine.ownerId;
+    const visualTarget = state.players.get(visualTargetId) || owner;
+    const route = {
+      mine,
+      owner,
+      visualTarget,
+      variant,
+      phase,
+      phaseProgress: getMineFlowProgress(mine),
+      spliceT: mine._flowInterceptT != null ? mfClamp(mine._flowInterceptT, 0.08, 0.96) : 1
+    };
+    route.main = mfBuildRoutePoints(
+      { x: mine.x, y: mine.y },
+      { x: owner.x, y: owner.y },
+      mine.id * 11.13,
+      variant,
+      detail,
+      0,
+      1
+    );
+    if (variant.laneCount > 1) {
+      route.left = mfBuildRoutePoints(
+        { x: mine.x, y: mine.y },
+        { x: owner.x, y: owner.y },
+        mine.id * 11.13,
+        variant,
+        detail,
+        -1,
+        1
+      );
+      route.right = mfBuildRoutePoints(
+        { x: mine.x, y: mine.y },
+        { x: owner.x, y: owner.y },
+        mine.id * 11.13,
+        variant,
+        detail,
+        1,
+        1
+      );
+    }
+    if (mine._flowInterceptX != null && mine._flowInterceptY != null && visualTarget && visualTarget.id !== mine.ownerId) {
+      route.redirect = mfBuildRoutePoints(
+        { x: mine._flowInterceptX, y: mine._flowInterceptY },
+        { x: visualTarget.x, y: visualTarget.y },
+        mine.id * 17.29,
+        variant,
+        detail,
+        0,
+        1.15
+      );
+    } else {
+      route.redirect = null;
+    }
+    return route;
+  }
+
+  function mfTracePath(g, points) {
+    if (!points || points.length < 2) return false;
+    g.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) g.lineTo(points[i].x, points[i].y);
+    return true;
+  }
+
+  function mfDrawStroke(g, points, width, color, alpha) {
+    if (!mfTracePath(g, points)) return;
+    g.stroke({ width, color, alpha });
+  }
+
+  function mfDrawDashed(g, points, width, color, alpha, dash, gap, offset) {
+    if (!points || points.length < 2) return;
+    const dashLen = Math.max(2, dash);
+    const gapLen = Math.max(1, gap);
+    const cycleLen = dashLen + gapLen;
+    let phase = offset || 0;
+    for (let i = 1; i < points.length; i++) {
+      let ax = points[i - 1].x;
+      let ay = points[i - 1].y;
+      const bx = points[i].x;
+      const by = points[i].y;
+      const segDx = bx - ax;
+      const segDy = by - ay;
+      const segLen = Math.hypot(segDx, segDy);
+      if (segLen <= 1e-6) continue;
+      let pos = 0;
+      while (pos < segLen) {
+        const cyclePos = ((phase % cycleLen) + cycleLen) % cycleLen;
+        const on = cyclePos < dashLen;
+        const remain = on ? (dashLen - cyclePos) : (cycleLen - cyclePos);
+        const safeRemain = Math.max(0.001, remain);
+        const step = Math.min(safeRemain, segLen - pos);
+        if (on) {
+          const t0 = pos / segLen;
+          const t1 = (pos + step) / segLen;
+          const p0 = { x: ax + segDx * t0, y: ay + segDy * t0 };
+          const p1 = { x: ax + segDx * t1, y: ay + segDy * t1 };
+          mfDrawStroke(g, [p0, p1], width, color, alpha);
+        }
+        pos += step;
+        phase += step;
+      }
+    }
+  }
+
+  function mfSampleVisualRoute(route, progress, lane) {
+    const branch = lane < 0 && route.left ? route.left : (lane > 0 && route.right ? route.right : route.main);
+    if (route.phase === MINE_FLOW_PHASE_ENTER || route.phase === MINE_FLOW_PHASE_HOLD) {
+      if (route.redirect && progress > route.spliceT) {
+        return mfSamplePath(route.redirect, (progress - route.spliceT) / Math.max(0.001, 1 - route.spliceT));
+      }
+      return mfSamplePath(branch, progress);
+    }
+    if (route.phase === MINE_FLOW_PHASE_EXIT) {
+      const restoreT = mfLerp(route.spliceT, 1, route.phaseProgress);
+      return mfSamplePath(branch, progress * restoreT);
+    }
+    return mfSamplePath(branch, progress);
+  }
+
+  function syncMineFlowPackets(routes, detail, dt) {
+    for (const route of routes.values()) {
+      const mine = route.mine;
+      if (mine._flowLocalVersionSeen !== mine._flowVersion) {
+        mine._flowLocalVersionSeen = mine._flowVersion;
+        mine._flowPacketAcc = 0;
+        state.mineFlowPackets = state.mineFlowPackets.filter(pkt => pkt.mineId !== mine.id);
+      }
+    }
+
+    const livePerMine = new Map();
+    for (let i = state.mineFlowPackets.length - 1; i >= 0; i--) {
+      const pkt = state.mineFlowPackets[i];
+      const route = routes.get(pkt.mineId);
+      if (!route) {
+        state.mineFlowPackets.splice(i, 1);
+        continue;
+      }
+      pkt.progress += dt * pkt.speed;
+      if (pkt.progress >= 1) {
+        state.mineFlowPackets.splice(i, 1);
+        continue;
+      }
+      livePerMine.set(pkt.mineId, (livePerMine.get(pkt.mineId) || 0) + 1);
+    }
+
+    for (const route of routes.values()) {
+      const mine = route.mine;
+      const rate = Math.max(0.25, mine._flowRate || 0);
+      const current = livePerMine.get(mine.id) || 0;
+      const interval = Math.max(0.20, 0.85 / rate);
+      if (mine._flowPacketAcc == null) mine._flowPacketAcc = Math.random() * interval;
+      mine._flowPacketAcc += dt;
+      let localCount = current;
+      while (mine._flowPacketAcc >= interval && localCount < detail.maxPacketsPerMine) {
+        mine._flowPacketAcc -= interval;
+        state.mineFlowPackets.push({
+          id: state.nextMineFlowPacketId++,
+          mineId: mine.id,
+          progress: 0,
+          speed: route.variant.packetSpeed * (0.92 + Math.min(0.24, rate * 0.05)),
+          lane: route.variant.laneCount > 1 ? (Math.random() > 0.5 ? 1 : -1) : 0,
+          sizeMul: 1 + Math.min(0.20, Math.max(0, rate - 1) * 0.05),
+          isCredit: mine.resourceType === "money",
+          seed: Math.random() * 1000
+        });
+        localCount++;
+      }
+    }
+  }
+
+  function drawMineFlowPacket(g, route, pkt, detail) {
+    const sample = mfSampleVisualRoute(route, pkt.progress, pkt.lane);
+    if (!inView(sample.x, sample.y) || !LOD.canDraw("gems")) return;
+    const zoom = Math.max(0.001, cam.zoom || 0.22);
+    const invZoom = 1 / zoom;
+    const farZoomMul = Math.min(1, zoom / 0.28);
+    const scale = invZoom * detail.packetScale * pkt.sizeMul * farZoomMul;
+    const pulse = 0.75 + 0.25 * Math.sin(state.t * 4 + pkt.seed);
+
+    if (pkt.isCredit) {
+      const r = 3.8 * scale;
+      const pts = [];
+      for (let i = 0; i < 4; i++) {
+        const a = Math.PI / 4 + i * (Math.PI / 2);
+        pts.push(sample.x + Math.cos(a) * r, sample.y + Math.sin(a) * r);
+      }
+      g.poly(pts);
+      g.fill({ color: 0xffbe54, alpha: 0.82 });
+      g.poly(pts);
+      g.stroke({ color: 0xfff0b8, width: 0.9 * scale, alpha: 0.36 });
+      g.circle(sample.x, sample.y, 1.0 * scale);
+      g.fill({ color: 0xffffff, alpha: 0.22 * pulse });
+    } else {
+      const r = 3.5 * scale;
+      g.circle(sample.x, sample.y, r);
+      g.fill({ color: 0x56d6ff, alpha: 0.46 });
+      g.circle(sample.x, sample.y, r);
+      g.stroke({ color: 0xd8f0ff, width: 0.8 * scale, alpha: 0.34 });
+      g.circle(sample.x, sample.y, r * 0.45);
+      g.fill({ color: 0xffffff, alpha: 0.20 * pulse });
+    }
+  }
+
+  function drawMineFlowRoute(g, route, detail) {
+    const mine = route.mine;
+    const variant = route.variant;
+    const invZoom = 1 / Math.max(0.001, cam.zoom || 0.22);
+    const isMoney = mine.resourceType === "money";
+    const glowCol = isMoney ? 0xffbe54 : 0x56d6ff;
+    const edgeCol = isMoney ? 0xffe6a2 : 0xd8f0ff;
+    const accentCol = isMoney ? 0x79e67a : 0xff6f93;
+    const interceptColor = (mine._flowVisualTargetPlayerId === state.myPlayerId) ? 0x79e67a : 0xff5d68;
+    const interceptEdge = (mine._flowVisualTargetPlayerId === state.myPlayerId) ? 0xd9ffe2 : 0xffd2d8;
+    const dash = variant.beamDash;
+
+    const spliceT = route.spliceT;
+    const enterHold = route.phase === MINE_FLOW_PHASE_ENTER || route.phase === MINE_FLOW_PHASE_HOLD;
+    const exit = route.phase === MINE_FLOW_PHASE_EXIT;
+    const mainVisibleT = enterHold ? mfLerp(1, spliceT, route.phase === MINE_FLOW_PHASE_HOLD ? 1 : route.phaseProgress) : 1;
+    const redirectVisibleT = enterHold ? (route.phase === MINE_FLOW_PHASE_HOLD ? 1 : route.phaseProgress) : (exit ? 1 - route.phaseProgress : 0);
+
+    const visibleMainBase = enterHold
+      ? mfBuildPathSlice(route.main, 0, mainVisibleT)
+      : (exit ? mfBuildPathSlice(route.main, 0, spliceT) : mfBuildPathSlice(route.main, 0, 1));
+    const exitMainTail = exit ? mfBuildPathSlice(route.main, spliceT, mfLerp(spliceT, 1, route.phaseProgress)) : null;
+
+    mfDrawStroke(g, visibleMainBase, 5.4 * invZoom, glowCol, 0.12 * detail.beamAlpha);
+    mfDrawDashed(g, visibleMainBase, 2.0 * invZoom, glowCol, 0.30 * detail.beamAlpha, dash[0] * invZoom * 4, dash[1] * invZoom * 4, -state.t * 36);
+    mfDrawDashed(g, visibleMainBase, 0.95 * invZoom, edgeCol, 0.36 * detail.beamAlpha, dash[0] * invZoom * 4, dash[1] * invZoom * 4, -state.t * 44);
+    if (exitMainTail && exitMainTail.length > 1) {
+      mfDrawStroke(g, exitMainTail, 5.4 * invZoom, glowCol, 0.12 * detail.beamAlpha);
+      mfDrawDashed(g, exitMainTail, 2.0 * invZoom, glowCol, 0.30 * detail.beamAlpha, dash[0] * invZoom * 4, dash[1] * invZoom * 4, -state.t * 36);
+      mfDrawDashed(g, exitMainTail, 0.95 * invZoom, edgeCol, 0.36 * detail.beamAlpha, dash[0] * invZoom * 4, dash[1] * invZoom * 4, -state.t * 44);
+    }
+
+    if (variant.laneCount > 1 && route.left && route.right) {
+      const visibleLeft = enterHold
+        ? mfBuildPathSlice(route.left, 0, mainVisibleT)
+        : (exit ? mfBuildPathSlice(route.left, 0, spliceT) : mfBuildPathSlice(route.left, 0, 1));
+      const visibleRight = enterHold
+        ? mfBuildPathSlice(route.right, 0, mainVisibleT)
+        : (exit ? mfBuildPathSlice(route.right, 0, spliceT) : mfBuildPathSlice(route.right, 0, 1));
+      mfDrawDashed(g, visibleLeft, 1.05 * invZoom, 0x79e67a, 0.38 * detail.beamAlpha, 7 * invZoom, 12 * invZoom, state.t * 24);
+      mfDrawDashed(g, visibleRight, 1.05 * invZoom, 0xffbe54, 0.34 * detail.beamAlpha, 7 * invZoom, 12 * invZoom, -state.t * 22);
+      if (detail.bridges) {
+        const bridgeStep = Math.max(3, Math.floor(Math.min(visibleLeft.length, visibleRight.length) / 7));
+        for (let i = bridgeStep; i < visibleLeft.length - 1 && i < visibleRight.length - 1; i += bridgeStep * 2) {
+          mfDrawStroke(g, [visibleLeft[i], visibleRight[i]], 0.55 * invZoom, 0xffe6a2, 0.18 * detail.beamAlpha);
+        }
+      }
+    }
+
+    if (route.redirect && route.redirect.length > 1 && redirectVisibleT > 0.001) {
+      const visibleRedirect = mfBuildPathSlice(route.redirect, 0, redirectVisibleT);
+      mfDrawStroke(g, visibleRedirect, 5.3 * invZoom, interceptColor, 0.10 * detail.beamAlpha);
+      mfDrawDashed(g, visibleRedirect, 2.0 * invZoom, interceptColor, 0.28 * detail.beamAlpha, dash[0] * invZoom * 4, dash[1] * invZoom * 4, -state.t * 30);
+      mfDrawDashed(g, visibleRedirect, 0.95 * invZoom, interceptEdge, 0.58 * detail.beamAlpha, dash[0] * invZoom * 4, dash[1] * invZoom * 4, -state.t * 38);
+    }
+
+    if (mine._flowInterceptX != null && mine._flowInterceptY != null && route.phase !== MINE_FLOW_PHASE_NONE) {
+      g.circle(mine._flowInterceptX, mine._flowInterceptY, 6.5 * invZoom);
+      g.stroke({ color: interceptEdge, width: 0.9 * invZoom, alpha: 0.26 * detail.beamAlpha });
+      g.circle(mine._flowInterceptX, mine._flowInterceptY, 2.1 * invZoom);
+      g.fill({ color: interceptColor, alpha: 0.42 * detail.beamAlpha });
+    }
+
+    if (detail.shimmer) {
+      const pulse = mfSampleVisualRoute(route, (state.t * variant.pulseSpeed + mine.id * 0.13) % 1, 0);
+      g.circle(pulse.x, pulse.y, 2.2 * invZoom);
+      g.fill({ color: edgeCol, alpha: 0.52 * detail.beamAlpha });
+      if (variant.routeStyle === "ladder") {
+        const steps = 5;
+        for (let i = 1; i < steps; i++) {
+          const m = mfSamplePath(route.main, (spliceT * i) / steps);
+          g.rect(m.x - 1.3 * invZoom, m.y - 0.4 * invZoom, 2.6 * invZoom, 0.8 * invZoom);
+          g.fill({ color: accentCol, alpha: 0.18 * detail.beamAlpha });
+        }
+      }
+    }
+  }
+
+  function updateMineFlowVisuals(dt) {
+    ensureMineFlowVisuals();
+    const beamG = state._mineFlowBeamGfx;
+    const packetG = state._mineFlowPacketGfx;
+    beamG.clear();
+    packetG.clear();
+
+    const detail = getMineFlowDetail();
+    const routes = new Map();
+    for (const mine of state.mines.values()) {
+      if (!mine.ownerId || mine.captureProgress < 1) continue;
+      const route = buildMineFlowRoute(mine, detail);
+      if (!route) continue;
+      routes.set(mine.id, route);
+    }
+
+    syncMineFlowPackets(routes, detail, dt);
+
+    for (const route of routes.values()) drawMineFlowRoute(beamG, route, detail);
+    for (let i = 0; i < state.mineFlowPackets.length; i++) {
+      const pkt = state.mineFlowPackets[i];
+      const route = routes.get(pkt.mineId);
+      if (route) drawMineFlowPacket(packetG, route, pkt, detail);
     }
   }
 
@@ -4987,11 +5649,13 @@
     state.turrets.clear();
     state.mines.clear();
     state.mineGems = [];
+    state.mineFlowPackets = [];
     state.nebulae = [];
     nextMineId = 1;
     state.nextTurretId = 1;
     state.nextUnitId = 1;
     state.nextResId = 1;
+    state.nextMineFlowPacketId = 1;
     state.t = 0;
     state.timeScale = 1;
     state._timeRewindFx = null;
@@ -5126,11 +5790,13 @@
     state.turrets.clear();
     state.mines.clear();
     state.mineGems = [];
+    state.mineFlowPackets = [];
     state.nebulae = [];
     nextMineId = 1;
     state.nextTurretId = 1;
     state.nextUnitId = 1;
     state.nextResId = 1;
+    state.nextMineFlowPacketId = 1;
     state.t = 0;
     state.timeScale = 1;
     state._timeRewindFx = null;
@@ -5576,7 +6242,8 @@
     return purchaseUnit(ownerId, (opts && opts.unitType) || "fighter", waypoints, opts);
   }
 
-  function spawnXPOrb(x, y, xp, killerOwner) {
+  function spawnXPOrb(x, y, xp, killerOwner, opts) {
+    opts = opts || {};
     const maxRes = CFG.RES_MAX ?? 520;
     if (state.res.size >= maxRes) {
       const firstId = state.res.keys().next().value;
@@ -5588,6 +6255,7 @@
       r._targetCity = killerOwner;
       r._interceptProtectUntil = state.t + 1.5;
     }
+    if (opts.visualOnly) r._visualOnly = true;
     state.res.set(id, r);
     makeResVisual(r);
   }
@@ -5600,17 +6268,28 @@
     if (typeof playExplosionSound === "function") playExplosionSound(u.x, u.y);
     const baseXP = UNIT_XP_DROPS[u.unitType] || 1;
     const xpDrop = Math.max(1, Math.round(baseXP * (0.8 + Math.random() * 0.4)));
-    spawnXPOrb(u.x + (Math.random() - 0.5) * 10, u.y + (Math.random() - 0.5) * 10, xpDrop, killerOwner);
+    const isPirateKill = killerOwner === PIRATE_OWNER_ID || (killerOwner != null && !state.players.has(killerOwner));
+    const rewardTarget = !isPirateKill && killerOwner != null && state.players.has(killerOwner) ? killerOwner : null;
+    if (rewardTarget != null) {
+      const killer = state.players.get(rewardTarget);
+      if (killer) gainXP(killer, xpDrop);
+    }
+    spawnXPOrb(u.x + (Math.random() - 0.5) * 10, u.y + (Math.random() - 0.5) * 10, xpDrop, rewardTarget, rewardTarget != null ? { visualOnly: true } : {});
     const creditDrop = UNIT_CREDIT_DROPS[u.unitType] || 3;
     if (creditDrop > 0) {
       const creditVal = Math.max(1, Math.round(creditDrop * (0.6 + Math.random() * 0.8)));
+      if (rewardTarget != null) {
+        const killer = state.players.get(rewardTarget);
+        if (killer) killer.eCredits = (killer.eCredits || 0) + creditVal;
+      }
       const id = state.nextResId++;
       const rx = u.x + (Math.random() - 0.5) * 12, ry = u.y + (Math.random() - 0.5) * 12;
       const creditOrb = {
         id, type: "credit", value: creditVal, x: rx, y: ry,
         color: 0xffdd44, gfx: null, _spawnedAt: state.t, isCredit: true,
-        _targetCity: killerOwner != null ? killerOwner : undefined,
-        _interceptProtectUntil: killerOwner != null ? state.t + 1.5 : undefined
+        _targetCity: rewardTarget != null ? rewardTarget : undefined,
+        _interceptProtectUntil: rewardTarget != null ? state.t + 1.5 : undefined,
+        _visualOnly: rewardTarget != null
       };
       if (state.res.size >= (CFG.RES_MAX ?? 520)) {
         const firstId = state.res.keys().next().value;
@@ -5917,45 +6596,8 @@
   }
 
   function stepCityDefense(dt) {
-    const rate = CFG.CITY_ATTACK_RATE;
-    for (const p of state.players.values()) {
-      p.cityAtkCd = (p.cityAtkCd ?? 0) - dt;
-      if (p.cityAtkCd > 0) continue;
-      const turretDmgMul = (p.turretDmgMul != null ? p.turretDmgMul : 1) * getLevelBonusMul(p);
-      const dmg = Math.max(1, Math.round(CFG.CITY_ATTACK_DMG * turretDmgMul));
-      const X = CFG.CITY_BASE_TARGETS + (p.cityTargetBonus || 0);
-      const enemies = [];
-      for (const u of state.units.values()) {
-        if (u.owner === p.id) continue;
-        if (isUnitInPlayerZone(u, p)) enemies.push(u);
-      }
-      enemies.sort((a, b) => dist2(a.x, a.y, p.x, p.y) - dist2(b.x, b.y, p.x, p.y));
-      const toShoot = enemies.slice(0, X);
-      if (toShoot.length > 0) {
-        p.cityAtkCd = 1 / rate;
-        const cityBulletSpeed = 20;
-        const zoneR = p.influenceR || CFG.INFLUENCE_BASE_R || 240;
-        const maxFlightTime = zoneR / cityBulletSpeed;
-        for (const target of toShoot) {
-          state.bullets.push({
-            type: "ranged",
-            x: p.x, y: p.y,
-            fromX: p.x, fromY: p.y,
-            toX: target.x, toY: target.y,
-            color: p.color,
-            ownerId: p.id,
-            dmg,
-            speed: cityBulletSpeed,
-            traveled: 0,
-            maxDist: Math.hypot(target.x - p.x, target.y - p.y) + 40,
-            aoe: true,
-            big: true,
-            spawnTime: state.t,
-            maxFlightTime
-          });
-        }
-      }
-    }
+    // Planet core no longer auto-fires. Defensive ranged combat now belongs to orbiting turrets.
+    for (const p of state.players.values()) p.cityAtkCd = 0;
   }
 
   function isUnitInPlayerZone(u, p) {
@@ -6283,6 +6925,7 @@
     if (p.shieldGfx) { cityLayer.removeChild(p.shieldGfx); p.shieldGfx = null; }
     if (p.zoneGfx) zonesLayer.removeChild(p.zoneGfx);
     if (p.zoneGlow) zonesLayer.removeChild(p.zoneGlow);
+    if (p.zoneShellGfx) zonesLayer.removeChild(p.zoneShellGfx);
 
     const ghostG = new PIXI.Graphics();
     ghostG.lineStyle(3, 0x555555, 0.8);
@@ -6966,12 +7609,14 @@
         const minFlyTime = 0.4;
         const canPickup = !r._spawnedAt || (state.t - r._spawnedAt >= minFlyTime);
         if (dl < 28 && canPickup) {
-          if (r.type === "credit") {
-            p.eCredits = (p.eCredits || 0) + (r.value || 0);
-          } else {
-            gainXP(p, r.xp || 0);
+          if (!r._visualOnly) {
+            if (r.type === "credit") {
+              p.eCredits = (p.eCredits || 0) + (r.value || 0);
+            } else {
+              gainXP(p, r.xp || 0);
+            }
           }
-          if (p.id === state.myPlayerId) tickSound(1480, 0.03, 0.04);
+          if (p.id === state.myPlayerId) playCollectSound();
           toDelete.push(r.id);
           continue;
         }
@@ -6992,10 +7637,11 @@
       }
 
       const interceptProtected = r._interceptProtectUntil && state.t < r._interceptProtectUntil;
-      if (!r._targetCity || !interceptProtected) {
+      if (!r._visualOnly && (!r._targetCity || !interceptProtected)) {
         const nearby = queryHash(r.x, r.y, touchR);
         for (let i = 0; i < nearby.length; i++) {
           const u = nearby[i];
+          if (u.owner === PIRATE_OWNER_ID) continue;
           if (r._targetCity && r._targetCity === u.owner) continue;
           if (interceptProtected && u.owner !== r._targetCity) continue;
           const uHR = getUnitHitRadius(u);
@@ -7008,21 +7654,21 @@
         }
       }
 
-      if (!r._targetCity && r.type === "orb") {
+      if (!r._visualOnly && !r._targetCity && r.type === "orb") {
         for (const p of state.players.values()) {
           if ((r.x - p.x) ** 2 + (r.y - p.y) ** 2 <= 100) {
             gainXP(p, r.xp || 0);
-            if (p.id === state.myPlayerId) tickSound(1480, 0.03, 0.04);
+            if (p.id === state.myPlayerId) playCollectSound();
             toDelete.push(r.id);
             break;
           }
         }
       }
-      if (!r._targetCity && r.type === "credit") {
+      if (!r._visualOnly && !r._targetCity && r.type === "credit") {
         for (const p of state.players.values()) {
           if ((r.x - p.x) ** 2 + (r.y - p.y) ** 2 <= 100) {
             p.eCredits = (p.eCredits || 0) + (r.value || 0);
-            if (p.id === state.myPlayerId) tickSound(1480, 0.03, 0.04);
+            if (p.id === state.myPlayerId) playCollectSound();
             toDelete.push(r.id);
             break;
           }
@@ -7652,11 +8298,12 @@
     const unitDmgMul = (p.unitDmgMul != null ? p.unitDmgMul : 1) * getLevelBonusMul(p);
     const unitSpdMul = (p.unitSpeedMul != null ? p.unitSpeedMul : 1) * getLevelBonusMul(p);
     const unitAtkRMul = (p.unitAtkRateMul != null ? p.unitAtkRateMul : 1) * getLevelBonusMul(p);
+    const enemyTurretVolley = Math.max(1, Math.round(CFG.TURRET_ATTACK_DMG * (p.turretDmgMul != null ? p.turretDmgMul : 1) * getLevelBonusMul(p))) * (1 + (p.turretTargetBonus || p.cityTargetBonus || 0));
     const myPop = me ? me.pop : 0;
     const myLevel = me ? me.level : 0;
     const myXpNext = me ? me.xpNext : 1;
     const myPerMin = me ? (() => { const b = CFG.GROWTH_BASE_PER_MIN + Math.floor(me.pop / 100) * CFG.GROWTH_PER_100; const penM = Math.min(CFG.ACTIVE_SOLDIER_PENALTY_CAP, (me.activeUnits || 0) * CFG.ACTIVE_SOLDIER_PENALTY_PER); const killM = 0.30 * ((me.killGrowthStacks || []).filter(et => et > state.t).length); const cityM = ((me._growthBonuses || []).filter(b => b.expiresAt > state.t)).reduce((s, b) => s + b.amount, 0); return (b * (1 - penM) + killM + cityM) * (me.growthMul != null ? me.growthMul : 1); })() : 0;
-    const myCityDmg = me ? Math.max(1, Math.round(CFG.CITY_ATTACK_DMG * (me.turretDmgMul != null ? me.turretDmgMul : 1) * getLevelBonusMul(me))) : 0;
+    const myTurretVolley = me ? Math.max(1, Math.round(CFG.TURRET_ATTACK_DMG * (me.turretDmgMul != null ? me.turretDmgMul : 1) * getLevelBonusMul(me))) * (1 + (me.turretTargetBonus || me.cityTargetBonus || 0)) : 0;
     const myInfR = me ? (me.influenceR || 0) : 0;
     const myInfSpd = me ? (me.influenceSpeedMul != null ? me.influenceSpeedMul : 1) : 1;
     const myTurretCount = me ? (me.turretIds || []).filter(tid => { const t = state.turrets.get(tid); return t && t.hp > 0; }).length : 0;
@@ -7665,12 +8312,14 @@
     const myUnitDmg = me ? (ft.damage * (me.unitDmgMul != null ? me.unitDmgMul : 1) * getLevelBonusMul(me)) : 0;
     const myUnitSpd = me ? (ft.speed * (me.unitSpeedMul != null ? me.unitSpeedMul : 1) * getLevelBonusMul(me)) : 0;
     const myUnitAtkR = me ? (ft.attackRate * (me.unitAtkRateMul != null ? me.unitAtkRateMul : 1) * getLevelBonusMul(me)) : 0;
-    const eMineCount = [...state.mines.values()].filter(m => m.ownerId === p.id).length;
-    const eMineIncPerMin = eMineCount * ((CFG.MINE_BASE_YIELD_VALUE * 0.7) + (p.mineYieldBonus || 0)) / Math.max(0.5, 2.5) * 60;
+    const enemyMineRates = getPlayerMineRates(p.id);
+    const eMineIncPerMin = enemyMineRates.moneyPerSec * 60;
+    const eMineXpPerMin = enemyMineRates.xpPerSec * 60;
     const ePopIncPerMin = Math.floor(p.pop / 100) * 60;
     const eTotalIncPerMin = Math.round(eMineIncPerMin + ePopIncPerMin);
-    const myMineCountC = [...state.mines.values()].filter(m => m.ownerId === (me ? me.id : -1)).length;
-    const myMineIncPerMin = me ? myMineCountC * ((CFG.MINE_BASE_YIELD_VALUE * 0.7) + (me.mineYieldBonus || 0)) / Math.max(0.5, 2.5) * 60 : 0;
+    const myMineRates = me ? getPlayerMineRates(me.id) : { moneyPerSec: 0, xpPerSec: 0 };
+    const myMineIncPerMin = myMineRates.moneyPerSec * 60;
+    const myMineXpPerMin = myMineRates.xpPerSec * 60;
     const myPopIncPerMin = me ? Math.floor(me.pop / 100) * 60 : 0;
     const myTotalIncPerMin = Math.round(myMineIncPerMin + myPopIncPerMin);
     const cityPart =
@@ -7679,7 +8328,8 @@
       "<div class='stat-line'><span class='stat-label'>Опыт</span><span class='stat-val'>" + Math.floor(p.xp || 0) + "/" + Math.floor(p.xpNext || 0) + "</span></div>" +
       "<div class='stat-line'><span class='stat-label'>Рост</span><span class='stat-val'>" + perMin.toFixed(1) + "/мин" + statDiffHTML(perMin, myPerMin) + "</span></div>" +
       "<div class='stat-line'><span class='stat-label'>Доход</span><span class='stat-val'>" + eTotalIncPerMin + "/мин" + statDiffHTML(eTotalIncPerMin, myTotalIncPerMin) + "</span></div>" +
-      "<div class='stat-line'><span class='stat-label'>Урон города</span><span class='stat-val'>" + cityDmg + statDiffHTML(cityDmg, myCityDmg) + "</span></div>" +
+      "<div class='stat-line'><span class='stat-label'>XP шахт</span><span class='stat-val'>" + Math.round(eMineXpPerMin) + "/мин" + statDiffHTML(eMineXpPerMin, myMineXpPerMin) + "</span></div>" +
+      "<div class='stat-line'><span class='stat-label'>Залп турелей</span><span class='stat-val'>" + enemyTurretVolley + statDiffHTML(enemyTurretVolley, myTurretVolley) + "</span></div>" +
       "<div class='stat-line'><span class='stat-label'>Зона</span><span class='stat-val'>R " + (p.influenceR || 0).toFixed(0) + statDiffHTML(p.influenceR || 0, myInfR) + "</span></div>" +
       "<div class='stat-line'><span class='stat-label'>Скор. зоны</span><span class='stat-val'>×" + infSpdMul.toFixed(2) + statDiffHTML(infSpdMul, myInfSpd) + "</span></div>" +
       "<div class='stat-line'><span class='stat-label'>Турели</span><span class='stat-val'>" + turretCount + statDiffHTML(turretCount, myTurretCount) + "</span></div>";
@@ -8168,8 +8818,8 @@
 
     const eCreditsEl = document.getElementById("eCreditsValue");
     if (eCreditsEl) {
-      const myMineCountForInc = [...state.mines.values()].filter(m => m.ownerId === me.id).length;
-      const mineIncPerMin = myMineCountForInc * ((CFG.MINE_BASE_YIELD_VALUE * 0.7) + (me.mineYieldBonus || 0)) / Math.max(0.5, 2.5) * 60;
+      const mineRates = getPlayerMineRates(me.id);
+      const mineIncPerMin = mineRates.moneyPerSec * 60;
       const popIncPerMin = Math.floor(me.pop / 100) * 60;
       const totalIncPerMin = Math.round(mineIncPerMin + popIncPerMin);
       eCreditsEl.textContent = Math.floor(me.eCredits || 0) + "  (+" + totalIncPerMin + "/мин)";
@@ -8195,15 +8845,15 @@
 
     const turretCount = (me.turretIds || []).filter(tid => { const t = state.turrets.get(tid); return t && t.hp > 0; }).length;
     const cityDmgMulHud = (me.turretDmgMul != null ? me.turretDmgMul : 1) * getLevelBonusMul(me);
-    const cityDmg = Math.max(1, Math.round(CFG.CITY_ATTACK_DMG * cityDmgMulHud));
+    const turretVolleyTargets = 1 + (me.turretTargetBonus || me.cityTargetBonus || 0);
+    const cityDmg = Math.max(1, Math.round(CFG.TURRET_ATTACK_DMG * cityDmgMulHud));
     const turretHpMulHud = (me.turretHpMul != null ? me.turretHpMul : 1) * getLevelBonusMul(me);
     const turretHp = Math.max(1, Math.round(me.pop * (CFG.TURRET_HP_RATIO ?? 0.1) * turretHpMulHud));
     const turretDmgMulHud2 = (me.turretDmgMul != null ? me.turretDmgMul : 1) * getLevelBonusMul(me);
     const turretDmg = ((CFG.TURRET_ATTACK_DMG ?? 3) * (CFG.TURRET_ATTACK_RATE ?? 1.2) * turretDmgMulHud2).toFixed(1);
 
     const infSpdMul = me.influenceSpeedMul != null ? me.influenceSpeedMul : 1;
-    const myMineCount = [...state.mines.values()].filter(m => m.ownerId === me.id).length;
-    const mineYieldPerSec = ((CFG.MINE_BASE_YIELD_VALUE * 0.7) + (me.mineYieldBonus || 0)) / Math.max(0.5, 2.5);
+    const myMineRates = getPlayerMineRates(me.id);
     const popCreditPerSecHud = Math.floor(me.pop / 100);
     const shieldPct = me.shieldMaxHp > 0 ? Math.round((me.shieldHp / me.shieldMaxHp) * 100) : 0;
     const totalArea = CFG.WORLD_W * CFG.WORLD_H;
@@ -8224,7 +8874,7 @@
     const el = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
     el("hudPop", me.pop + " (+" + popCreditPerSecHud + "€/с)");
     el("hudGrowth", perMin.toFixed(1));
-    el("hudMining", mineYieldPerSec.toFixed(1) + "/с × " + myMineCount);
+    el("hudMining", "€ " + myMineRates.moneyPerSec.toFixed(1) + "/с | XP " + myMineRates.xpPerSec.toFixed(1) + "/с");
     el("hudShield", Math.round(me.shieldHp || 0) + " (" + shieldPct + "%)");
     el("hudZone", zonePct.toFixed(1) + "%");
     el("hudZoneSpeed", "×" + infSpdMul.toFixed(2));
@@ -8232,7 +8882,7 @@
     if (zoneFill) zoneFill.style.width = zonePct + "%";
     el("hudTurretHp", turretHp + " hp");
     el("hudTurretDmg", turretDmg + " dps");
-    el("hudCityDmg", cityDmg + " ×" + (CFG.CITY_BASE_TARGETS + (me.cityTargetBonus || 0)));
+    el("hudCityDmg", cityDmg + " ×" + turretVolleyTargets);
     el("hudPatrols", patrolCount);
 
     const lb = getLevelBonusMul(me);
@@ -9153,6 +9803,7 @@
       if (p.cityGfx && p.cityGfx.parent) p.cityGfx.parent.removeChild(p.cityGfx);
       if (p.zoneGfx && p.zoneGfx.parent) p.zoneGfx.parent.removeChild(p.zoneGfx);
       if (p.zoneGlow && p.zoneGlow.parent) p.zoneGlow.parent.removeChild(p.zoneGlow);
+      if (p.zoneShellGfx && p.zoneShellGfx.parent) p.zoneShellGfx.parent.removeChild(p.zoneShellGfx);
       if (p.zoneLightGfx && p.zoneLightGfx.parent) p.zoneLightGfx.parent.removeChild(p.zoneLightGfx);
       if (p.shieldGfx && p.shieldGfx.parent) p.shieldGfx.parent.removeChild(p.shieldGfx);
     }
@@ -9182,7 +9833,7 @@
     state.nextEngagementZoneId = snap.nextEngagementZoneId ?? 1;
 
     for (const o of snap.players) {
-      const p = { ...o, cityGfx: null, zoneGfx: null, zoneGlow: null, zoneLightGfx: null, shieldGfx: null, label: null };
+      const p = { ...o, cityGfx: null, zoneGfx: null, zoneGlow: null, zoneShellGfx: null, zoneLightGfx: null, shieldGfx: null, label: null };
       state.players.set(p.id, p);
       if (eliminatedBeforeRewind.includes(p.id)) {
         if (!state.botPlayerIds) state.botPlayerIds = new Set();
@@ -11406,6 +12057,7 @@
     updateCombatUI,
     updateFloatingDamage,
     updateAbilityAnnouncements,
+    updateMineFlowVisuals,
     drawBullets,
     drawStorm,
     drawNebulae,
