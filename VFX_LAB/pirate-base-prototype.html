@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pirate Base Prototype 01</title>
+  <link rel="stylesheet" href="./vfx-lab.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <h2 id="variantTitle">Pirate Base Prototype 01</h2>
+      <p>Шесть направлений для пиратской базы: больше массы, читаемый silhouette, доковые узлы и один общий язык для рейдерской фракции.</p>
+      <p>Корабельный класс здесь один: <code>Frigate</code>. Проверяем, как база и ее эскорт читаются как единый пиратский пакет.</p>
+    </div>
+    <div class="controls">
+      <div class="control">
+        <label>Base Variant</label>
+        <select id="variant"></select>
+      </div>
+      <div class="control">
+        <label>Palette</label>
+        <select id="palette">
+          <option value="teal">Teal</option>
+          <option value="amber">Amber</option>
+          <option value="violet">Violet</option>
+          <option value="red">Red</option>
+          <option value="green">Green</option>
+        </select>
+      </div>
+      <div class="control">
+        <label>LOD</label>
+        <select id="lodMode">
+          <option value="auto">Auto</option>
+          <option value="near">Near</option>
+          <option value="mid">Mid</option>
+          <option value="far">Far</option>
+        </select>
+      </div>
+      <div class="control">
+        <label>Threat</label>
+        <input id="threat" type="range" min="0" max="100" value="46">
+      </div>
+      <div class="control">
+        <label>Frigates</label>
+        <input id="frigateCount" type="range" min="4" max="22" value="10">
+      </div>
+      <div class="control">
+        <label>Drift</label>
+        <input id="drift" type="range" min="0" max="100" value="44">
+      </div>
+    </div>
+    <div class="actions">
+      <button type="button" id="cycleVariant">Cycle Variant</button>
+      <button type="button" id="shufflePalette">Shuffle Palette</button>
+      <button type="button" id="frigateBurst">Frigate Burst</button>
+    </div>
+  </header>
+
+  <nav class="nav">
+    <a href="./index.html">Overview</a>
+    <a href="./zone-pressure-prototype.html">Zone Prototype 01</a>
+    <a href="./ships-prototype.html">Ships Prototype 01</a>
+    <a href="./mine-flow-prototype.html">Mine Flow Prototype 01</a>
+    <a href="./map-nebula-prototype.html">Nebula Prototype 01</a>
+    <a href="./pirate-base-prototype.html" class="active">Pirate Base Prototype 01</a>
+  </nav>
+
+  <main class="scene-wrap">
+    <canvas id="scene"></canvas>
+  </main>
+
+  <div id="statusLine" class="status-line">
+    Pirate Base Prototype focuses on one heavy pirate station plus one unique escort class: frigates.
+  </div>
+
+  <section class="legend">
+    <article class="legend-card">
+      <h3>6 Directions</h3>
+      <p id="legendVariants">Shard Bastion, Scrap Halo, Rift Anchor, Pulse Furnace, Maw Dock and Hook Rig cover the six current pirate-base directions.</p>
+    </article>
+    <article class="legend-card">
+      <h3>Frigate Read</h3>
+      <p id="legendFrigate">Фрегаты остаются одним силуэтным классом: сухой нос, рубленые плечи, длинный двигательный шлейф и быстрые обходы вокруг базы.</p>
+    </article>
+    <article class="legend-card">
+      <h3>Scene Goal</h3>
+      <p id="legendScene">Сцена проверяет три вещи: база читается на дальнем плане, доки видны в среднем плане, а фрегаты связывают станцию с боевой активностью.</p>
+    </article>
+  </section>
+
+  <script src="./pirate-base-prototype.js"></script>
+</body>
+</html>

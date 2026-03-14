@@ -28,7 +28,7 @@
     "cityAttackTargets": 2,
     "cityAttackRate": 0.4,
     "cityAttackDamage": 5,
-    "comment": "population = city HP. At 150 pop, growth ~3.5/min. cityAttackTargets=2 so base defends itself vs small raids. cityAttackDamage=5 punishes unprotected scouts."
+    "comment": "Energy = city HP. At 150 energy, growth ~3.5/min. cityAttackTargets=2 is used by city defense logic; cityAttackDamage=5 punishes unprotected scouts."
   },
   "unitTypes": {
     "fighter": {
@@ -71,7 +71,7 @@
       "speed": 15,
       "attackRange": 180,
       "maxTargets": 3,
-      "popPenaltyPerUnit": 30,
+      "popPenaltyPerUnit": 50,
       "sizeMultiplier": 4.0,
       "orbitTarget": false,
       "comment": "MID-LATE. Area denial. 3x range of fighter. DPS=25.2, cost/DPS=71.4. Kills fighter groups. Available ~8-10 min."
@@ -86,7 +86,7 @@
       "speed": 11.25,
       "attackRange": 220,
       "maxTargets": 4,
-      "popPenaltyPerUnit": 60,
+      "popPenaltyPerUnit": 150,
       "sizeMultiplier": 6.0,
       "orbitTarget": false,
       "comment": "LATE. Siege breaker. 4 targets at long range. DPS=48.4, cost/DPS=103.3. Available ~15 min. Needs escort (slow)."
@@ -101,7 +101,7 @@
       "speed": 9,
       "attackRange": 260,
       "maxTargets": 6,
-      "popPenaltyPerUnit": 100,
+      "popPenaltyPerUnit": 450,
       "sizeMultiplier": 8.0,
       "orbitTarget": false,
       "comment": "ENDGAME. Game-ender. 6 targets, massive range. DPS=97.2, cost/DPS=123.5. Available ~25 min. Very slow, high pop penalty."
@@ -111,16 +111,17 @@
     "captureRadius": 140,
     "captureProtectionSeconds": 5,
     "captureTimeSeconds": 3,
-    "yieldPerSecond": 1,
+    "yieldPerSecond": 0.4,
+    "energyPerSecond": 0.1,
     "baseYieldValue": 1,
-    "richMultiplier": 2.5,
+    "richMultiplier": 2.0,
     "gemSpeed": 15,
     "gemInterceptRadius": 30,
     "maxGemsPerMine": 10,
     "startingMinesPerPlayer": 4,
     "neutralMinesPerPlayer": 2,
     "totalMines": 25,
-    "comment": "1 mine ≈ 60 eCredits/min. 2 starting mines = 120/min. Rich mine = 150/min. Control mines = faster tech-up."
+    "comment": "Normal mine = 0.4 resource/sec and 0.1 energy/sec. Rich mine = x2. Mines remain the main source of map control and economy."
   },
   "eCredits": {
     "startingAmount": 200,
@@ -128,11 +129,11 @@
   },
   "turret": {
     "spacing": 55,
-    "attackRadius": 45,
+    "attackRadius": 90,
     "attackRate": 1.2,
-    "attackDamage": 3,
-    "hpRatio": 0.1,
-    "comment": "Border turrets. spacing=px between them. They slow attackers but won't stop a real army."
+    "attackDamage": 30,
+    "hpRatio": 0.35,
+    "comment": "Border turrets. Base damage is boosted; multishot now belongs to patrols instead of turrets."
   },
   "formation": {
     "horizontalSpacing": 14,

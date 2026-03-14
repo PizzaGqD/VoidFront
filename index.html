@@ -9,6 +9,10 @@
 <body>
   <!-- Background music -->
   <audio id="bgMusic" preload="auto"></audio>
+  <div id="menuSimBackdrop" class="menu-sim-backdrop" aria-hidden="true">
+    <canvas id="menuSimCanvas" class="menu-sim-canvas"></canvas>
+    <div class="menu-sim-vignette"></div>
+  </div>
 
   <!-- Главное меню -->
   <div id="mainMenu" class="menu-overlay menu-screen menu-splash">
@@ -18,6 +22,7 @@
       <div class="menu-buttons">
         <button type="button" id="btnSingle" class="menu-btn">Одиночка с ботами</button>
         <button type="button" id="btnMulti" class="menu-btn">Мультиплеер</button>
+        <button type="button" id="btnTestMap400" class="menu-btn secondary">Тест карта 400v400</button>
       </div>
       <button type="button" id="btnMusicToggle" class="music-toggle" title="Вкл/Выкл музыку">&#9835; Музыка</button>
     </div>
@@ -171,7 +176,7 @@
     <div id="leaderboard" class="box leaderboard topright-leaderboard">
       <div class="subtitle">Лидеры</div>
       <table class="leader-table">
-        <thead><tr><th>#</th><th>Город</th><th>Население</th><th>Карта %</th></tr></thead>
+        <thead><tr><th>#</th><th>Город</th><th>Энергия</th><th>Карта %</th></tr></thead>
         <tbody id="leaderboardBody"></tbody>
       </table>
     </div>
@@ -270,7 +275,7 @@
     </div>
     <div id="testPanel" style="display:none;flex-direction:column;gap:6px;margin-top:6px;">
       <div style="color:#88bbff;font-size:12px;font-weight:700;text-align:center;margin-bottom:2px;">Тест-панель</div>
-      <button id="testAddPop" style="background:#1a1d55;color:#ddeeff;border:1px solid #44aaff;border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12px;">+1000 население</button>
+      <button id="testAddPop" style="background:#1a1d55;color:#ddeeff;border:1px solid #44aaff;border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12px;">+1000 энергии</button>
       <button id="testAddLevel" style="background:#1a1d55;color:#ddeeff;border:1px solid #44aaff;border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12px;">+100 уровень</button>
       <button id="testNoCooldowns" style="background:#1a1d55;color:#ddeeff;border:1px solid #44aaff;border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12px;">Без перезарядок</button>
     </div>
@@ -287,23 +292,25 @@
   <div id="hud">
     <div class="title">VoidFront <span id="gameVersionBadge" style="font-size:11px;font-weight:600;opacity:0.55;letter-spacing:0.3px;cursor:help;" title="">BUILD 1.6a</span></div>
 
-    <div id="eCreditsDisplay" class="ecredits-display" data-tooltip="Кредиты — основная валюта для покупки кораблей. Получаете от шахт и от населения (каждые 50 жителей = +1⚡€/сек)">
-      <span class="ecredits-icon">⚡€</span>
-      <span id="eCreditsValue" class="ecredits-value">0</span>
+    <div class="resource-displays">
+      <div id="energyDisplay" class="energy-display" data-tooltip="Энергия ядра (= HP города). Влияет на радиус зоны влияния, растёт сама по себе и дополнительно приходит от шахт. Каждые 100 энергии дают +1€/с.">
+        <span class="energy-icon">⚡</span>
+        <span id="energyValue" class="ecredits-value energy-value">0</span>
+      </div>
+      <div id="eCreditsDisplay" class="ecredits-display" data-tooltip="Кредиты — основная валюта для покупки кораблей. Получаете от шахт и от Энергии ядра: каждые 100 Энергии дают +1€/с.">
+        <span class="ecredits-icon">€</span>
+        <span id="eCreditsValue" class="ecredits-value">0</span>
+      </div>
     </div>
 
     <!-- Планета -->
     <div class="hud-section" id="hudPlanet">
       <div class="hud-section-header">🌍 Планета</div>
-      <div class="hud-stat-row" data-tooltip="Текущее население планеты (= HP города). Влияет на радиус зоны влияния и приносит кредиты: каждые 50 населения = +1⚡€/сек">
-        <span class="hud-stat-icon">👥</span><span class="hud-stat-label">Население</span>
+      <div class="hud-stat-row" data-tooltip="Текущая Энергия ядра (= HP города). Влияет на радиус зоны влияния и приносит кредиты: каждые 100 Энергии = +1€/с.">
+        <span class="hud-stat-icon">⚡</span><span class="hud-stat-label">Энергия</span>
         <span class="hud-stat-val" id="hudPop">0</span>
       </div>
-      <div class="hud-stat-row" data-tooltip="Прирост населения в минуту">
-        <span class="hud-stat-icon">📈</span><span class="hud-stat-label">Прирост/мин</span>
-        <span class="hud-stat-val" id="hudGrowth">0</span>
-      </div>
-      <div class="hud-stat-row" data-tooltip="Средний доход от одной шахты × количество захваченных шахт">
+      <div class="hud-stat-row" data-tooltip="Суммарный доход от шахт: Энергия, кредиты и XP.">
         <span class="hud-stat-icon">⛏️</span><span class="hud-stat-label">Добыча</span>
         <span class="hud-stat-val" id="hudMining">0</span>
       </div>
@@ -333,7 +340,7 @@
         <span class="hud-stat-icon">💥</span><span class="hud-stat-label">Урон турели</span>
         <span class="hud-stat-val" id="hudTurretDmg">0</span>
       </div>
-      <div class="hud-stat-row" data-tooltip="Урон одной орбитальной турели × количество целей за залп">
+      <div class="hud-stat-row" data-tooltip="Урон одного выстрела орбитальной турели">
         <span class="hud-stat-icon">🎯</span><span class="hud-stat-label">Залп турелей</span>
         <span class="hud-stat-val" id="hudCityDmg">0</span>
       </div>
@@ -375,7 +382,7 @@
           <button type="button" class="unit-buy-btn" data-type="fighter" title="Корвет — быстрый разведчик">
             <span class="unit-buy-icon">▲<sup>·</sup></span>
             <span class="unit-buy-name">Корвет</span>
-            <span class="unit-buy-cost">40 ⚡€</span>
+            <span class="unit-buy-cost">40 €</span>
             <span class="unit-count-badge" style="font-size:9px;opacity:0.5;display:block;">0/300</span>
           </button>
           <div class="unit-batch-row">
@@ -387,7 +394,7 @@
           <button type="button" class="unit-buy-btn" data-type="destroyer" title="Эсминец">
             <span class="unit-buy-icon">▲<sup>··</sup></span>
             <span class="unit-buy-name">Эсминец</span>
-            <span class="unit-buy-cost">450 ⚡€</span>
+            <span class="unit-buy-cost">450 €</span>
             <span class="unit-count-badge" style="font-size:9px;opacity:0.5;display:block;">0/100</span>
           </button>
           <div class="unit-batch-row">
@@ -399,7 +406,7 @@
           <button type="button" class="unit-buy-btn" data-type="cruiser" title="Крейсер">
             <span class="unit-buy-icon">▲<sup>···</sup></span>
             <span class="unit-buy-name">Крейсер</span>
-            <span class="unit-buy-cost">1800 ⚡€</span>
+            <span class="unit-buy-cost">1800 €</span>
             <span class="unit-count-badge" style="font-size:9px;opacity:0.5;display:block;">0/50</span>
           </button>
           <div class="unit-batch-row">
@@ -411,7 +418,7 @@
           <button type="button" class="unit-buy-btn" data-type="battleship" title="Линкор">
             <span class="unit-buy-icon">▲<sup>····</sup></span>
             <span class="unit-buy-name">Линкор</span>
-            <span class="unit-buy-cost">5000 ⚡€</span>
+            <span class="unit-buy-cost">5000 €</span>
             <span class="unit-count-badge" style="font-size:9px;opacity:0.5;display:block;">0/10</span>
           </button>
           <div class="unit-batch-row">
@@ -422,7 +429,7 @@
           <button type="button" class="unit-buy-btn" data-type="hyperDestroyer" title="ГиперЛинкор">
             <span class="unit-buy-icon">▲<sup>······</sup></span>
             <span class="unit-buy-name">ГиперЛинкор</span>
-            <span class="unit-buy-cost">12000 ⚡€</span>
+            <span class="unit-buy-cost">12000 €</span>
             <span class="unit-count-badge" style="font-size:9px;opacity:0.5;display:block;">0/10</span>
           </button>
           <div class="unit-batch-row">

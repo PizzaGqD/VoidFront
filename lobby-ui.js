@@ -356,6 +356,7 @@
       if (soloLobbyBack) soloLobbyBack.addEventListener("click", () => showScreen("nicknameScreen"));
       if (soloLobbyStart) soloLobbyStart.addEventListener("click", () => {
         const nick = state._myNickname || (typeof window !== "undefined" && window._myNickname) || "Игрок";
+        state._quickStartScenario = null;
         startGameSingle(nick);
       });
       if (soloSpawnPicker) {

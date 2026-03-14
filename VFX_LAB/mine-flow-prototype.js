@@ -13,11 +13,15 @@
   var controls = {
     moneyVariantSelect: document.getElementById("moneyVariantSelect"),
     xpVariantSelect: document.getElementById("xpVariantSelect"),
+    backdropVariantSelect: document.getElementById("backdropVariantSelect"),
     lodMode: document.getElementById("lodMode"),
     packetRate: document.getElementById("packetRate"),
     shipCount: document.getElementById("shipCount"),
     redirectSoftness: document.getElementById("redirectSoftness"),
+    backdropNebula: document.getElementById("backdropNebula"),
     beamPulse: document.getElementById("beamPulse"),
+    cometRate: document.getElementById("cometRate"),
+    flareRate: document.getElementById("flareRate"),
     pulseHarvest: document.getElementById("pulseHarvest"),
     shuffleShips: document.getElementById("shuffleShips"),
     randomizeLayout: document.getElementById("randomizeLayout")
@@ -243,13 +247,173 @@
     }
   ];
 
+  var BACKDROP_VARIANTS = [
+    {
+      key: "quiet-void",
+      name: "01. Quiet Void",
+      gradientTop: "#040813",
+      gradientBottom: "#02050d",
+      starCountMul: 0.92,
+      starAlphaMul: 0.86,
+      starSizeMul: 0.92,
+      gridAlpha: 0.12,
+      deepCount: 7,
+      deepHueSet: ["72,108,255", "102,86,255", "88,136,255"],
+      nearNebulas: [
+        { x: 250, y: 170, r: 110, hue: "118,88,255", alpha: 0.07 },
+        { x: 790, y: 520, r: 170, hue: "82,116,255", alpha: 0.08 }
+      ],
+      cometMul: 0.38,
+      flareMul: 0.22,
+      cometSpeedMul: 0.82,
+      cometLenMul: 0.88,
+      flareSizeMul: 0.86,
+      dustBands: []
+    },
+    {
+      key: "blue-shelf",
+      name: "02. Blue Shelf",
+      gradientTop: "#050917",
+      gradientBottom: "#030711",
+      starCountMul: 1.00,
+      starAlphaMul: 0.92,
+      starSizeMul: 0.98,
+      gridAlpha: 0.14,
+      deepCount: 10,
+      deepHueSet: ["70,112,255", "88,146,255", "64,92,212", "106,126,255"],
+      nearNebulas: [
+        { x: 220, y: 190, r: 150, hue: "94,122,255", alpha: 0.10 },
+        { x: 650, y: 470, r: 230, hue: "82,138,255", alpha: 0.11 },
+        { x: 1030, y: 310, r: 150, hue: "112,136,255", alpha: 0.09 }
+      ],
+      cometMul: 0.32,
+      flareMul: 0.26,
+      cometSpeedMul: 0.84,
+      cometLenMul: 0.92,
+      flareSizeMul: 0.94,
+      dustBands: [
+        { x: 0.58, y: 0.44, rx: 250, ry: 90, rot: 0.32, hue: "74,110,180", alpha: 0.030 },
+        { x: 0.36, y: 0.68, rx: 220, ry: 78, rot: -0.22, hue: "46,82,148", alpha: 0.024 }
+      ]
+    },
+    {
+      key: "comet-run",
+      name: "03. Comet Run",
+      gradientTop: "#040712",
+      gradientBottom: "#02050c",
+      starCountMul: 0.84,
+      starAlphaMul: 0.80,
+      starSizeMul: 0.92,
+      gridAlpha: 0.10,
+      deepCount: 5,
+      deepHueSet: ["82,104,232", "112,92,222"],
+      nearNebulas: [
+        { x: 310, y: 160, r: 120, hue: "108,88,220", alpha: 0.06 },
+        { x: 970, y: 540, r: 170, hue: "74,104,214", alpha: 0.06 }
+      ],
+      cometMul: 0.98,
+      flareMul: 0.18,
+      cometSpeedMul: 1.28,
+      cometLenMul: 1.42,
+      flareSizeMul: 0.78,
+      dustBands: [
+        { x: 0.52, y: 0.24, rx: 280, ry: 46, rot: -0.44, hue: "32,46,78", alpha: 0.030 }
+      ]
+    },
+    {
+      key: "aurora-veil",
+      name: "04. Aurora Veil",
+      gradientTop: "#050918",
+      gradientBottom: "#03060f",
+      starCountMul: 1.08,
+      starAlphaMul: 0.88,
+      starSizeMul: 1.00,
+      gridAlpha: 0.13,
+      deepCount: 8,
+      deepHueSet: ["74,146,255", "106,96,255", "86,168,214", "126,112,255"],
+      nearNebulas: [
+        { x: 270, y: 220, r: 180, hue: "88,154,255", alpha: 0.08 },
+        { x: 820, y: 300, r: 190, hue: "126,102,255", alpha: 0.09 },
+        { x: 980, y: 590, r: 160, hue: "76,172,214", alpha: 0.07 }
+      ],
+      cometMul: 0.28,
+      flareMul: 0.34,
+      cometSpeedMul: 0.86,
+      cometLenMul: 0.96,
+      flareSizeMul: 1.06,
+      dustBands: [
+        { x: 0.24, y: 0.42, rx: 320, ry: 64, rot: 1.26, hue: "82,178,255", alpha: 0.040 },
+        { x: 0.48, y: 0.46, rx: 360, ry: 72, rot: 1.18, hue: "122,116,255", alpha: 0.034 },
+        { x: 0.74, y: 0.40, rx: 300, ry: 60, rot: 1.30, hue: "76,210,196", alpha: 0.030 }
+      ]
+    },
+    {
+      key: "rift-bloom",
+      name: "05. Rift Bloom",
+      gradientTop: "#060714",
+      gradientBottom: "#02040b",
+      starCountMul: 1.00,
+      starAlphaMul: 0.90,
+      starSizeMul: 1.04,
+      gridAlpha: 0.15,
+      deepCount: 11,
+      deepHueSet: ["146,88,255", "82,156,255", "184,86,224", "102,112,255"],
+      nearNebulas: [
+        { x: 220, y: 170, r: 160, hue: "148,92,255", alpha: 0.10 },
+        { x: 720, y: 500, r: 220, hue: "86,148,255", alpha: 0.11 },
+        { x: 1040, y: 280, r: 180, hue: "186,84,224", alpha: 0.10 }
+      ],
+      cometMul: 0.36,
+      flareMul: 0.58,
+      cometSpeedMul: 0.90,
+      cometLenMul: 1.00,
+      flareSizeMul: 1.26,
+      dustBands: [
+        { x: 0.54, y: 0.56, rx: 240, ry: 88, rot: -0.10, hue: "124,70,196", alpha: 0.032 },
+        { x: 0.38, y: 0.28, rx: 180, ry: 64, rot: 0.42, hue: "70,112,188", alpha: 0.026 }
+      ]
+    },
+    {
+      key: "storm-fringe",
+      name: "06. Storm Fringe",
+      gradientTop: "#04070f",
+      gradientBottom: "#010308",
+      starCountMul: 0.96,
+      starAlphaMul: 0.78,
+      starSizeMul: 0.94,
+      gridAlpha: 0.11,
+      deepCount: 9,
+      deepHueSet: ["76,112,196", "92,104,182", "118,98,202"],
+      nearNebulas: [
+        { x: 240, y: 230, r: 150, hue: "86,118,212", alpha: 0.07 },
+        { x: 640, y: 540, r: 210, hue: "74,102,176", alpha: 0.09 },
+        { x: 1080, y: 320, r: 140, hue: "108,96,190", alpha: 0.07 }
+      ],
+      cometMul: 0.52,
+      flareMul: 0.20,
+      cometSpeedMul: 1.04,
+      cometLenMul: 1.10,
+      flareSizeMul: 0.82,
+      dustBands: [
+        { x: 0.50, y: 0.22, rx: 380, ry: 54, rot: -0.34, hue: "34,46,74", alpha: 0.034 },
+        { x: 0.58, y: 0.72, rx: 340, ry: 58, rot: 0.24, hue: "42,56,86", alpha: 0.030 },
+        { x: 0.20, y: 0.54, rx: 260, ry: 44, rot: -0.62, hue: "56,72,120", alpha: 0.024 }
+      ]
+    }
+  ];
+
   var state = {
     time: 0,
     lastNow: 0,
     moneyVariantIndex: 0,
     xpVariantIndex: 2,
+    backdropVariantIndex: 5,
     stars: [],
     nebulas: [],
+    deepNebulas: [],
+    backdropDustBands: [],
+    bgComets: [],
+    bgFlares: [],
     packets: [],
     flashes: [],
     dragging: null,
@@ -292,6 +456,11 @@
 
   function rgba(rgb, alpha) {
     return "rgba(" + rgb + "," + alpha.toFixed(3) + ")";
+  }
+
+  function controlRatio(control, fallback) {
+    if (!control) return fallback;
+    return clamp(Number(control.value || (fallback * 100)), 0, 100) / 100;
   }
 
   function pathLine(points) {
@@ -397,6 +566,10 @@
     };
   }
 
+  function getBackdropVariant() {
+    return BACKDROP_VARIANTS[state.backdropVariantIndex] || BACKDROP_VARIANTS[0];
+  }
+
   function getInterceptPalette(route) {
     var targetId = route && route.interceptAnim
       ? route.interceptAnim.targetCoreId
@@ -451,21 +624,152 @@
   }
 
   function seedBackdrop() {
+    var variant = getBackdropVariant();
     state.stars = [];
-    for (var i = 0; i < 240; i++) {
+    state.backdropDustBands = [];
+    var starPalette = variant.key === "rift-bloom"
+      ? ["#ffffff", "#dce7ff", "#a9c7ff", "#e0c9ff", "#ffcce2"]
+      : (variant.key === "aurora-veil"
+        ? ["#ffffff", "#dff6ff", "#a9dcff", "#b9c7ff", "#c6fff4"]
+        : ["#ffffff", "#ffffff", "#ddeeff", "#a8ccff", "#ffe8c8", "#c8b8ff"]);
+    var starCount = Math.round(240 * (variant.starCountMul || 1));
+    for (var i = 0; i < starCount; i++) {
       state.stars.push({
         x: seeded(i * 1.13) * WORLD_W,
         y: seeded(i * 2.37) * WORLD_H,
-        size: 0.8 + seeded(i * 3.61) * 2.8,
-        alpha: 0.2 + seeded(i * 4.77) * 0.6,
-        drift: seeded(i * 5.11) * TAU
+        size: (0.8 + seeded(i * 3.61) * 2.8) * (variant.starSizeMul || 1),
+        alpha: (0.2 + seeded(i * 4.77) * 0.6) * (variant.starAlphaMul || 1),
+        drift: seeded(i * 5.11) * TAU,
+        color: starPalette[i % starPalette.length]
       });
     }
-    state.nebulas = [
-      { x: 260, y: 180, r: 120, hue: "138,88,255", alpha: 0.10 },
-      { x: 770, y: 520, r: 180, hue: "88,118,255", alpha: 0.10 },
-      { x: 1040, y: 350, r: 140, hue: "116,86,255", alpha: 0.09 }
-    ];
+    state.nebulas = (variant.nearNebulas || []).map(function (neb) {
+      return { x: neb.x, y: neb.y, r: neb.r, hue: neb.hue, alpha: neb.alpha };
+    });
+    state.deepNebulas = [];
+    state.bgComets = [];
+    state.bgFlares = [];
+    var hueSet = variant.deepHueSet || ["72,108,255", "102,86,255", "88,136,255", "126,92,255", "86,124,216"];
+    for (var b = 0; b < (variant.dustBands || []).length; b++) {
+      var band = variant.dustBands[b];
+      state.backdropDustBands.push({
+        x: band.x,
+        y: band.y,
+        rx: band.rx,
+        ry: band.ry,
+        rot: band.rot,
+        hue: band.hue,
+        alpha: band.alpha,
+        drift: 0.08 + seeded(300 + b * 3.7) * 0.22,
+        phase: seeded(330 + b * 5.1) * TAU
+      });
+    }
+    for (var n = 0; n < (variant.deepCount || 9); n++) {
+      state.deepNebulas.push({
+        x: seeded(60 + n * 4.7),
+        y: seeded(90 + n * 5.1),
+        r: 160 + seeded(120 + n * 2.3) * 260,
+        hue: hueSet[n % hueSet.length],
+        alpha: 0.018 + seeded(160 + n * 3.1) * 0.020,
+        drift: 0.15 + seeded(200 + n * 2.9) * 0.42,
+        phase: seeded(220 + n * 4.2) * TAU,
+        depth: 0.35 + seeded(260 + n * 5.7) * 0.60
+      });
+    }
+  }
+
+  function spawnBackdropComet() {
+    var variant = getBackdropVariant();
+    if (state.bgComets.length >= 3) return;
+    var edge = Math.floor(Math.random() * 4);
+    var w = canvas.clientWidth || window.innerWidth || 1280;
+    var h = canvas.clientHeight || window.innerHeight || 720;
+    var x = 0;
+    var y = 0;
+    var vx = 0;
+    var vy = 0;
+    var speed = (140 + Math.random() * 120) * (variant.cometSpeedMul || 1);
+    if (edge === 0) {
+      x = -120;
+      y = Math.random() * h * 0.9;
+      vx = speed;
+      vy = (Math.random() - 0.5) * 35;
+    } else if (edge === 1) {
+      x = w + 120;
+      y = Math.random() * h * 0.9;
+      vx = -speed;
+      vy = (Math.random() - 0.5) * 35;
+    } else if (edge === 2) {
+      x = Math.random() * w;
+      y = -120;
+      vx = (Math.random() - 0.5) * 40;
+      vy = speed;
+    } else {
+      x = Math.random() * w;
+      y = h + 120;
+      vx = (Math.random() - 0.5) * 40;
+      vy = -speed;
+    }
+    var life = 3.2 + Math.random() * 2.2;
+    state.bgComets.push({
+      x: x,
+      y: y,
+      vx: vx,
+      vy: vy,
+      len: (90 + Math.random() * 120) * (variant.cometLenMul || 1),
+      life: life,
+      maxLife: life,
+      radius: 2 + Math.random() * 2.2,
+      hue: variant.key === "rift-bloom"
+        ? (Math.random() < 0.5 ? "226,210,255" : "196,214,255")
+        : (variant.key === "aurora-veil"
+          ? (Math.random() < 0.5 ? "198,236,255" : "190,255,235")
+          : (Math.random() < 0.5 ? "210,228,255" : "196,214,255"))
+    });
+  }
+
+  function spawnBackdropFlare() {
+    var variant = getBackdropVariant();
+    if (state.bgFlares.length >= 2) return;
+    var w = canvas.clientWidth || window.innerWidth || 1280;
+    var h = canvas.clientHeight || window.innerHeight || 720;
+    var life = 4.5 + Math.random() * 4.5;
+    state.bgFlares.push({
+      x: w * (0.12 + Math.random() * 0.76),
+      y: h * (0.10 + Math.random() * 0.70),
+      r: (80 + Math.random() * 130) * (variant.flareSizeMul || 1),
+      life: life,
+      maxLife: life,
+      hue: variant.key === "rift-bloom"
+        ? (Math.random() < 0.5 ? "196,122,255" : "128,176,255")
+        : (variant.key === "aurora-veil"
+          ? (Math.random() < 0.5 ? "132,200,255" : "132,255,224")
+          : (Math.random() < 0.5 ? "134,176,255" : "162,140,255"))
+    });
+  }
+
+  function updateBackdrop(dt) {
+    // Cold-only, low-alpha backdrop so it stays below gameplay nebula readability.
+    var variant = getBackdropVariant();
+    var cometRate = controlRatio(controls.cometRate, 0.34);
+    var flareRate = controlRatio(controls.flareRate, 0.22);
+    if (Math.random() < dt * (0.06 + cometRate * 0.48) * (variant.cometMul || 1)) spawnBackdropComet();
+    if (Math.random() < dt * (0.03 + flareRate * 0.18) * (variant.flareMul || 1)) spawnBackdropFlare();
+
+    for (var i = state.bgComets.length - 1; i >= 0; i--) {
+      var comet = state.bgComets[i];
+      comet.x += comet.vx * dt;
+      comet.y += comet.vy * dt;
+      comet.life -= dt;
+      if (comet.life <= 0 || comet.x < -260 || comet.x > state.screenW + 260 || comet.y < -260 || comet.y > state.screenH + 260) {
+        state.bgComets.splice(i, 1);
+      }
+    }
+
+    for (var f = state.bgFlares.length - 1; f >= 0; f--) {
+      state.bgFlares[f].life -= dt;
+      if (state.bgFlares[f].life <= 0) state.bgFlares.splice(f, 1);
+    }
   }
 
   function makeMine(id, x, y, resourceType, rich, owner) {
@@ -568,8 +872,19 @@
       }
     }
 
+    function fillBackdropSelect(select) {
+      if (!select) return;
+      for (var i = 0; i < BACKDROP_VARIANTS.length; i++) {
+        var option = document.createElement("option");
+        option.value = String(i);
+        option.textContent = BACKDROP_VARIANTS[i].name;
+        select.appendChild(option);
+      }
+    }
+
     fillVariantSelect(controls.moneyVariantSelect);
     fillVariantSelect(controls.xpVariantSelect);
+    fillBackdropSelect(controls.backdropVariantSelect);
 
     if (controls.moneyVariantSelect) {
       controls.moneyVariantSelect.value = String(state.moneyVariantIndex);
@@ -585,6 +900,13 @@
         state.xpVariantIndex = Number(controls.xpVariantSelect.value || 0);
         setAccent();
         updateTexts();
+      });
+    }
+    if (controls.backdropVariantSelect) {
+      controls.backdropVariantSelect.value = String(state.backdropVariantIndex);
+      controls.backdropVariantSelect.addEventListener("change", function () {
+        state.backdropVariantIndex = Number(controls.backdropVariantSelect.value || 0);
+        seedBackdrop();
       });
     }
     controls.pulseHarvest.addEventListener("click", function () {
@@ -953,14 +1275,53 @@
   }
 
   function drawBackdrop() {
+    var variant = getBackdropVariant();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, state.screenW, state.screenH);
 
     var screenGrad = ctx.createLinearGradient(0, 0, 0, state.screenH);
-    screenGrad.addColorStop(0, "#040813");
-    screenGrad.addColorStop(1, "#02050d");
+    screenGrad.addColorStop(0, variant.gradientTop || "#040813");
+    screenGrad.addColorStop(1, variant.gradientBottom || "#02050d");
     ctx.fillStyle = screenGrad;
     ctx.fillRect(0, 0, state.screenW, state.screenH);
+
+    var hazeK = controlRatio(controls.backdropNebula, 0.58);
+    var depthK = controlRatio(controls.redirectSoftness, 0.56);
+    for (var db = 0; db < state.backdropDustBands.length; db++) {
+      var band = state.backdropDustBands[db];
+      var driftBandX = Math.cos(state.time * band.drift + band.phase) * 24 * depthK;
+      var driftBandY = Math.sin(state.time * (band.drift * 0.75) + band.phase * 1.1) * 10 * depthK;
+      ctx.save();
+      ctx.translate(state.screenW * band.x + driftBandX, state.screenH * band.y + driftBandY);
+      ctx.rotate(band.rot);
+      var bandGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, band.rx);
+      bandGrad.addColorStop(0, rgba(band.hue, band.alpha * hazeK));
+      bandGrad.addColorStop(0.52, rgba(band.hue, band.alpha * 0.52 * hazeK));
+      bandGrad.addColorStop(1, rgba(band.hue, 0));
+      ctx.fillStyle = bandGrad;
+      ctx.scale(1, band.ry / Math.max(1, band.rx));
+      ctx.beginPath();
+      ctx.arc(0, 0, band.rx, 0, TAU);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    for (var dn = 0; dn < state.deepNebulas.length; dn++) {
+      var deep = state.deepNebulas[dn];
+      var driftX = Math.cos(state.time * deep.drift + deep.phase) * 18 * deep.depth * depthK;
+      var driftY = Math.sin(state.time * (deep.drift * 0.8) + deep.phase * 1.2) * 10 * deep.depth * depthK;
+      var sx = state.screenW * deep.x + driftX;
+      var sy = state.screenH * deep.y + driftY;
+      var sr = deep.r * (0.50 + depthK * 0.85);
+      var deepGrad = ctx.createRadialGradient(sx, sy, 0, sx, sy, sr);
+      deepGrad.addColorStop(0, rgba(deep.hue, deep.alpha * hazeK));
+      deepGrad.addColorStop(0.54, rgba(deep.hue, deep.alpha * 0.52 * hazeK));
+      deepGrad.addColorStop(1, rgba(deep.hue, 0));
+      ctx.fillStyle = deepGrad;
+      ctx.beginPath();
+      ctx.arc(sx, sy, sr, 0, TAU);
+      ctx.fill();
+    }
 
     for (var n = 0; n < state.nebulas.length; n++) {
       var neb = state.nebulas[n];
@@ -968,7 +1329,7 @@
       var cy = state.viewY + neb.y * state.viewScale;
       var r = neb.r * state.viewScale;
       var grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
-      grad.addColorStop(0, rgba(neb.hue, neb.alpha));
+      grad.addColorStop(0, rgba(neb.hue, neb.alpha * (0.42 + hazeK * 0.58)));
       grad.addColorStop(1, rgba(neb.hue, 0));
       ctx.fillStyle = grad;
       ctx.beginPath();
@@ -976,11 +1337,28 @@
       ctx.fill();
     }
 
+    for (var fi = 0; fi < state.bgFlares.length; fi++) {
+      var flare = state.bgFlares[fi];
+      var age = 1 - flare.life / Math.max(0.001, flare.maxLife);
+      var appear = age < 0.22 ? age / 0.22 : 1;
+      var fade = flare.life < flare.maxLife * 0.32 ? flare.life / (flare.maxLife * 0.32) : 1;
+      var alpha = appear * fade * (0.55 + 0.45 * Math.sin(state.time * 0.7 + fi));
+      var flareGrad = ctx.createRadialGradient(flare.x, flare.y, 0, flare.x, flare.y, flare.r);
+      flareGrad.addColorStop(0, rgba("240,246,255", 0.05 * alpha));
+      flareGrad.addColorStop(0.18, rgba(flare.hue, 0.06 * alpha));
+      flareGrad.addColorStop(0.52, rgba(flare.hue, 0.03 * alpha));
+      flareGrad.addColorStop(1, rgba(flare.hue, 0));
+      ctx.fillStyle = flareGrad;
+      ctx.beginPath();
+      ctx.arc(flare.x, flare.y, flare.r, 0, TAU);
+      ctx.fill();
+    }
+
     ctx.save();
     ctx.translate(state.viewX, state.viewY);
     ctx.scale(state.viewScale, state.viewScale);
 
-    ctx.strokeStyle = "rgba(74,112,196,0.18)";
+    ctx.strokeStyle = "rgba(74,112,196," + ((variant.gridAlpha || 0.12) * (0.58 + hazeK * 0.42)).toFixed(3) + ")";
     ctx.lineWidth = 1 / state.viewScale;
     for (var x = 0; x <= WORLD_W; x += 80) {
       ctx.beginPath();
@@ -1000,11 +1378,39 @@
       var pulse = 0.75 + 0.25 * Math.sin(state.time * (0.4 + (i % 7) * 0.06) + star.drift);
       ctx.beginPath();
       ctx.arc(star.x, star.y, star.size / state.viewScale, 0, TAU);
-      ctx.fillStyle = "rgba(234,240,255," + ((star.alpha * pulse) * 0.95).toFixed(3) + ")";
+      ctx.fillStyle = star.color || "rgba(234,240,255," + ((star.alpha * pulse) * 0.95).toFixed(3) + ")";
+      if (star.color) ctx.globalAlpha = (star.alpha * pulse) * 0.95;
       ctx.fill();
+      ctx.globalAlpha = 1;
     }
 
     ctx.restore();
+
+    for (var ci = 0; ci < state.bgComets.length; ci++) {
+      var comet = state.bgComets[ci];
+      var len = Math.hypot(comet.vx, comet.vy) || 1;
+      var nx = -comet.vx / len;
+      var ny = -comet.vy / len;
+      for (var step = 0; step <= 8; step++) {
+        var t = step / 8;
+        var px = comet.x + nx * comet.len * t;
+        var py = comet.y + ny * comet.len * t;
+        var alphaTail = (1 - t) * 0.09 * (comet.life / comet.maxLife);
+        var rr = comet.radius + (1 - t) * 4;
+        ctx.beginPath();
+        ctx.arc(px, py, rr, 0, TAU);
+        ctx.fillStyle = rgba(comet.hue, alphaTail);
+        ctx.fill();
+      }
+      ctx.beginPath();
+      ctx.arc(comet.x, comet.y, comet.radius + 1, 0, TAU);
+      ctx.fillStyle = "rgba(255,255,255,0.55)";
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(comet.x, comet.y, Math.max(1.1, comet.radius * 0.42), 0, TAU);
+      ctx.fillStyle = "rgba(235,242,255,0.78)";
+      ctx.fill();
+    }
   }
 
   function drawCore(coreKey, core, lod) {
@@ -1348,14 +1754,21 @@
 
   function updateStatus() {
     var mix = getVariantMix();
+    var backdrop = getBackdropVariant();
     var rerouted = 0;
     state.routes.forEach(function (route) { if (route.rerouted) rerouted++; });
     var lodKey = getLodKey().toUpperCase();
+    var haze = Math.round(controlRatio(controls.backdropNebula, 0.58) * 100);
+    var depth = Math.round(controlRatio(controls.redirectSoftness, 0.56) * 100);
+    var comet = Math.round(controlRatio(controls.cometRate, 0.34) * 100);
+    var flare = Math.round(controlRatio(controls.flareRate, 0.22) * 100);
     texts.status.textContent =
       "Money: " + mix.money.name + " | XP: " + mix.xp.name +
+      " | BG: " + backdrop.name +
       " | LOD " + lodKey +
       " | visual packets are client-only | rerouted lanes: " + rerouted +
-      " | money = gold/green, xp = blue/magenta";
+      " | haze " + haze + "% parallax " + depth + "% comet " + comet + "% flare " + flare + "%" +
+      " | prod audit: stars use layered parallax, nebulae use slower deep factors";
   }
 
   function frame(now) {
@@ -1370,6 +1783,7 @@
     spawnPackets(dt, state.routes);
     updatePackets(dt, state.routes);
     updateFlashes(dt);
+    updateBackdrop(dt);
 
     drawBackdrop();
     drawSceneWorld();

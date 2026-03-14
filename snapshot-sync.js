@@ -378,17 +378,31 @@
             state.mines.set(mine.id, mine);
             makeMineVisual(mine);
           } else {
-            const changed = mine.ownerId !== m.ownerId || mine.captureProgress !== m.captureProgress;
+            const nextResourceType = m.resourceType || "money";
+            const changed =
+              mine.x !== m.x ||
+              mine.y !== m.y ||
+              mine.ownerId !== m.ownerId ||
+              mine.captureProgress !== m.captureProgress ||
+              mine.isRich !== !!m.isRich ||
+              mine.resourceType !== nextResourceType;
+            mine.x = m.x;
+            mine.y = m.y;
             mine.ownerId = m.ownerId;
             mine.captureProgress = m.captureProgress;
             mine.capturingUnitId = m.capturingUnitId;
+            mine.isRich = !!m.isRich;
+            mine.resourceType = nextResourceType;
             if (changed) updateMineVisual(mine);
           }
         }
         for (const id of [...state.mines.keys()]) {
           if (!wantMineIds.has(id)) {
             const mine = state.mines.get(id);
-            if (mine && mine.gfx) resLayer.removeChild(mine.gfx);
+            if (mine && mine.gfx) {
+              if (mine.gfx.parent) mine.gfx.parent.removeChild(mine.gfx);
+              mine.gfx.destroy(true);
+            }
             state.mines.delete(id);
           }
         }

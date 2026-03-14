@@ -380,6 +380,7 @@
   const camB = balance.camera || {};
   const botsB = balance.bots || {};
   const cityB = balance.city || {};
+  const turretB = balance.turret || {};
   const formB = balance.formation || {};
   const terrainB = balance.terrain || {};
   const waterB = balance.waterBonus || {};
@@ -506,11 +507,11 @@
     INFLUENCE_GROWTH_SPEED: 6.0,
     INFLUENCE_ARMY_MARGIN: 42,
 
-    TURRET_SPACING: 55,
-    TURRET_ATTACK_RADIUS: 45,
-    TURRET_ATTACK_RATE: 1.2,
-    TURRET_ATTACK_DMG: 3,
-    TURRET_HP_RATIO: 0.35,
+    TURRET_SPACING: turretB.spacing ?? 55,
+    TURRET_ATTACK_RADIUS: turretB.attackRadius ?? 45,
+    TURRET_ATTACK_RATE: turretB.attackRate ?? 1.2,
+    TURRET_ATTACK_DMG: turretB.attackDamage ?? 15,
+    TURRET_HP_RATIO: turretB.hpRatio ?? 0.35,
     CITY_DAMAGE_RADIUS: cityB.damageRadius ?? 25,
     CITY_DAMAGE_PER_UNIT_PER_S: cityB.damagePerUnitPerSecond ?? 1.5,
     PLANET_ATTACK_R_MUL: cityB.planetAttackRadiusMul ?? 2.5,
@@ -523,9 +524,10 @@
     MINE_CAPTURE_RADIUS: minesB.captureRadius ?? 50,
     MINE_CAPTURE_PROTECTION: minesB.captureProtectionSeconds ?? 5,
     MINE_CAPTURE_TIME: minesB.captureTimeSeconds ?? 3,
-    MINE_YIELD_PER_SEC: minesB.yieldPerSecond ?? 5,
+    MINE_YIELD_PER_SEC: minesB.yieldPerSecond ?? 0.5,
+    MINE_ENERGY_PER_SEC: minesB.energyPerSecond ?? 0.3,
     MINE_BASE_YIELD_VALUE: minesB.baseYieldValue ?? 1,
-    MINE_RICH_MULTIPLIER: minesB.richMultiplier ?? 2.5,
+    MINE_RICH_MULTIPLIER: minesB.richMultiplier ?? 2.0,
     MINE_GEM_SPEED: minesB.gemSpeed ?? 200,
     MINE_GEM_INTERCEPT_R: minesB.gemInterceptRadius ?? 30,
     MINE_MAX_GEMS: minesB.maxGemsPerMine ?? 10,
@@ -1089,22 +1091,12 @@
       osc.stop(start + 0.2);
     }
   }
-  const MINE_INCOME_SOUND_THROTTLE = 2.2;
-  function playMineIncomeSound() {
-    if (!audioCtx || audioCtx.state !== "running") return;
-    if (state._lastMineIncomeSoundAt != null && (state.t - state._lastMineIncomeSoundAt) < MINE_INCOME_SOUND_THROTTLE) return;
-    state._lastMineIncomeSoundAt = state.t;
-    const t0 = audioCtx.currentTime;
-    const osc = audioCtx.createOscillator();
-    const g = audioCtx.createGain();
-    osc.type = "sine";
-    osc.frequency.setValueAtTime(280, t0);
-    g.gain.setValueAtTime(0.0001, t0);
-    g.gain.exponentialRampToValueAtTime(0.018, t0 + 0.006);
-    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.022);
-    osc.connect(g).connect(audioCtx.destination);
-    osc.start(t0);
-    osc.stop(t0 + 0.025);
+  function playMineIncomeSound(creditGain = 0) {
+    if (creditGain <= 0) return;
+    state._mineIncomeSoundBudget = (state._mineIncomeSoundBudget || 0) + creditGain;
+    if (state._mineIncomeSoundBudget < 100) return;
+    state._mineIncomeSoundBudget -= 100;
+    playCollectSound();
   }
   const COLLECT_SOUND_THROTTLE = 0.06;
   function playCollectSound() {
@@ -1265,13 +1257,17 @@
     } catch (_) {}
   }
 
-  // ── Starfield: 5 layers, 20% stars each, parallax 0.25 → 0.05 ───────────
+  // ── Storm Fringe starfield: crisp layers, colder palette, clearer parallax ─
   const starLayer = new PIXI.Container();
   app.stage.addChildAt(starLayer, 0); // behind world
 
-  const STAR_PARALLAX = [0.45, 0.38, 0.32, 0.26, 0.20, 0.15, 0.11, 0.07, 0.04, 0.02];
-  const STARS_COUNT = [32, 32, 48, 48, 56, 56, 64, 64, 64, 64];
-  const STAR_COLORS = ["#ffffff","#ffffff","#ffffff","#ddeeff","#a8ccff","#ffe8c8","#ffd0a8","#c8b8ff","#ffcccc"];
+  const STAR_PARALLAX = [0.52, 0.42, 0.34, 0.27, 0.21, 0.16, 0.11, 0.07, 0.04, 0.02];
+  const STARS_COUNT = [18, 22, 26, 32, 36, 40, 44, 48, 52, 56];
+  const STAR_COLORS = ["#f8fbff", "#e8f0ff", "#d6e0ff", "#c4d0ff", "#dce3ff", "#b9c7ff"];
+  const STAR_BASE_ALPHA = [0.34, 0.38, 0.42, 0.48, 0.54, 0.60, 0.68, 0.76, 0.84, 0.92];
+  const STAR_LAYER_OPACITY = [0.78, 0.80, 0.82, 0.84, 0.86, 0.88, 0.90, 0.93, 0.96, 1.0];
+  const STAR_SIZE_BASE = [0.18, 0.20, 0.24, 0.28, 0.34, 0.40, 0.48, 0.58, 0.70, 0.82];
+  const STAR_SIZE_RANGE = [0.16, 0.18, 0.22, 0.26, 0.32, 0.38, 0.46, 0.54, 0.64, 0.76];
   let _starSprites = [];
   let _starPulseData = []; // per-layer pulse metadata
   let _starResizeBound = false;
@@ -1282,10 +1278,10 @@
     cnv.width = TW; cnv.height = TH;
     const ctx = cnv.getContext("2d");
     if (layerIndex === 0) {
-      ctx.fillStyle = "#07091a";
+      ctx.fillStyle = "#04070f";
       ctx.fillRect(0, 0, TW, TH);
       const dustRng = mulberry32(seed + 0xDEAD);
-      const dustColors = ["#0a1228", "#120a22", "#0a0f1e", "#14091a", "#091418"];
+      const dustColors = ["#0c1220", "#10182a", "#12162a", "#1a1832", "#0b1321"];
       for (let d = 0; d < 6; d++) {
         const dx = dustRng() * TW, dy = dustRng() * TH;
         const dr = 120 + dustRng() * 200;
@@ -1297,30 +1293,70 @@
         ctx.fillStyle = grad;
         ctx.fillRect(dx - dr, dy - dr, dr * 2, dr * 2);
       }
+      for (let band = 0; band < 3; band++) {
+        const bx = TW * (0.25 + band * 0.24) + (dustRng() - 0.5) * 120;
+        const by = TH * (0.22 + (band % 2) * 0.26) + (dustRng() - 0.5) * 90;
+        const rx = 320 + dustRng() * 180;
+        const ry = 44 + dustRng() * 26;
+        const rot = -0.45 + band * 0.28 + (dustRng() - 0.5) * 0.15;
+        ctx.save();
+        ctx.translate(bx, by);
+        ctx.rotate(rot);
+        const bandGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, rx);
+        bandGrad.addColorStop(0, "rgba(86,118,212,0.070)");
+        bandGrad.addColorStop(0.5, "rgba(54,74,124,0.035)");
+        bandGrad.addColorStop(1, "transparent");
+        ctx.fillStyle = bandGrad;
+        ctx.scale(1, ry / rx);
+        ctx.beginPath();
+        ctx.arc(0, 0, rx, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
       ctx.globalAlpha = 1;
     }
 
     const rng = mulberry32(seed + 0x57AE5 + layerIndex * 7919);
     const count = STARS_COUNT[layerIndex] || 120;
-    const isFront = layerIndex >= 7;
-    const globalShrink = 0.9;
-    const frontShrink = isFront ? 0.7 : 1.0;
-    const sizeBase  = (0.2 + layerIndex * 0.25) * globalShrink * frontShrink;
-    const sizeRange = (0.5 + layerIndex * 0.6) * globalShrink * frontShrink;
+    const sizeBase = STAR_SIZE_BASE[layerIndex] ?? 0.32;
+    const sizeRange = STAR_SIZE_RANGE[layerIndex] ?? 0.34;
     const stars = [];
     for (let i = 0; i < count; i++) {
       const x = rng() * TW, y = rng() * TH;
       const r = sizeBase + rng() * sizeRange;
-      const a = 0.3 + rng() * 0.6;
+      const a = Math.min(1, (0.22 + rng() * 0.56) * (STAR_BASE_ALPHA[layerIndex] ?? 0.6));
       const col = STAR_COLORS[rng() * STAR_COLORS.length | 0];
-      ctx.globalAlpha = a;
-      ctx.fillStyle = col;
-      ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
-      if (r > 1.4) {
-        ctx.globalAlpha = a * 0.25;
+      if (r < 0.45) {
+        ctx.globalAlpha = a * 0.9;
+        ctx.fillStyle = col;
+        ctx.fillRect(x, y, 1, 1);
+      } else {
+        const grad = ctx.createRadialGradient(x, y, 0, x, y, r * 1.9);
+        grad.addColorStop(0, col);
+        grad.addColorStop(0.38, col);
+        grad.addColorStop(1, "transparent");
+        ctx.globalAlpha = a;
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(x, y, r * 1.9, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      if (r > 0.9) {
+        ctx.globalAlpha = a * 0.28;
         ctx.fillStyle = "#ffffff";
-        ctx.fillRect(x - r * 2.5, y - 0.5, r * 5, 1);
-        ctx.fillRect(x - 0.5, y - r * 2.5, 1, r * 5);
+        ctx.fillRect(x - r * 2.4, y - 0.35, r * 4.8, 0.7);
+        ctx.fillRect(x - 0.35, y - r * 2.4, 0.7, r * 4.8);
+      }
+      if (r > 1.25 && rng() > 0.58) {
+        ctx.globalAlpha = a * 0.10;
+        ctx.strokeStyle = "#f4f8ff";
+        ctx.lineWidth = 0.6;
+        ctx.beginPath();
+        ctx.moveTo(x - r * 1.8, y - r * 1.8);
+        ctx.lineTo(x + r * 1.8, y + r * 1.8);
+        ctx.moveTo(x - r * 1.8, y + r * 1.8);
+        ctx.lineTo(x + r * 1.8, y - r * 1.8);
+        ctx.stroke();
       }
       stars.push({ phase: rng() * Math.PI * 2, speed: 0.3 + rng() * 0.7 });
     }
@@ -1349,8 +1385,8 @@
   function pulseStars() {
     const now = performance.now() / 1000;
     for (let L = 0; L < _starSprites.length; L++) {
-      const base = L === 0 ? 1.0 : 1.0;
-      const pulse = 0.03 * Math.sin(now * (0.4 + L * 0.15) + L * 1.5);
+      const base = STAR_LAYER_OPACITY[L] ?? 0.88;
+      const pulse = 0.022 * Math.sin(now * (0.32 + L * 0.11) + L * 1.5);
       _starSprites[L].alpha = base + pulse;
     }
   }
@@ -1358,7 +1394,9 @@
   // Layers
   const world = new PIXI.Container();
   const mapLayer = new PIXI.Container();
+  const nebulaLayer = new PIXI.Container();
   const gridLayer = new PIXI.Container();
+  const nebulaFxLayer = new PIXI.Container();
   const zonesLayer = new PIXI.Container();
   const resLayer = new PIXI.Container();
   const shipTrailsLayer = new PIXI.Container();
@@ -1390,7 +1428,7 @@
   const combatDebugLayer = new PIXI.Container();
   combatDebugLayer.addChild(combatDebugGfx);
   const combatDebugLabels = new Map(); // squad:<id> -> PIXI.Text
-  world.addChild(mapLayer, gridLayer, zonesLayer, zoneEffectsLayer, turretLayer, activityZoneLayer, abilityFxLayer, shipTrailsLayer, unitsLayer, resLayer, cityLayer, shieldHitEffectsLayer, squadLabelsLayer, combatLayer, floatingDamageLayer, bulletsLayer, ghostLayer, combatDebugLayer);
+  world.addChild(mapLayer, nebulaLayer, gridLayer, nebulaFxLayer, zonesLayer, zoneEffectsLayer, turretLayer, activityZoneLayer, abilityFxLayer, shipTrailsLayer, unitsLayer, resLayer, cityLayer, shieldHitEffectsLayer, squadLabelsLayer, combatLayer, floatingDamageLayer, bulletsLayer, ghostLayer, combatDebugLayer);
   world.addChild(fogLayer);
   world.addChild(pathPreviewLayer, selectionBoxLayer);
   world.addChild(worldBorderDarkenLayer);
@@ -1658,62 +1696,523 @@
     return PIXI.Texture.from(cnv);
   }
 
-  const NEBULA_HUES = [0x1a2a6e, 0x2a1a5e, 0x3a2aae, 0x1a4a6e, 0x4a2a8e];
-  const NEBULA_LAYER_PARALLAX = [0.003, 0.006, 0.009, 0.012, 0.015];
+  const NEBULA_HUES = [0x22345a, 0x2e3b68, 0x3a4278, 0x2b446e, 0x5f5aa0];
+  const NEBULA_LAYER_PARALLAX = [0.0018, 0.0032, 0.0048, 0.0066, 0.0084];
+  const NEBULA_VISUAL_VARIANTS = [
+    {
+      key: "veil-mass",
+      cloudColors: [0x4a80ee, 0x6874ff, 0x56a8f6],
+      edgeColor: 0xd8ecff,
+      sparkColor: 0xaadaff,
+      outerMul: 1.08,
+      innerMul: 0.96,
+      edgeMul: 0.86,
+      shapeMul: 0.90,
+      turbulenceMul: 0.74,
+      plumeDistMul: 1.10,
+      plumeScaleMul: 1.14,
+      knotScaleMul: 0.92,
+      ribbonWidthMul: 0.82,
+      bodyAlphaMul: 1.06,
+      zoneAlphaMul: 0.86,
+      driftMul: 0.84,
+      breathMul: 0.80
+    },
+    {
+      key: "storm-heart",
+      cloudColors: [0x4860dc, 0x7c5cff, 0x5e84ec],
+      edgeColor: 0xdee4ff,
+      sparkColor: 0xc6d6ff,
+      outerMul: 0.98,
+      innerMul: 1.08,
+      edgeMul: 1.06,
+      shapeMul: 1.08,
+      turbulenceMul: 1.30,
+      plumeDistMul: 0.92,
+      plumeScaleMul: 0.98,
+      knotScaleMul: 1.18,
+      ribbonWidthMul: 1.16,
+      bodyAlphaMul: 1.00,
+      zoneAlphaMul: 1.02,
+      driftMul: 1.08,
+      breathMul: 1.04
+    },
+    {
+      key: "ion-anvil",
+      cloudColors: [0x4276d6, 0x5c92ff, 0x6c60e6],
+      edgeColor: 0xd2e8ff,
+      sparkColor: 0xb6e2ff,
+      outerMul: 1.02,
+      innerMul: 1.02,
+      edgeMul: 1.00,
+      shapeMul: 1.14,
+      turbulenceMul: 1.08,
+      plumeDistMul: 1.18,
+      plumeScaleMul: 1.06,
+      knotScaleMul: 1.00,
+      ribbonWidthMul: 0.94,
+      bodyAlphaMul: 0.96,
+      zoneAlphaMul: 0.92,
+      driftMul: 0.90,
+      breathMul: 0.90
+    },
+    {
+      key: "rift-plasma",
+      cloudColors: [0x8c4ee0, 0xd06492, 0xff7c5c],
+      edgeColor: 0xffe6dc,
+      sparkColor: 0xffc09c,
+      outerMul: 0.96,
+      innerMul: 1.12,
+      edgeMul: 1.10,
+      shapeMul: 1.00,
+      turbulenceMul: 1.42,
+      plumeDistMul: 0.84,
+      plumeScaleMul: 0.92,
+      knotScaleMul: 1.24,
+      ribbonWidthMul: 1.22,
+      bodyAlphaMul: 1.12,
+      zoneAlphaMul: 1.16,
+      driftMul: 1.12,
+      breathMul: 1.14
+    }
+  ];
   let nebulaContainers = []; // one PIXI.Container per parallax layer
   let stateNebulaClouds = [];
+  let stateNebulaFogWisps = [];
+
+  function getNebulaVisualVariant(neb) {
+    const idx = neb && neb._visualVariantIndex != null ? neb._visualVariantIndex : 0;
+    return NEBULA_VISUAL_VARIANTS[idx % NEBULA_VISUAL_VARIANTS.length] || NEBULA_VISUAL_VARIANTS[0];
+  }
+
+  function getNebulaVisualDetail() {
+    const level = LOD.getLevel(cam.zoom || 0.22);
+    if (level === LOD.LEVELS.FAR) {
+      return {
+        outlineSteps: 20,
+        outlineSmoothPasses: 1,
+        plumes: 4,
+        knots: 2,
+        ribbons: 2,
+        fringePoints: 5,
+        fogWisps: 6,
+        maxDischarges: 1,
+        dischargeSegMin: 4,
+        dischargeSegMax: 6,
+        dischargeGlowWidth: 2.8,
+        dischargeCoreWidth: 1.4,
+        dischargeStride: 3
+      };
+    }
+    if (level === LOD.LEVELS.MID) {
+      return {
+        outlineSteps: 34,
+        outlineSmoothPasses: 2,
+        plumes: 7,
+        knots: 3,
+        ribbons: 4,
+        fringePoints: 8,
+        fogWisps: 10,
+        maxDischarges: 3,
+        dischargeSegMin: 6,
+        dischargeSegMax: 9,
+        dischargeGlowWidth: 3.6,
+        dischargeCoreWidth: 1.8,
+        dischargeStride: 2
+      };
+    }
+    return {
+      outlineSteps: 52,
+      outlineSmoothPasses: 3,
+      plumes: 10,
+      knots: 4,
+      ribbons: 6,
+      fringePoints: 10,
+      fogWisps: 14,
+      maxDischarges: 3,
+      dischargeSegMin: 8,
+      dischargeSegMax: 11,
+      dischargeGlowWidth: 4.4,
+      dischargeCoreWidth: 2.2,
+      dischargeStride: 1
+    };
+  }
+
+  function initNebulaVisual(neb, variantIndexOverride) {
+    if (!neb) return;
+    if (variantIndexOverride != null) neb._visualVariantIndex = variantIndexOverride;
+    if (neb._visualVariantIndex == null) neb._visualVariantIndex = 0;
+    const variant = getNebulaVisualVariant(neb);
+    if (neb._shapeSeed == null) {
+      neb._shapeSeed = ((((neb.x * 13.17) | 0) * 73856093) ^ (((neb.y * 9.73) | 0) * 19349663) ^ (((neb.radius * 5.31) | 0) * 83492791)) >>> 0;
+    }
+    const rng = mulberry32((neb._shapeSeed ^ ((neb._visualVariantIndex + 1) * 1637)) >>> 0);
+    neb._seedA = neb._seedA ?? (rng() * Math.PI * 2);
+    neb._seedB = neb._seedB ?? (rng() * Math.PI * 2);
+    neb._seedC = neb._seedC ?? (rng() * Math.PI * 2);
+    neb._seedD = neb._seedD ?? (rng() * Math.PI * 2);
+    neb._driftA = neb._driftA ?? (rng() * Math.PI * 2);
+    neb._driftB = neb._driftB ?? (rng() * Math.PI * 2);
+    if (!neb._fillColor) {
+      neb._fillColor = variant.cloudColors[Math.floor(rng() * variant.cloudColors.length)];
+    }
+    if (!Array.isArray(neb._plumes)) {
+      neb._plumes = [];
+      for (let i = 0; i < 16; i++) {
+        neb._plumes.push({
+          angle: rng() * Math.PI * 2,
+          dist: neb.radius * (0.06 + Math.pow(rng(), 0.85) * 0.54) * (variant.plumeDistMul || 1),
+          rx: neb.radius * (0.24 + rng() * 0.50) * (variant.plumeScaleMul || 1),
+          ry: neb.radius * (0.12 + rng() * 0.26) * (variant.plumeScaleMul || 1),
+          alpha: (0.032 + rng() * 0.052) * (variant.bodyAlphaMul || 1),
+          phase: rng() * Math.PI * 2,
+          drift: 0.08 + rng() * 0.18,
+          squish: 0.45 + rng() * 0.45
+        });
+      }
+    }
+    if (!Array.isArray(neb._knots)) {
+      neb._knots = [];
+      for (let i = 0; i < 6; i++) {
+        neb._knots.push({
+          angle: rng() * Math.PI * 2,
+          dist: neb.radius * (0.04 + rng() * 0.28),
+          r: neb.radius * (0.10 + rng() * 0.16) * (variant.knotScaleMul || 1),
+          alpha: (0.045 + rng() * 0.072) * (variant.bodyAlphaMul || 1),
+          phase: rng() * Math.PI * 2,
+          drift: 0.12 + rng() * 0.22
+        });
+      }
+    }
+    if (!Array.isArray(neb._ribbons)) {
+      neb._ribbons = [];
+      for (let i = 0; i < 12; i++) {
+        neb._ribbons.push({
+          angle: rng() * Math.PI * 2,
+          bend: (rng() - 0.5) * 0.9,
+          radiusMul: 0.24 + rng() * 0.48,
+          width: (0.30 + rng() * 0.45) * (variant.ribbonWidthMul || 1),
+          alpha: (0.018 + rng() * 0.036) * (variant.bodyAlphaMul || 1),
+          phase: rng() * Math.PI * 2
+        });
+      }
+    }
+  }
+
+  function sampleNebulaVisualRadius(neb, angle) {
+    const variant = getNebulaVisualVariant(neb);
+    const wobble =
+      Math.sin(angle * 2.0 + (neb._seedA || 0)) * 0.10 +
+      Math.sin(angle * 3.6 + (neb._seedB || 0)) * 0.07 +
+      Math.sin(angle * 6.8 + (neb._seedC || 0)) * 0.026 +
+      Math.sin(angle * 11.0 + (neb._seedD || 0)) * 0.010;
+    const flatten = Math.cos(angle - (neb._driftA || 0)) * 0.042 * variant.shapeMul;
+    return neb.radius * (1 + (wobble * variant.shapeMul * (variant.turbulenceMul || 1) + flatten) * 0.40);
+  }
+
+  function buildNebulaOutlinePoints(neb, detail, scaleMul = 1) {
+    const pts = [];
+    for (let i = 0; i <= detail.outlineSteps; i++) {
+      const a = (i / detail.outlineSteps) * Math.PI * 2;
+      const r = sampleNebulaVisualRadius(neb, a) * scaleMul;
+      pts.push({ x: neb.x + Math.cos(a) * r, y: neb.y + Math.sin(a) * r, angle: a, radius: r });
+    }
+    const smoothPasses = Math.max(0, detail.outlineSmoothPasses || 0);
+    if (!smoothPasses || pts.length < 4) return pts;
+
+    let smooth = pts.slice(0, -1).map((pt) => ({ x: pt.x, y: pt.y }));
+    for (let pass = 0; pass < smoothPasses; pass++) {
+      const next = [];
+      for (let i = 0; i < smooth.length; i++) {
+        const a = smooth[i];
+        const b = smooth[(i + 1) % smooth.length];
+        next.push({
+          x: a.x * 0.75 + b.x * 0.25,
+          y: a.y * 0.75 + b.y * 0.25
+        });
+        next.push({
+          x: a.x * 0.25 + b.x * 0.75,
+          y: a.y * 0.25 + b.y * 0.75
+        });
+      }
+      smooth = next;
+    }
+
+    const out = smooth.map((pt) => {
+      const dx = pt.x - neb.x;
+      const dy = pt.y - neb.y;
+      return {
+        x: pt.x,
+        y: pt.y,
+        angle: Math.atan2(dy, dx),
+        radius: Math.hypot(dx, dy)
+      };
+    });
+    if (out.length) out.push({ ...out[0] });
+    return out;
+  }
+
+  function getAnimatedNebulaZone(neb) {
+    const t = state.t || 0;
+    const variant = getNebulaVisualVariant(neb);
+    const baseX = neb._baseX ?? neb.x;
+    const baseY = neb._baseY ?? neb.y;
+    const baseRadius = neb._baseRadius ?? neb.radius;
+    const driftMul = variant.driftMul || 1;
+    const breathMul = variant.breathMul || 1;
+    const driftX =
+      Math.sin(t * (neb._floatFreqX || 0.02) + (neb._floatPhaseX || 0)) * (neb._floatAmpX || 0) * driftMul +
+      Math.sin(t * (neb._floatFreqX2 || 0.013) + (neb._floatPhaseX2 || 0)) * (neb._floatAmpX2 || 0) * driftMul;
+    const driftY =
+      Math.cos(t * (neb._floatFreqY || 0.018) + (neb._floatPhaseY || 0)) * (neb._floatAmpY || 0) * driftMul +
+      Math.sin(t * (neb._floatFreqY2 || 0.011) + (neb._floatPhaseY2 || 0)) * (neb._floatAmpY2 || 0) * driftMul;
+    const breath =
+      Math.sin(t * (neb._breathFreq || 0.017) + (neb._breathPhase || 0)) * (neb._breathAmp || 0) * breathMul +
+      Math.sin(t * (neb._breathFreq2 || 0.011) + (neb._breathPhase2 || 0)) * (neb._breathAmp2 || 0) * breathMul;
+    return {
+      x: baseX + driftX,
+      y: baseY + driftY,
+      radius: baseRadius * (1 + breath)
+    };
+  }
+
+  function destroyNebulaCachedVisuals(neb) {
+    if (!neb) return;
+    if (neb._bodyContainer && !neb._bodyContainer.destroyed) {
+      if (neb._bodyContainer.parent) neb._bodyContainer.parent.removeChild(neb._bodyContainer);
+      neb._bodyContainer.destroy({ children: true });
+    }
+    if (neb._zoneContainer && !neb._zoneContainer.destroyed) {
+      if (neb._zoneContainer.parent) neb._zoneContainer.parent.removeChild(neb._zoneContainer);
+      neb._zoneContainer.destroy({ children: true });
+    }
+    neb._bodyContainer = null;
+    neb._zoneContainer = null;
+    neb._renderLod = null;
+  }
+
+  function invalidateNebulaBodyGraphics() {
+    if (state.nebulae && state.nebulae.length) {
+      for (const neb of state.nebulae) destroyNebulaCachedVisuals(neb);
+    }
+    if (state._nebulaBodyGfx && !state._nebulaBodyGfx.destroyed) {
+      if (state._nebulaBodyGfx.parent) state._nebulaBodyGfx.parent.removeChild(state._nebulaBodyGfx);
+      state._nebulaBodyGfx.destroy();
+    }
+    if (state._nebulaZoneGfx && !state._nebulaZoneGfx.destroyed) {
+      if (state._nebulaZoneGfx.parent) state._nebulaZoneGfx.parent.removeChild(state._nebulaZoneGfx);
+      state._nebulaZoneGfx.destroy();
+    }
+    state._nebulaBodyGfx = null;
+    state._nebulaZoneGfx = null;
+    state._nebulaBodyLod = null;
+  }
+
+  function ensureNebulaCachedVisuals(neb, detail, bodyLod) {
+    initNebulaVisual(neb);
+    if (
+      neb._renderLod === bodyLod &&
+      neb._bodyContainer && !neb._bodyContainer.destroyed &&
+      neb._zoneContainer && !neb._zoneContainer.destroyed
+    ) return;
+
+    destroyNebulaCachedVisuals(neb);
+
+    const variant = getNebulaVisualVariant(neb);
+    const fillColor = neb._fillColor || (neb._hue != null ? neb._hue : variant.cloudColors[0]);
+    const baseRadius = neb._baseRadius ?? neb.radius;
+    const localNeb = { ...neb, x: 0, y: 0, radius: baseRadius };
+    const body = new PIXI.Graphics();
+    const zone = new PIXI.Graphics();
+
+    const softEllipse = (g, x, y, rx, ry, color, alpha) => {
+      g.ellipse(x, y, rx * 1.46, ry * 1.46);
+      g.fill({ color, alpha: alpha * 0.10 });
+      g.ellipse(x, y, rx * 1.18, ry * 1.18);
+      g.fill({ color, alpha: alpha * 0.18 });
+      g.ellipse(x, y, rx, ry);
+      g.fill({ color, alpha: alpha * 0.32 });
+      g.ellipse(x, y, rx * 0.76, ry * 0.76);
+      g.fill({ color, alpha: alpha * 0.22 });
+    };
+    const ribbonStroke = (g, ax, ay, mx, my, bx, by, width, color, alpha) => {
+      const pts = [];
+      for (let i = 0; i <= 10; i++) {
+        const t = i / 10;
+        const omt = 1 - t;
+        pts.push(
+          omt * omt * ax + 2 * omt * t * mx + t * t * bx,
+          omt * omt * ay + 2 * omt * t * my + t * t * by
+        );
+      }
+      g.poly(pts);
+      g.stroke({ width, color, alpha });
+    };
+
+    const outlineFeather = buildNebulaOutlinePoints(localNeb, detail, 1.26 * variant.outerMul);
+    const outlineOuter = buildNebulaOutlinePoints(localNeb, detail, 1.12 * variant.outerMul);
+    const outline = buildNebulaOutlinePoints(localNeb, detail, 1);
+    const outlineInner = buildNebulaOutlinePoints(localNeb, detail, 0.92 * variant.innerMul);
+    const outlineCore = buildNebulaOutlinePoints(localNeb, detail, 0.82 * variant.innerMul);
+    const bodyAlphaMul = variant.bodyAlphaMul || 1;
+    const zoneAlphaMul = variant.zoneAlphaMul || 1;
+
+    body.poly(outlineFeather.flatMap(p => [p.x, p.y]));
+    body.fill({ color: fillColor, alpha: 0.022 * bodyAlphaMul });
+    body.poly(outlineOuter.flatMap(p => [p.x, p.y]));
+    body.fill({ color: fillColor, alpha: 0.042 * bodyAlphaMul });
+    body.poly(outline.flatMap(p => [p.x, p.y]));
+    body.fill({ color: fillColor, alpha: 0.070 * bodyAlphaMul });
+    body.poly(outlineInner.flatMap(p => [p.x, p.y]));
+    body.fill({ color: fillColor, alpha: 0.054 * bodyAlphaMul });
+    body.poly(outlineCore.flatMap(p => [p.x, p.y]));
+    body.fill({ color: fillColor, alpha: 0.030 * bodyAlphaMul });
+
+    for (let i = 0; i < Math.min(detail.plumes, neb._plumes.length); i++) {
+      const plume = neb._plumes[i];
+      const ang = plume.angle;
+      const dist = plume.dist;
+      const px = Math.cos(ang) * dist;
+      const py = Math.sin(ang * 0.92) * dist * 0.74;
+      const rx = plume.rx * (1.02 + 0.18 * variant.outerMul);
+      const ry = plume.ry * plume.squish * (1.00 + 0.12 * variant.innerMul);
+      softEllipse(body, px, py, rx, ry, fillColor, plume.alpha * 0.95);
+    }
+
+    for (let i = 0; i < Math.min(detail.knots, neb._knots.length); i++) {
+      const knot = neb._knots[i];
+      const ka = knot.angle;
+      const kd = knot.dist;
+      const kx = Math.cos(ka) * kd;
+      const ky = Math.sin(ka) * kd * 0.76;
+      softEllipse(body, kx, ky, knot.r * 0.94, knot.r * 0.58, variant.edgeColor, knot.alpha * 0.42 * bodyAlphaMul);
+    }
+
+    for (let i = 0; i < Math.min(detail.ribbons, neb._ribbons.length); i++) {
+      const ribbon = neb._ribbons[i];
+      const ra = ribbon.angle;
+      const rr = baseRadius * ribbon.radiusMul;
+      const ax = Math.cos(ra - ribbon.width) * rr;
+      const ay = Math.sin(ra - ribbon.width) * rr * 0.82;
+      const bx = Math.cos(ra + ribbon.width) * rr;
+      const by = Math.sin(ra + ribbon.width) * rr * 0.82;
+      const mx = Math.cos(ra + ribbon.bend) * rr * 0.38;
+      const my = Math.sin(ra + ribbon.bend) * rr * 0.24;
+      ribbonStroke(body, ax, ay, mx, my, bx, by, 1.0, variant.edgeColor, ribbon.alpha * 0.88 * bodyAlphaMul);
+    }
+
+    body.poly(outline.flatMap(p => [p.x, p.y]));
+    body.stroke({ color: variant.edgeColor, width: 0.9, alpha: 0.14 * variant.edgeMul * bodyAlphaMul });
+
+    const fringeStep = Math.max(1, Math.floor(outline.length / Math.max(1, detail.fringePoints)));
+    for (let i = 0; i < outline.length; i += fringeStep) {
+      const pt = outline[i];
+      const outR = pt.radius * (1.02 + 0.04 * variant.edgeMul);
+      const fx = Math.cos(pt.angle) * outR;
+      const fy = Math.sin(pt.angle) * outR;
+      softEllipse(body, fx, fy, baseRadius * 0.075, baseRadius * 0.034, fillColor, 0.050 * bodyAlphaMul);
+    }
+    softEllipse(body, 0, 0, baseRadius * 0.44, baseRadius * 0.24, variant.edgeColor, 0.16 * bodyAlphaMul);
+
+    const zoneOuter = buildNebulaOutlinePoints(localNeb, detail, 1.12);
+    const zoneMid = buildNebulaOutlinePoints(localNeb, detail, 1.05);
+    const zoneInner = buildNebulaOutlinePoints(localNeb, detail, 0.98);
+    zone.poly(zoneOuter.flatMap(p => [p.x, p.y]));
+    zone.fill({ color: fillColor, alpha: 0.010 * zoneAlphaMul });
+    zone.poly(zoneMid.flatMap(p => [p.x, p.y]));
+    zone.fill({ color: fillColor, alpha: 0.014 * zoneAlphaMul });
+    zone.poly(zoneInner.flatMap(p => [p.x, p.y]));
+    zone.fill({ color: fillColor, alpha: 0.018 * zoneAlphaMul });
+    zone.poly(zoneOuter.flatMap(p => [p.x, p.y]));
+    zone.stroke({ color: variant.edgeColor, width: 6.2, alpha: 0.022 * zoneAlphaMul });
+    zone.poly(zoneMid.flatMap(p => [p.x, p.y]));
+    zone.stroke({ color: variant.edgeColor, width: 3.0, alpha: 0.055 * zoneAlphaMul });
+    zone.poly(outline.flatMap(p => [p.x, p.y]));
+    zone.stroke({ color: variant.edgeColor, width: 1.0, alpha: 0.15 * variant.edgeMul * zoneAlphaMul });
+    for (let i = 0; i < outline.length; i += fringeStep) {
+      const pt = outline[i];
+      zone.circle(pt.x, pt.y, Math.max(0.8, baseRadius * 0.006));
+      zone.fill({ color: variant.edgeColor, alpha: 0.05 * zoneAlphaMul });
+    }
+
+    body.cacheAsBitmap = true;
+    zone.cacheAsBitmap = true;
+    nebulaLayer.addChild(body);
+    nebulaFxLayer.addChild(zone);
+    neb._bodyContainer = body;
+    neb._zoneContainer = zone;
+    neb._renderLod = bodyLod;
+  }
 
   function rebuildNebulae() {
     nebulaContainers.forEach(c => { if (c.parent) c.parent.removeChild(c); c.destroy({ children: true }); });
     nebulaContainers = [];
     stateNebulaClouds = [];
+    stateNebulaFogWisps = [];
+    invalidateNebulaBodyGraphics();
 
     const rng = mulberry32(mapSeed ^ 0xe3b014);
-    const numClouds = 3 + (rng() > 0.5 ? 1 : 0);
-    const clouds = [];
-    for (let n = 0; n < numClouds; n++) {
-      clouds.push({
-        cx: CFG.WORLD_W * (0.15 + rng() * 0.70),
-        cy: CFG.WORLD_H * (0.15 + rng() * 0.70),
-        r: 320 + rng() * 120
+    const gameplayClouds = [];
+    const backdropClouds = [];
+    const anchors = [];
+    const anchorCount = 4 + Math.floor(rng() * 2);
+    for (let i = 0; i < anchorCount; i++) {
+      const anchor = {
+        x: CFG.WORLD_W * (0.10 + rng() * 0.80),
+        y: CFG.WORLD_H * (0.10 + rng() * 0.80),
+        r: 180 + rng() * 180
+      };
+      anchors.push(anchor);
+      gameplayClouds.push({ cx: anchor.x, cy: anchor.y, r: anchor.r });
+    }
+    const scatteredCount = 24 + Math.floor(rng() * 10);
+    for (let i = 0; i < scatteredCount; i++) {
+      const anchor = anchors[(rng() * anchors.length) | 0];
+      const aroundAnchor = rng() < 0.62;
+      const dist = aroundAnchor ? anchor.r * (0.35 + rng() * 1.35) : Math.min(CFG.WORLD_W, CFG.WORLD_H) * (0.10 + rng() * 0.30);
+      const angle = rng() * Math.PI * 2;
+      backdropClouds.push({
+        cx: clamp((aroundAnchor ? anchor.x : CFG.WORLD_W * (0.08 + rng() * 0.84)) + Math.cos(angle) * dist, 70, CFG.WORLD_W - 70),
+        cy: clamp((aroundAnchor ? anchor.y : CFG.WORLD_H * (0.08 + rng() * 0.84)) + Math.sin(angle) * dist * 0.82, 70, CFG.WORLD_H - 70),
+        r: 90 + rng() * 150
       });
     }
-    const numChains = 2 + (rng() > 0.5 ? 1 : 0);
-    for (let ch = 0; ch < numChains; ch++) {
-      const startX = CFG.WORLD_W * (0.2 + rng() * 0.6);
-      const startY = CFG.WORLD_H * (0.2 + rng() * 0.6);
-      const angle = rng() * Math.PI * 2;
-      const step = 160 + rng() * 140;
-      const chainLen = 3 + Math.floor(rng() * 3);
-      for (let i = 0; i < chainLen; i++) {
-        clouds.push({
-          cx: clamp(startX + Math.cos(angle) * step * i + (rng() - 0.5) * 60, 100, CFG.WORLD_W - 100),
-          cy: clamp(startY + Math.sin(angle) * step * i + (rng() - 0.5) * 60, 100, CFG.WORLD_H - 100),
-          r: 150 + rng() * 90
-        });
-      }
+    stateNebulaClouds = gameplayClouds;
+
+    const fogCount = 54 + Math.floor(rng() * 18);
+    for (let i = 0; i < fogCount; i++) {
+      const variant = NEBULA_VISUAL_VARIANTS[i % NEBULA_VISUAL_VARIANTS.length];
+      stateNebulaFogWisps.push({
+        x: CFG.WORLD_W * (0.06 + rng() * 0.88),
+        y: CFG.WORLD_H * (0.06 + rng() * 0.88),
+        rx: 46 + rng() * 150,
+        ry: 20 + rng() * 72,
+        alpha: 0.006 + rng() * 0.012,
+        color: variant.cloudColors[(rng() * variant.cloudColors.length) | 0],
+        edgeColor: variant.edgeColor,
+        rot: rng() * Math.PI * 2
+      });
     }
-    stateNebulaClouds = clouds;
 
     for (let L = 0; L < 5; L++) {
       const layerC = new PIXI.Container();
       layerC._parallax = NEBULA_LAYER_PARALLAX[L];
       layerC._basePivotX = 0; layerC._basePivotY = 0;
       const hue = NEBULA_HUES[L];
-      for (let n = 0; n < clouds.length; n++) {
-        const c = clouds[n];
+      for (let n = 0; n < backdropClouds.length; n++) {
+        const c = backdropClouds[n];
         const tex = buildNebulaTexture(mapSeed + n * 1000 + L * 333, hue);
         const sp = new PIXI.Sprite(tex);
         sp.anchor.set(0.5, 0.5);
-        const offX = (rng() - 0.5) * c.r * 0.35;
-        const offY = (rng() - 0.5) * c.r * 0.35;
+        const offX = (rng() - 0.5) * c.r * 0.18;
+        const offY = (rng() - 0.5) * c.r * 0.18;
         sp.position.set(c.cx + offX, c.cy + offY);
-        const stretchW = 0.7 + rng() * 0.8 + L * 0.06;
-        const stretchH = 0.6 + rng() * 0.7 + L * 0.08;
-        sp.width = c.r * 2.4 * stretchW;
-        sp.height = c.r * 2.4 * stretchH;
+        const stretchW = 0.78 + rng() * 0.54 + L * 0.03;
+        const stretchH = 0.62 + rng() * 0.40 + L * 0.04;
+        sp.width = c.r * 2.0 * stretchW;
+        sp.height = c.r * 1.9 * stretchH;
         sp.rotation = rng() * Math.PI * 2;
-        sp.alpha = 0.35 + L * 0.08;
+        sp.alpha = 0.10 + L * 0.035 + rng() * 0.018;
         layerC.addChild(sp);
       }
       const idx = mapLayer.children.indexOf(mapSprite);
@@ -1863,13 +2362,22 @@
     mapSprite = new PIXI.Sprite(tex);
     mapSprite.width = CFG.WORLD_W;
     mapSprite.height = CFG.WORLD_H;
+    mapSprite.zIndex = 0;
     mapLayer.addChild(mapSprite);
+    if (!state._bgFlareLayer) {
+      state._bgFlareLayer = new PIXI.Graphics();
+      state._bgFlareLayer.zIndex = -3;
+      mapLayer.addChild(state._bgFlareLayer);
+    }
     if (!state._bgCometLayer) {
       state._bgCometLayer = new PIXI.Graphics();
-      mapLayer.addChildAt(state._bgCometLayer, 0);
+      state._bgCometLayer.zIndex = -2;
+      mapLayer.addChild(state._bgCometLayer);
     }
+    state._bgFlares = [];
+    state._bgFlareNextAt = 1.5 + Math.random() * 3.5;
     state._bgComets = [];
-    state._bgCometNextAt = 0;
+    state._bgCometNextAt = 150 + Math.random() * 45;
 
     drawWorldBorderDarken();
     rebuildNebulae();
@@ -2115,7 +2623,7 @@
     { id: "c2", name: "Усиленные лазеры", desc: "+8% урон кораблей", rarity: "common", emoji: "🔫", unitDmgMul: 1.08 },
     { id: "c3", name: "Частотный модулятор", desc: "+7% скорострельность", rarity: "common", emoji: "⚡", unitAtkRateMul: 1.07 },
     { id: "c4", name: "Форсаж двигателей", desc: "+7% скорость кораблей", rarity: "common", emoji: "🚀", unitSpeedMul: 1.07 },
-    { id: "c5", name: "Колонизация", desc: "+7% рост населения", rarity: "common", emoji: "👥", growthMul: 1.07 },
+    { id: "c5", name: "Перезарядка ядра", desc: "+7% прирост Энергии", rarity: "common", emoji: "⚡", growthMul: 1.07 },
     { id: "c6", name: "Сканер дальности", desc: "+8% дальность атаки", rarity: "common", emoji: "📡", unitAtkRangeMul: 1.08 },
     { id: "c7", name: "Усиление турелей", desc: "+10% HP турелей", rarity: "common", emoji: "🏗️", turretHpMul: 1.10 },
     { id: "c8", name: "Точные орудия", desc: "+10% урон турелей", rarity: "common", emoji: "🎯", turretDmgMul: 1.10 },
@@ -2127,7 +2635,7 @@
     { id: "u2", name: "Фокусированные лазеры", desc: "+12% урон кораблей", rarity: "uncommon", emoji: "🔫", unitDmgMul: 1.12 },
     { id: "u3", name: "Разгон орудий", desc: "+10% скорострельность", rarity: "uncommon", emoji: "⚡", unitAtkRateMul: 1.10 },
     { id: "u4", name: "Ионные двигатели", desc: "+10% скорость кораблей", rarity: "uncommon", emoji: "🚀", unitSpeedMul: 1.10 },
-    { id: "u5", name: "Демографический бум", desc: "+12% рост населения", rarity: "uncommon", emoji: "👥", growthMul: 1.12 },
+    { id: "u5", name: "Энергоразгон", desc: "+12% прирост Энергии", rarity: "uncommon", emoji: "⚡", growthMul: 1.12 },
     { id: "u6", name: "Дальний радар", desc: "+12% дальность атаки", rarity: "uncommon", emoji: "📡", unitAtkRangeMul: 1.12 },
     { id: "u7", name: "Укреплённые турели", desc: "+18% HP турелей", rarity: "uncommon", emoji: "🏗️", turretHpMul: 1.18 },
     { id: "u8", name: "Тяжёлые орудия", desc: "+15% урон турелей", rarity: "uncommon", emoji: "🎯", turretDmgMul: 1.15 },
@@ -2139,7 +2647,7 @@
     { id: "r2", name: "Плазменные пушки", desc: "+18% урон кораблей", rarity: "rare", emoji: "🔫", unitDmgMul: 1.18 },
     { id: "r3", name: "Ускоритель частиц", desc: "+15% скорострельность", rarity: "rare", emoji: "⚡", unitAtkRateMul: 1.15 },
     { id: "r4", name: "Варп-двигатель", desc: "+15% скорость кораблей", rarity: "rare", emoji: "🚀", unitSpeedMul: 1.15 },
-    { id: "r5", name: "Массовая колонизация", desc: "+18% рост населения", rarity: "rare", emoji: "👥", growthMul: 1.18 },
+    { id: "r5", name: "Энергоядро", desc: "+18% прирост Энергии", rarity: "rare", emoji: "⚡", growthMul: 1.18 },
     { id: "r6", name: "Телескоп", desc: "+18% дальность атаки", rarity: "rare", emoji: "📡", unitAtkRangeMul: 1.18 },
     { id: "r7", name: "Бастион", desc: "+20% HP, +10% радиус турелей", rarity: "rare", emoji: "🏗️", turretHpMul: 1.20, turretRangeMul: 1.10 },
     { id: "r8", name: "Артиллерийские турели", desc: "+20% урон турелей", rarity: "rare", emoji: "🎯", turretDmgMul: 1.20 },
@@ -2152,25 +2660,25 @@
     { id: "e2", name: "Дезинтеграторы", desc: "+25% урон кораблей", rarity: "epic", emoji: "🔫", unitDmgMul: 1.25 },
     { id: "e3", name: "Гиперзалп", desc: "+22% скорострельность", rarity: "epic", emoji: "⚡", unitAtkRateMul: 1.22 },
     { id: "e4", name: "Гипердрайв", desc: "+22% скорость кораблей", rarity: "epic", emoji: "🚀", unitSpeedMul: 1.22 },
-    { id: "e5", name: "Золотой век", desc: "+25% рост населения", rarity: "epic", emoji: "👥", growthMul: 1.25 },
+    { id: "e5", name: "Перегрузка ядра", desc: "+25% прирост Энергии", rarity: "epic", emoji: "⚡", growthMul: 1.25 },
     { id: "e6", name: "Система наведения", desc: "+25% дальность атаки", rarity: "epic", emoji: "📡", unitAtkRangeMul: 1.25 },
     { id: "e7", name: "Суперфорт", desc: "+30% урон и HP турелей", rarity: "epic", emoji: "🏗️", turretDmgMul: 1.30, turretHpMul: 1.20 },
     { id: "e8", name: "Доминирование", desc: "+30% скорость зоны", rarity: "epic", emoji: "🌐", influenceSpeedMul: 1.30 },
-    { id: "e9", name: "Мульти-прицел", desc: "Каждая турель стреляет по +1 цели", rarity: "epic", emoji: "🎯", turretTargetBonus: 1 },
+    { id: "e9", name: "Мульти-прицел", desc: "Каждый патрульный стреляет по +1 цели", rarity: "epic", emoji: "🎯", turretTargetBonus: 1 },
     { id: "e10", name: "Промышленная революция", desc: "-18% стоимость кораблей", rarity: "epic", emoji: "💰", unitCostMul: 0.82 },
 
     { id: "L1", name: "Нейтронный корпус", desc: "+40% HP кораблей", rarity: "legendary", emoji: "🛡️", unitHpMul: 1.40 },
     { id: "L2", name: "Аннигиляторы", desc: "+40% урон кораблей", rarity: "legendary", emoji: "🔫", unitDmgMul: 1.40 },
     { id: "L3", name: "Тахионный залп", desc: "+35% скорострельность", rarity: "legendary", emoji: "⚡", unitAtkRateMul: 1.35 },
     { id: "L4", name: "Скорость света", desc: "+35% скорость кораблей", rarity: "legendary", emoji: "🚀", unitSpeedMul: 1.35 },
-    { id: "L5", name: "Эпоха процветания", desc: "+40% рост населения", rarity: "legendary", emoji: "👥", growthMul: 1.40 },
+    { id: "L5", name: "Сверхзаряд ядра", desc: "+40% прирост Энергии", rarity: "legendary", emoji: "⚡", growthMul: 1.40 },
     { id: "L6", name: "Всевидящее око", desc: "+40% дальность атаки", rarity: "legendary", emoji: "📡", unitAtkRangeMul: 1.40 },
     { id: "L7", name: "Крепость богов", desc: "+50% HP, +25% радиус турелей", rarity: "legendary", emoji: "🏗️", turretHpMul: 1.50, turretRangeMul: 1.25 },
     { id: "L8", name: "Абсолютная экспансия", desc: "+45% скорость зоны", rarity: "legendary", emoji: "🌐", influenceSpeedMul: 1.45 },
-    { id: "L9", name: "Мульти-залп", desc: "Каждая турель стреляет по +2 целям", rarity: "legendary", emoji: "🎯", turretTargetBonus: 2 },
+    { id: "L9", name: "Мульти-залп", desc: "Каждый патрульный стреляет по +2 целям", rarity: "legendary", emoji: "🎯", turretTargetBonus: 2 },
     { id: "L10", name: "Нулевая стоимость", desc: "-30% стоимость кораблей", rarity: "legendary", emoji: "💰", unitCostMul: 0.70 },
-    { id: "L11", name: "Абсолютно легендарный щит", desc: "+0.5 реген щита/с, +100 населения", rarity: "legendary", emoji: "🛡️", shieldRegenBonus: 0.5, populationBonus: 100, maxPicks: 3 },
-    { id: "P1", name: "Патрульный", desc: "Патруль по границе зоны. Двойной выстрел, малый радиус, несколько целей. Получает апгрейды от турелей. Макс. 4", rarity: "legendary", emoji: "🔦", patrolBonus: 1, maxPicks: 4 },
+    { id: "L11", name: "Абсолютно легендарный щит", desc: "+0.5 реген щита/с, +100 Энергии", rarity: "legendary", emoji: "🛡️", shieldRegenBonus: 0.5, populationBonus: 100, maxPicks: 3 },
+    { id: "P1", name: "Патрульный", desc: "Патруль по границе зоны. Мультизалп, малый радиус, несколько целей. Получает апгрейды от турелей. Макс. 4", rarity: "legendary", emoji: "🔦", patrolBonus: 1, maxPicks: 4 },
 
     { id: "M1", name: "Цепная молния", desc: "Лазеры перескакивают на врагов (−25%/скачок). Ур. 2: 6 скачков. Ур. 3: 9 скачков", rarity: "mythic", emoji: "⚡", attackEffect: "chain" },
     { id: "M2", name: "Криозаряды", desc: "Замедление 40% (2с). Ур. 2: 55% (3с). Ур. 3: 70% (4с)", rarity: "mythic", emoji: "❄️", attackEffect: "cryo" },
@@ -2540,9 +3048,10 @@
   }
 
   const PATROL_LIGHT_SPEED = 0.009;
-  const PATROL_ATTACK_R = 85;
+  const PATROL_ATTACK_R = 170;
   const PATROL_ATTACK_RATE = 1.2;
-  const PATROL_DMG = 3;
+  const PATROL_DMG = 18;
+  const PATROL_BASE_SHOTS = 2;
 
   function getTurretOrbitRadius(p) {
     return getPlanetRadius(p) + Math.max(22, getPlanetRadius(p) * 1.55);
@@ -2919,7 +3428,7 @@
       }
       if (candidates.length > 0) {
         candidates.sort((a, b) => a.d - b.d);
-        const shotCount = Math.min(candidates.length, (CFG.CITY_BASE_TARGETS || 1) + (p.turretTargetBonus || p.cityTargetBonus || 0));
+        const shotCount = Math.min(candidates.length, 1);
         const turretDmgMul = (p.turretDmgMul != null ? p.turretDmgMul : 1) * getLevelBonusMul(p);
         const dmg = Math.max(1, Math.round((CFG.TURRET_ATTACK_DMG ?? 3) * turretDmgMul));
         t.atkCd = 1 / (CFG.TURRET_ATTACK_RATE ?? 1.2);
@@ -2993,9 +3502,10 @@
       p._patrols = p._patrols || [];
       const rangeMul = p.turretRangeMul != null ? p.turretRangeMul : 1;
       const range = PATROL_ATTACK_R * rangeMul;
-      const rate = (CFG.TURRET_ATTACK_RATE ?? 1.2) * (p.turretDmgMul != null ? 1 : 1);
+      const rate = PATROL_ATTACK_RATE;
       const dmgMul = (p.turretDmgMul != null ? p.turretDmgMul : 1) * getLevelBonusMul(p);
       const dmg = Math.max(1, Math.round(PATROL_DMG * dmgMul));
+      const shotCount = PATROL_BASE_SHOTS + (p.turretTargetBonus || 0);
       for (const patrol of p._patrols) {
         patrol.t = ((patrol.t || 0) + dt * PATROL_LIGHT_SPEED) % 1;
         const pos = getPatrolOrbitState(p, patrol.t || 0);
@@ -3005,9 +3515,9 @@
         patrol.atkCd = (patrol.atkCd || 0) - dt;
         if (patrol.atkCd > 0 || !hasEnemies) continue;
         enemies.sort((a, b) => (a.x - pos.x) ** 2 + (a.y - pos.y) ** 2 - ((b.x - pos.x) ** 2 + (b.y - pos.y) ** 2));
-        const targets = enemies.slice(0, 3);
+        const targets = enemies.slice(0, Math.max(1, shotCount));
         patrol.atkCd = 1 / rate;
-        for (let shot = 0; shot < 2; shot++) {
+        for (let shot = 0; shot < shotCount; shot++) {
           const tgt = targets[shot % targets.length];
           if (!tgt) continue;
           if (typeof playLaserSound === "function") playLaserSound(pos.x, pos.y, tgt.x, tgt.y);
@@ -4407,6 +4917,24 @@
 
   // ── Mine placement ──
   let nextMineId = 1;
+  const MINE_RESOURCE_TYPES = ["money", "xp"];
+  function getMinePrimaryResourceType(mine) {
+    return mine && mine.resourceType === "xp" ? "xp" : "money";
+  }
+  function getMineOutputResourceTypes(mine) {
+    return mine && mine.isRich ? MINE_RESOURCE_TYPES : [getMinePrimaryResourceType(mine)];
+  }
+  function getMineFlowRouteKey(mine, resourceType) {
+    return `${mine.id}:${resourceType}`;
+  }
+  function mineHexPoints(radius, rotation = -Math.PI / 6) {
+    const pts = [];
+    for (let i = 0; i < 6; i++) {
+      const a = (Math.PI / 3) * i + rotation;
+      pts.push(Math.cos(a) * radius, Math.sin(a) * radius);
+    }
+    return pts;
+  }
   function createMine(x, y, ownerId, isRich, resourceType) {
     const id = nextMineId++;
     const mine = {
@@ -4424,7 +4952,17 @@
     return mine;
   }
 
+  function clearMineVisuals() {
+    for (const mine of state.mines.values()) {
+      if (!mine || !mine.gfx) continue;
+      if (mine.gfx.parent) mine.gfx.parent.removeChild(mine.gfx);
+      mine.gfx.destroy(true);
+      mine.gfx = null;
+    }
+  }
+
   function placeMines(entries, rndFn) {
+    clearMineVisuals();
     state.mines.clear();
     nextMineId = 1;
     const cx = CFG.WORLD_W * 0.5, cy = CFG.WORLD_H * 0.5;
@@ -4472,7 +5010,7 @@
         const spread = ((m - (CFG.MINE_NEUTRAL_PER_PLAYER - 1) / 2) / Math.max(1, CFG.MINE_NEUTRAL_PER_PLAYER - 1)) * 1.5;
         const a = baseAngle + spread + Math.PI + (rnd() * 0.2);
         const d = inflR * 1.2 + rnd() * (inflR * 0.3);
-        const neutralType = rnd() < 0.5 ? "money" : "xp";
+        const neutralType = m % 2 === 0 ? "money" : "xp";
         createMine(
           clamp(sp.x + Math.cos(a) * d, 40, CFG.WORLD_W - 40),
           clamp(sp.y + Math.sin(a) * d, 40, CFG.WORLD_H - 40),
@@ -4505,35 +5043,62 @@
     const c = new PIXI.Container();
     const R = (mine.isRich ? 36 : 28) * 2;
     const ownerCol = mine.ownerId ? colorForId(mine.ownerId) : 0x555555;
-    const isMoney = mine.resourceType === "money";
-    const resCol = FACTION_VIS.RESOURCE_COLORS[isMoney ? "money" : "xp"];
-    const shellCol = mine.ownerId ? ownerCol : resCol.primary;
+    const isHybrid = !!mine.isRich;
+    const primaryType = getMinePrimaryResourceType(mine);
+    const isMoney = !isHybrid && primaryType === "money";
+    const moneyCol = FACTION_VIS.RESOURCE_COLORS.money;
+    const xpCol = FACTION_VIS.RESOURCE_COLORS.xp;
+    const resCol = isMoney ? moneyCol : xpCol;
+    const shellCol = mine.ownerId ? ownerCol : (isHybrid ? 0x8fa8ff : resCol.primary);
 
     const outerGlow = new PIXI.Graphics();
     outerGlow.circle(0, 0, R + 8);
-    outerGlow.fill({ color: mine.ownerId ? ownerCol : resCol.bg, alpha: mine.ownerId ? 0.10 : 0.06 });
+    outerGlow.fill({ color: mine.ownerId ? ownerCol : (isHybrid ? 0x263b5a : resCol.bg), alpha: mine.ownerId ? 0.10 : 0.06 });
     c.addChild(outerGlow);
+    c._outerGlow = outerGlow;
+
+    const pulseHalo = new PIXI.Graphics();
+    if (isHybrid) {
+      pulseHalo.poly(mineHexPoints(R * 0.96));
+      pulseHalo.stroke({ color: moneyCol.secondary, width: 1.0, alpha: 0.16 });
+      pulseHalo.circle(0, 0, R * 0.88);
+      pulseHalo.stroke({ color: xpCol.secondary, width: 0.95, alpha: 0.14 });
+    } else if (isMoney) {
+      const haloR = R * 0.96;
+      pulseHalo.poly(mineHexPoints(haloR));
+      pulseHalo.stroke({ color: mine.ownerId ? ownerCol : resCol.secondary, width: 1.2, alpha: 0.20 });
+    } else {
+      pulseHalo.circle(0, 0, R * 0.92);
+      pulseHalo.stroke({ color: mine.ownerId ? ownerCol : resCol.secondary, width: 1.15, alpha: 0.22 });
+    }
+    c.addChildAt(pulseHalo, 0);
+    c._pulseHalo = pulseHalo;
 
     const bg = new PIXI.Graphics();
-    if (isMoney) {
+    if (isHybrid) {
+      const hexR = R * 0.82;
+      bg.poly(mineHexPoints(hexR));
+      bg.fill({ color: 0x09111b, alpha: 0.94 });
+      bg.poly(mineHexPoints(hexR));
+      bg.stroke({ color: shellCol, width: 1.8, alpha: 0.76 });
+      bg.circle(0, 0, R * 0.60);
+      bg.stroke({ color: xpCol.secondary, width: 1.0, alpha: 0.38 });
+      bg.circle(0, 0, R * 0.44);
+      bg.fill({ color: 0x0e1a28, alpha: 0.70 });
+      bg.poly(mineHexPoints(R * 0.30));
+      bg.fill({ color: moneyCol.primary, alpha: 0.20 });
+      bg.circle(0, 0, R * 0.22);
+      bg.fill({ color: xpCol.primary, alpha: 0.22 });
+    } else if (isMoney) {
       const hexR = R * 0.78;
-      const pts = [];
-      for (let i = 0; i < 6; i++) {
-        const a = (Math.PI / 3) * i - Math.PI / 6;
-        pts.push(Math.cos(a) * hexR, Math.sin(a) * hexR);
-      }
-      bg.poly(pts);
+      bg.poly(mineHexPoints(hexR));
       bg.fill({ color: 0x0b1018, alpha: 0.92 });
-      bg.poly(pts);
+      bg.poly(mineHexPoints(hexR));
       bg.stroke({ color: shellCol, width: 1.7, alpha: 0.72 });
-
-      const innerPts = [];
-      for (let i = 0; i < 6; i++) {
-        const a = (Math.PI / 3) * i - Math.PI / 6;
-        innerPts.push(Math.cos(a) * hexR * 0.56, Math.sin(a) * hexR * 0.56);
-      }
-      bg.poly(innerPts);
+      bg.poly(mineHexPoints(hexR * 0.56));
       bg.fill({ color: resCol.primary, alpha: 0.28 });
+      bg.poly(mineHexPoints(hexR * 0.34));
+      bg.stroke({ color: resCol.secondary, width: 0.9, alpha: 0.28 });
     } else {
       bg.circle(0, 0, R * 0.76);
       bg.fill({ color: 0x081019, alpha: 0.92 });
@@ -4543,29 +5108,71 @@
       bg.stroke({ color: resCol.secondary, width: 0.95, alpha: 0.42 });
       bg.circle(0, 0, R * 0.24);
       bg.fill({ color: resCol.primary, alpha: 0.26 });
+      bg.circle(0, 0, R * 0.60);
+      bg.stroke({ color: resCol.primary, width: 0.65, alpha: 0.20 });
     }
     c.addChild(bg);
 
+    const coreGlow = new PIXI.Graphics();
+    coreGlow.circle(0, 0, R * (mine.isRich ? 0.42 : 0.34));
+    coreGlow.fill({ color: isHybrid ? moneyCol.primary : (isMoney ? moneyCol.primary : xpCol.primary), alpha: mine.isRich ? 0.18 : 0.13 });
+    c.addChild(coreGlow);
+    c._coreGlow = coreGlow;
+    if (isHybrid) {
+      const secondaryGlow = new PIXI.Graphics();
+      secondaryGlow.circle(0, 0, R * 0.34);
+      secondaryGlow.fill({ color: xpCol.primary, alpha: 0.14 });
+      c.addChild(secondaryGlow);
+      c._coreGlowSecondary = secondaryGlow;
+    }
+
     if (mine.isRich) {
-      const sparkle = new PIXI.Graphics();
-      sparkle.circle(0, 0, R * 0.18);
-      sparkle.fill({ color: 0xffe18a, alpha: 0.30 });
-      sparkle.circle(0, 0, R * 0.08);
-      sparkle.fill({ color: 0xffffff, alpha: 0.55 });
-      c.addChild(sparkle);
+      const richCore = new PIXI.Graphics();
+      richCore.circle(0, 0, R * 0.22);
+      richCore.fill({ color: 0xffe18a, alpha: 0.20 });
+      richCore.circle(0, 0, R * 0.15);
+      richCore.fill({ color: 0x7fd8ff, alpha: 0.18 });
+      richCore.circle(0, 0, R * 0.09);
+      richCore.fill({ color: 0xffffff, alpha: 0.58 });
+      c.addChild(richCore);
+      c._richCore = richCore;
+    }
+
+    const orbitals = new PIXI.Container();
+    c.addChild(orbitals);
+    c._richOrbitals = orbitals;
+    const orbitalCount = mine.isRich ? 6 : 4;
+    for (let i = 0; i < orbitalCount; i++) {
+      const orbitalType = isHybrid ? (i % 2 === 0 ? "money" : "xp") : primaryType;
+      const orbRes = orbitalType === "money" ? moneyCol : xpCol;
+      const orb = new PIXI.Graphics();
+      if (orbitalType === "money") {
+        orb.poly(mineHexPoints(R * (mine.isRich ? 0.05 : 0.042)));
+        orb.fill({ color: i % 3 === 1 ? 0xffffff : orbRes.primary, alpha: i % 3 === 1 ? 0.52 : 0.66 });
+      } else {
+        orb.circle(0, 0, R * (mine.isRich ? 0.050 : 0.044));
+        orb.fill({ color: i % 3 === 1 ? 0xffffff : (i % 2 === 0 ? orbRes.primary : orbRes.secondary), alpha: i % 3 === 1 ? 0.48 : 0.62 });
+      }
+      orb._orbitAngle = (Math.PI * 2 * i) / orbitalCount;
+      orb._orbitRadius = R * (mine.isRich ? (0.72 + i * 0.045) : (0.66 + i * 0.035));
+      orb._orbitSpeed = (mine.isRich ? 0.34 : 0.26) + i * 0.05;
+      orb._orbitPhase = i * 1.37;
+      orbitals.addChild(orb);
     }
 
     const core = new PIXI.Graphics();
-    if (isMoney) {
+    if (isHybrid) {
+      core.poly(mineHexPoints(R * 0.16));
+      core.fill({ color: moneyCol.primary, alpha: 0.60 });
+      core.circle(0, 0, R * 0.11);
+      core.fill({ color: xpCol.primary, alpha: 0.54 });
+      core.circle(0, 0, R * 0.045);
+      core.fill({ color: 0xffffff, alpha: 0.72 });
+    } else if (isMoney) {
       const rr = R * 0.18;
-      const pts = [];
-      for (let i = 0; i < 6; i++) {
-        const a = (Math.PI / 3) * i - Math.PI / 6;
-        pts.push(Math.cos(a) * rr, Math.sin(a) * rr);
-      }
-      core.poly(pts);
+      core.poly(mineHexPoints(rr));
       core.fill({ color: resCol.primary, alpha: 0.72 });
-      core.poly(pts);
+      core.poly(mineHexPoints(rr));
       core.stroke({ color: resCol.secondary, width: 0.8, alpha: 0.55 });
     } else {
       core.circle(0, 0, R * 0.16);
@@ -4592,12 +5199,57 @@
 
     c.x = mine.x;
     c.y = mine.y;
+    c._baseRadius = R;
     mine.gfx = c;
     resLayer.addChild(c);
   }
 
   function updateMineVisual(mine) {
     makeMineVisual(mine);
+  }
+
+  function updateMineAmbientVisuals() {
+    for (const mine of state.mines.values()) {
+      const gfx = mine.gfx;
+      if (!gfx || gfx.destroyed) continue;
+      const pulse = 0.5 + 0.5 * Math.sin(state.t * 2.0 + mine.id * 0.73);
+      const slowPulse = 0.5 + 0.5 * Math.sin(state.t * 0.9 + mine.id * 1.91);
+      const owned = !!(mine.ownerId && mine.captureProgress >= 1);
+      const contestedMul = mine._contested ? 0.65 : 1;
+
+      if (gfx._outerGlow) {
+        gfx._outerGlow.alpha = ((owned ? 0.78 : 0.52) + pulse * 0.18) * contestedMul;
+        const outerScale = 1 + pulse * (mine.isRich ? 0.024 : 0.016);
+        gfx._outerGlow.scale.set(outerScale);
+      }
+      if (gfx._pulseHalo) {
+        gfx._pulseHalo.alpha = (0.42 + pulse * 0.24) * contestedMul;
+        const haloScale = 1 + slowPulse * (mine.isRich ? 0.05 : 0.032);
+        gfx._pulseHalo.scale.set(haloScale);
+      }
+      if (gfx._coreGlow) {
+        gfx._coreGlow.alpha = (mine.isRich ? 0.90 : 0.64) * (0.52 + pulse * 0.48);
+        gfx._coreGlow.scale.set(1 + pulse * (mine.isRich ? 0.09 : 0.05));
+      }
+      if (gfx._coreGlowSecondary) {
+        gfx._coreGlowSecondary.alpha = (mine.isRich ? 0.76 : 0.42) * (0.46 + slowPulse * 0.44);
+        gfx._coreGlowSecondary.scale.set(1 + slowPulse * (mine.isRich ? 0.08 : 0.04));
+      }
+      if (gfx._richCore) {
+        gfx._richCore.alpha = 0.72 + pulse * 0.28;
+        gfx._richCore.scale.set(1 + pulse * 0.06);
+      }
+      if (gfx._richOrbitals) {
+        gfx._richOrbitals.alpha = (mine.isRich ? 0.66 : 0.44) + slowPulse * (mine.isRich ? 0.18 : 0.10);
+        for (let i = 0; i < gfx._richOrbitals.children.length; i++) {
+          const orb = gfx._richOrbitals.children[i];
+          const ang = state.t * (orb._orbitSpeed || 0.4) + (orb._orbitAngle || 0);
+          const rr = (orb._orbitRadius || gfx._baseRadius * 0.82) * (1 + Math.sin(state.t * 1.7 + (orb._orbitPhase || 0)) * 0.04);
+          orb.position.set(Math.cos(ang) * rr, Math.sin(ang) * rr);
+          orb.alpha = (mine.isRich ? 0.48 : 0.28) + (0.5 + 0.5 * Math.sin(state.t * 4.2 + (orb._orbitPhase || 0))) * (mine.isRich ? 0.40 : 0.24);
+        }
+      }
+    }
   }
 
   const MINE_FLOW_PHASE_NONE = "none";
@@ -4616,20 +5268,35 @@
     return rate;
   }
 
+  function getMineEnergyPerSecond(mine, owner) {
+    let rate = (CFG.MINE_ENERGY_PER_SEC || 0) * mineYieldMul(owner);
+    if (mine && mine.isRich) rate *= (CFG.MINE_RICH_MULTIPLIER || 1);
+    return rate;
+  }
+
   function getPlayerMineRates(playerId) {
     let moneyPerSec = 0;
     let xpPerSec = 0;
+    let energyPerSec = 0;
     for (const mine of state.mines.values()) {
       if (!mine.ownerId || mine.captureProgress < 1) continue;
       const owner = state.players.get(mine.ownerId);
       if (!owner || owner.pop <= 0) continue;
       const rate = mine._flowRate > 0 ? mine._flowRate : getMineYieldPerSecond(mine, owner);
+      const energyRate = getMineEnergyPerSecond(mine, owner);
       const targetId = mine._flowTargetPlayerId || mine.ownerId;
       if (targetId !== playerId) continue;
-      if (mine.resourceType === "money") moneyPerSec += rate;
-      else xpPerSec += rate;
+      energyPerSec += energyRate;
+      if (mine.isRich) {
+        moneyPerSec += rate;
+        xpPerSec += rate;
+      } else if (mine.resourceType === "money") {
+        moneyPerSec += rate;
+      } else {
+        xpPerSec += rate;
+      }
     }
-    return { moneyPerSec, xpPerSec };
+    return { moneyPerSec, xpPerSec, energyPerSec };
   }
 
   function distToSegment(px, py, ax, ay, bx, by) {
@@ -4656,15 +5323,52 @@
     };
   }
 
+  function getMineFlowInterceptorSourceId(unit) {
+    if (!unit) return null;
+    if (unit.squadId != null) return `squad:${unit.squadId}`;
+    return `unit:${unit.id}`;
+  }
+
+  function getMineFlowSquadIntercept(squad, mine, owner) {
+    if (!squad || typeof SQUADLOGIC === "undefined" || !SQUADLOGIC.getSquadUnits || !SQUADLOGIC.getSquadCenter) return null;
+    const units = SQUADLOGIC.getSquadUnits(state, squad);
+    if (!units || !units.length) return null;
+    const interceptorOwner = state.players.get(squad.ownerId);
+    if (!interceptorOwner || interceptorOwner.pop <= 0) return null;
+    if (squad.ownerId === mine.ownerId) return null;
+
+    const center = SQUADLOGIC.getSquadCenter(state, squad);
+    let squadRadius = 0;
+    for (const u of units) {
+      const hitR = getUnitHitRadius(u);
+      const dist = Math.hypot(u.x - center.x, u.y - center.y) + hitR;
+      if (dist > squadRadius) squadRadius = dist;
+    }
+    const touchR = Math.max((CFG.MINE_GEM_INTERCEPT_R || 30), squadRadius * 0.5);
+    const d = distToSegment(center.x, center.y, mine.x, mine.y, owner.x, owner.y);
+    if (d > touchR) return null;
+
+    const point = closestPointOnSegment(center.x, center.y, mine.x, mine.y, owner.x, owner.y);
+    const leader = state.units.get(squad.leaderUnitId) || units[0];
+    return {
+      unit: leader,
+      point,
+      sourceId: `squad:${squad.id}`,
+      dist: d
+    };
+  }
+
   function clearMineFlowState(mine) {
     const hadFlow =
       (mine._flowPhase && mine._flowPhase !== MINE_FLOW_PHASE_NONE) ||
       mine._flowVisualTargetPlayerId != null ||
-      mine._flowInterceptUnitId != null;
+      mine._flowInterceptUnitId != null ||
+      mine._flowInterceptSourceId != null;
     mine._flowRate = 0;
     mine._flowTargetPlayerId = mine.ownerId || null;
     mine._flowVisualTargetPlayerId = null;
     mine._flowInterceptUnitId = null;
+    mine._flowInterceptSourceId = null;
     mine._flowInterceptX = null;
     mine._flowInterceptY = null;
     mine._flowInterceptT = null;
@@ -4682,8 +5386,20 @@
     if (!mine || !owner) return null;
     let best = null;
     let bestDist = Infinity;
+
+    if (typeof SQUADLOGIC !== "undefined" && state.squads) {
+      for (const squad of state.squads.values()) {
+        const intercept = getMineFlowSquadIntercept(squad, mine, owner);
+        if (!intercept) continue;
+        if (intercept.dist < bestDist) {
+          bestDist = intercept.dist;
+          best = intercept;
+        }
+      }
+    }
+
     for (const u of state.units.values()) {
-      if (!u || u.hp <= 0) continue;
+      if (!u || u.hp <= 0 || u.squadId != null) continue;
       if (u.owner === mine.ownerId) continue;
       const interceptorOwner = state.players.get(u.owner);
       if (!interceptorOwner || interceptorOwner.pop <= 0) continue;
@@ -4693,9 +5409,10 @@
       if (d < bestDist) {
         bestDist = d;
         const point = closestPointOnSegment(u.x, u.y, mine.x, mine.y, owner.x, owner.y);
-        best = { unit: u, point };
+        best = { unit: u, point, sourceId: getMineFlowInterceptorSourceId(u), dist: d };
       }
     }
+
     return best;
   }
 
@@ -4714,20 +5431,25 @@
       const interceptOwnerId = interceptor.unit.owner;
       const sameIntercept =
         (mine._flowVisualTargetPlayerId === interceptOwnerId) &&
-        (mine._flowInterceptUnitId === interceptor.unit.id) &&
+        (mine._flowInterceptSourceId === interceptor.sourceId) &&
         (phase === MINE_FLOW_PHASE_ENTER || phase === MINE_FLOW_PHASE_HOLD);
 
       mine._flowVisualTargetPlayerId = interceptOwnerId;
       mine._flowInterceptUnitId = interceptor.unit.id;
-      mine._flowInterceptX = interceptor.point.x;
-      mine._flowInterceptY = interceptor.point.y;
-      mine._flowInterceptT = interceptor.point.t;
+      mine._flowInterceptSourceId = interceptor.sourceId;
       mine._flowTargetPlayerId = interceptOwnerId;
 
       if (!sameIntercept) {
+        mine._flowInterceptX = interceptor.point.x;
+        mine._flowInterceptY = interceptor.point.y;
+        mine._flowInterceptT = interceptor.point.t;
         mine._flowPhase = MINE_FLOW_PHASE_ENTER;
         mine._flowPhaseStartedAt = state.t;
         mine._flowVersion = (mine._flowVersion || 0) + 1;
+      } else if (mine._flowInterceptX == null || mine._flowInterceptY == null || mine._flowInterceptT == null) {
+        mine._flowInterceptX = interceptor.point.x;
+        mine._flowInterceptY = interceptor.point.y;
+        mine._flowInterceptT = interceptor.point.t;
       } else if (phase === MINE_FLOW_PHASE_ENTER && progress >= 1) {
         mine._flowPhase = MINE_FLOW_PHASE_HOLD;
         mine._flowPhaseStartedAt = state.t;
@@ -4812,13 +5534,28 @@
 
         const targetPlayer = state.players.get(mine._flowTargetPlayerId || mine.ownerId) || owner;
         const gain = (mine._flowRate || 0) * dt;
-        if (gain > 0 && targetPlayer && targetPlayer.pop > 0) {
-          if (mine.resourceType === "money") {
-            targetPlayer.eCredits = (targetPlayer.eCredits || 0) + gain;
-            if (targetPlayer.id === state.myPlayerId) playMineIncomeSound();
-          } else {
+        const energyGain = getMineEnergyPerSecond(mine, owner) * dt;
+        if ((gain > 0 || energyGain > 0) && targetPlayer && targetPlayer.pop > 0) {
+          let moneyGain = 0;
+          if (mine.isRich) {
+            if (gain > 0) {
+              targetPlayer.eCredits = (targetPlayer.eCredits || 0) + gain;
+              gainXP(targetPlayer, gain);
+              moneyGain += gain;
+            }
+          } else if (mine.resourceType === "money") {
+            if (gain > 0) {
+              targetPlayer.eCredits = (targetPlayer.eCredits || 0) + gain;
+              moneyGain += gain;
+            }
+          } else if (gain > 0) {
             gainXP(targetPlayer, gain);
           }
+          if (energyGain > 0) {
+            targetPlayer.popFloat = (targetPlayer.popFloat || targetPlayer.pop || 0) + energyGain;
+            targetPlayer.pop = Math.floor(targetPlayer.popFloat);
+          }
+          if (targetPlayer.id === state.myPlayerId && moneyGain > 0) playMineIncomeSound(moneyGain);
         }
       } else {
         clearMineFlowState(mine);
@@ -5069,10 +5806,10 @@
   const MINE_FLOW_VARIANTS = {
     money: {
       routeStyle: "braid",
-      beamDash: [11, 9],
+      beamDash: [6, 9],
       laneCount: 2,
       laneOffset: 10,
-      pulseSpeed: 0.22,
+      pulseSpeed: 0.21,
       packetSpeed: 0.22,
       arcBias: 20,
       arcMul: 0.12,
@@ -5080,12 +5817,12 @@
     },
     xp: {
       routeStyle: "ladder",
-      beamDash: [6, 9],
+      beamDash: [4, 8],
       laneCount: 1,
       laneOffset: 0,
-      pulseSpeed: 0.21,
+      pulseSpeed: 0.22,
       packetSpeed: 0.20,
-      arcBias: 16,
+      arcBias: 14,
       arcMul: 0.09,
       packetStyle: "relay"
     }
@@ -5099,8 +5836,9 @@
     return a + (b - a) * t;
   }
 
-  function getMineFlowVariant(mine) {
-    return MINE_FLOW_VARIANTS[mine && mine.resourceType === "xp" ? "xp" : "money"];
+  function getMineFlowVariant(mine, resourceTypeOverride) {
+    const resourceType = resourceTypeOverride || getMinePrimaryResourceType(mine);
+    return resourceType === "xp" ? MINE_FLOW_VARIANTS.xp : MINE_FLOW_VARIANTS.money;
   }
 
   function getMineFlowDetail() {
@@ -5158,7 +5896,7 @@
     return out;
   }
 
-  function mfBuildRoutePoints(start, end, seed, variant, detail, laneSign, rerouteMul) {
+  function mfBuildRoutePoints(start, end, seed, variant, detail, laneSign, rerouteMul, channelSign) {
     const points = [];
     const count = detail.routeSamples;
     const dx = end.x - start.x;
@@ -5171,6 +5909,7 @@
     const seedNorm = ((seed || 0) * 0.6180339887) % 1;
     const seedSign = seedNorm > 0.5 ? 1 : -1;
     const laneOffset = (laneSign || 0) * variant.laneOffset;
+    const channelOffset = (channelSign || 0) * (variant.laneCount > 1 ? 11 : 18);
     const ampBase = variant.arcBias + len * variant.arcMul;
 
     for (let i = 0; i <= count; i++) {
@@ -5178,17 +5917,25 @@
       const baseX = mfLerp(start.x, end.x, t);
       const baseY = mfLerp(start.y, end.y, t);
       let offset = 0;
-      if (variant.routeStyle === "braid") {
+      if (variant.routeStyle === "relay") {
+        offset = Math.sin(Math.PI * t) * (6 + ampBase * 0.18) * seedSign * 0.35 * (0.35 + rerouteMul * 0.65);
+      } else if (variant.routeStyle === "arc") {
+        offset = Math.sin(Math.PI * t) * (14 + ampBase * 0.68) * seedSign * (0.55 + rerouteMul * 0.60);
+      } else if (variant.routeStyle === "braid") {
         offset = Math.sin(Math.PI * t) * (9 + ampBase * 0.25) * seedSign * 0.42;
         offset += Math.sin(t * Math.PI * 4 + state.t * 0.8 + seedNorm * 5) * 4.2 * rerouteMul;
       } else if (variant.routeStyle === "ladder") {
         const sq = Math.sin(t * Math.PI * 4 + seedNorm * 7) >= 0 ? 1 : -1;
-        const gate = Math.sin(Math.PI * t);
-        offset = sq * (5 + ampBase * 0.18) * gate * 0.95;
+        const gate = Math.sin(Math.PI * t) * Math.min(1, Math.max(0, (t - 0.06) / 0.12)) * Math.min(1, Math.max(0, (0.94 - t) / 0.14));
+        offset = sq * (6 + ampBase * 0.20) * gate;
+      } else if (variant.routeStyle === "siphon") {
+        offset = Math.sin(Math.PI * t) * (10 + ampBase * 0.42) * seedSign * 0.5;
+        offset += Math.sin(state.t * 1.2 + t * Math.PI * 6 + seedNorm * 6) * 3.5;
       } else {
         offset = Math.sin(Math.PI * t) * (8 + ampBase * 0.22) * seedSign * 0.36;
       }
       offset += laneOffset * Math.sin(Math.PI * t);
+      offset += channelOffset * Math.sin(Math.PI * t);
       points.push({
         x: baseX + perpX * offset,
         y: baseY + perpY * offset
@@ -5197,20 +5944,24 @@
     return points;
   }
 
-  function buildMineFlowRoute(mine, detail) {
+  function buildMineFlowRoute(mine, detail, resourceTypeOverride, channelSign = 0) {
     const owner = state.players.get(mine.ownerId);
     if (!owner || owner.pop <= 0 || mine.captureProgress < 1) return null;
-    const variant = getMineFlowVariant(mine);
+    const resourceType = resourceTypeOverride || getMinePrimaryResourceType(mine);
+    const variant = getMineFlowVariant(mine, resourceType);
     const phase = mine._flowPhase || MINE_FLOW_PHASE_NONE;
     const visualTargetId = (phase === MINE_FLOW_PHASE_ENTER || phase === MINE_FLOW_PHASE_HOLD || phase === MINE_FLOW_PHASE_EXIT)
       ? (mine._flowVisualTargetPlayerId || mine.ownerId)
       : mine.ownerId;
     const visualTarget = state.players.get(visualTargetId) || owner;
     const route = {
+      key: getMineFlowRouteKey(mine, resourceType),
       mine,
+      resourceType,
       owner,
       visualTarget,
       variant,
+      channelSign,
       phase,
       phaseProgress: getMineFlowProgress(mine),
       spliceT: mine._flowInterceptT != null ? mfClamp(mine._flowInterceptT, 0.08, 0.96) : 1
@@ -5222,7 +5973,8 @@
       variant,
       detail,
       0,
-      1
+      1,
+      channelSign
     );
     if (variant.laneCount > 1) {
       route.left = mfBuildRoutePoints(
@@ -5232,7 +5984,8 @@
         variant,
         detail,
         -1,
-        1
+        1,
+        channelSign
       );
       route.right = mfBuildRoutePoints(
         { x: mine.x, y: mine.y },
@@ -5241,7 +5994,8 @@
         variant,
         detail,
         1,
-        1
+        1,
+        channelSign
       );
     }
     if (mine._flowInterceptX != null && mine._flowInterceptY != null && visualTarget && visualTarget.id !== mine.ownerId) {
@@ -5252,7 +6006,8 @@
         variant,
         detail,
         0,
-        1.15
+        1.15,
+        channelSign
       );
     } else {
       route.redirect = null;
@@ -5325,17 +6080,19 @@
   function syncMineFlowPackets(routes, detail, dt) {
     for (const route of routes.values()) {
       const mine = route.mine;
-      if (mine._flowLocalVersionSeen !== mine._flowVersion) {
-        mine._flowLocalVersionSeen = mine._flowVersion;
-        mine._flowPacketAcc = 0;
-        state.mineFlowPackets = state.mineFlowPackets.filter(pkt => pkt.mineId !== mine.id);
+      mine._flowLocalVersionSeenByType = mine._flowLocalVersionSeenByType || {};
+      mine._flowPacketAccByType = mine._flowPacketAccByType || {};
+      if (mine._flowLocalVersionSeenByType[route.resourceType] !== mine._flowVersion) {
+        mine._flowLocalVersionSeenByType[route.resourceType] = mine._flowVersion;
+        mine._flowPacketAccByType[route.resourceType] = 0;
+        state.mineFlowPackets = state.mineFlowPackets.filter(pkt => pkt.routeKey !== route.key);
       }
     }
 
     const livePerMine = new Map();
     for (let i = state.mineFlowPackets.length - 1; i >= 0; i--) {
       const pkt = state.mineFlowPackets[i];
-      const route = routes.get(pkt.mineId);
+      const route = routes.get(pkt.routeKey || getMineFlowRouteKey({ id: pkt.mineId }, pkt.resourceType || (pkt.isCredit ? "money" : "xp")));
       if (!route) {
         state.mineFlowPackets.splice(i, 1);
         continue;
@@ -5345,27 +6102,29 @@
         state.mineFlowPackets.splice(i, 1);
         continue;
       }
-      livePerMine.set(pkt.mineId, (livePerMine.get(pkt.mineId) || 0) + 1);
+      livePerMine.set(route.key, (livePerMine.get(route.key) || 0) + 1);
     }
 
     for (const route of routes.values()) {
       const mine = route.mine;
       const rate = Math.max(0.25, mine._flowRate || 0);
-      const current = livePerMine.get(mine.id) || 0;
+      const current = livePerMine.get(route.key) || 0;
       const interval = Math.max(0.20, 0.85 / rate);
-      if (mine._flowPacketAcc == null) mine._flowPacketAcc = Math.random() * interval;
-      mine._flowPacketAcc += dt;
+      if (mine._flowPacketAccByType[route.resourceType] == null) mine._flowPacketAccByType[route.resourceType] = Math.random() * interval;
+      mine._flowPacketAccByType[route.resourceType] += dt;
       let localCount = current;
-      while (mine._flowPacketAcc >= interval && localCount < detail.maxPacketsPerMine) {
-        mine._flowPacketAcc -= interval;
+      while (mine._flowPacketAccByType[route.resourceType] >= interval && localCount < detail.maxPacketsPerMine) {
+        mine._flowPacketAccByType[route.resourceType] -= interval;
         state.mineFlowPackets.push({
           id: state.nextMineFlowPacketId++,
+          routeKey: route.key,
           mineId: mine.id,
+          resourceType: route.resourceType,
           progress: 0,
           speed: route.variant.packetSpeed * (0.92 + Math.min(0.24, rate * 0.05)),
           lane: route.variant.laneCount > 1 ? (Math.random() > 0.5 ? 1 : -1) : 0,
           sizeMul: 1 + Math.min(0.20, Math.max(0, rate - 1) * 0.05),
-          isCredit: mine.resourceType === "money",
+          isCredit: route.resourceType === "money",
           seed: Math.random() * 1000
         });
         localCount++;
@@ -5381,28 +6140,67 @@
     const farZoomMul = Math.min(1, zoom / 0.28);
     const scale = invZoom * detail.packetScale * pkt.sizeMul * farZoomMul;
     const pulse = 0.75 + 0.25 * Math.sin(state.t * 4 + pkt.seed);
+    const style = route.variant.packetStyle || "prism";
+
+    function drawHexPacket(x, y, r, fill, stroke, fillAlpha, strokeAlpha) {
+      const pts = [];
+      for (let i = 0; i < 6; i++) {
+        const a = Math.PI / 6 + i * (Math.PI / 3);
+        pts.push(x + Math.cos(a) * r, y + Math.sin(a) * r);
+      }
+      g.poly(pts);
+      g.fill({ color: fill, alpha: fillAlpha });
+      g.poly(pts);
+      g.stroke({ color: stroke, width: 0.85 * scale, alpha: strokeAlpha });
+    }
 
     if (pkt.isCredit) {
       const r = 3.8 * scale;
-      const pts = [];
-      for (let i = 0; i < 4; i++) {
-        const a = Math.PI / 4 + i * (Math.PI / 2);
-        pts.push(sample.x + Math.cos(a) * r, sample.y + Math.sin(a) * r);
+      if (style === "paired") {
+        drawHexPacket(sample.x - 2.3 * scale, sample.y, r * 0.78, 0xffbe54, 0xfff0b8, 0.68, 0.30);
+        drawHexPacket(sample.x + 2.6 * scale, sample.y, r * 0.60, 0x79e67a, 0xfff0b8, 0.56, 0.20);
+      } else if (style === "droplet") {
+        g.circle(sample.x, sample.y, r * 1.05);
+        g.fill({ color: 0xffbe54, alpha: 0.52 });
+        drawHexPacket(sample.x, sample.y, r * 0.72, 0xffe6a2, 0xfff0b8, 0.24, 0.22);
+      } else if (style === "relay" || style === "prism") {
+        drawHexPacket(sample.x, sample.y, r, 0xffbe54, 0xfff0b8, 0.82, 0.36);
+      } else {
+        g.roundRect(sample.x - r * 1.2, sample.y - r * 0.72, r * 2.4, r * 1.44, r * 0.45);
+        g.fill({ color: 0xffbe54, alpha: 0.78 });
+        g.roundRect(sample.x - r * 1.2, sample.y - r * 0.72, r * 2.4, r * 1.44, r * 0.45);
+        g.stroke({ color: 0xfff0b8, width: 0.85 * scale, alpha: 0.30 });
       }
-      g.poly(pts);
-      g.fill({ color: 0xffbe54, alpha: 0.82 });
-      g.poly(pts);
-      g.stroke({ color: 0xfff0b8, width: 0.9 * scale, alpha: 0.36 });
       g.circle(sample.x, sample.y, 1.0 * scale);
       g.fill({ color: 0xffffff, alpha: 0.22 * pulse });
     } else {
       const r = 3.5 * scale;
-      g.circle(sample.x, sample.y, r);
-      g.fill({ color: 0x56d6ff, alpha: 0.46 });
-      g.circle(sample.x, sample.y, r);
-      g.stroke({ color: 0xd8f0ff, width: 0.8 * scale, alpha: 0.34 });
+      if (style === "paired") {
+        g.circle(sample.x - 2.2 * scale, sample.y, r * 0.82);
+        g.fill({ color: 0x56d6ff, alpha: 0.42 });
+        g.circle(sample.x + 2.0 * scale, sample.y, r * 0.56);
+        g.fill({ color: 0xff6f93, alpha: 0.30 });
+      } else if (style === "relay") {
+        const pts = [
+          sample.x, sample.y - r,
+          sample.x + r * 0.82, sample.y,
+          sample.x, sample.y + r,
+          sample.x - r * 0.82, sample.y
+        ];
+        g.poly(pts);
+        g.fill({ color: 0x56d6ff, alpha: 0.56 });
+        g.poly(pts);
+        g.stroke({ color: 0xd8f0ff, width: 0.82 * scale, alpha: 0.34 });
+      } else {
+        g.circle(sample.x, sample.y, r);
+        g.fill({ color: 0x56d6ff, alpha: style === "droplet" ? 0.38 : 0.46 });
+        g.circle(sample.x, sample.y, r);
+        g.stroke({ color: 0xd8f0ff, width: 0.8 * scale, alpha: 0.34 });
+      }
       g.circle(sample.x, sample.y, r * 0.45);
-      g.fill({ color: 0xffffff, alpha: 0.20 * pulse });
+      g.fill({ color: style === "droplet" ? 0xff6f93 : 0xffffff, alpha: 0.20 * pulse });
+      g.circle(sample.x, sample.y, r * 0.26);
+      g.fill({ color: 0xffffff, alpha: 0.24 });
     }
   }
 
@@ -5410,7 +6208,7 @@
     const mine = route.mine;
     const variant = route.variant;
     const invZoom = 1 / Math.max(0.001, cam.zoom || 0.22);
-    const isMoney = mine.resourceType === "money";
+    const isMoney = route.resourceType === "money";
     const glowCol = isMoney ? 0xffbe54 : 0x56d6ff;
     const edgeCol = isMoney ? 0xffe6a2 : 0xd8f0ff;
     const accentCol = isMoney ? 0x79e67a : 0xff6f93;
@@ -5423,11 +6221,19 @@
     const exit = route.phase === MINE_FLOW_PHASE_EXIT;
     const mainVisibleT = enterHold ? mfLerp(1, spliceT, route.phase === MINE_FLOW_PHASE_HOLD ? 1 : route.phaseProgress) : 1;
     const redirectVisibleT = enterHold ? (route.phase === MINE_FLOW_PHASE_HOLD ? 1 : route.phaseProgress) : (exit ? 1 - route.phaseProgress : 0);
+    const mouthPulse = 0.5 + 0.5 * Math.sin(state.t * 5.4 + mine.id * 0.83);
 
     const visibleMainBase = enterHold
       ? mfBuildPathSlice(route.main, 0, mainVisibleT)
       : (exit ? mfBuildPathSlice(route.main, 0, spliceT) : mfBuildPathSlice(route.main, 0, 1));
     const exitMainTail = exit ? mfBuildPathSlice(route.main, spliceT, mfLerp(spliceT, 1, route.phaseProgress)) : null;
+    const mouth = mfSamplePath(route.main, Math.min(0.07, Math.max(0.03, spliceT * 0.32)));
+
+    mfDrawStroke(g, [{ x: mine.x, y: mine.y }, { x: mouth.x, y: mouth.y }], 1.2 * invZoom, edgeCol, 0.20 * detail.beamAlpha);
+    g.circle(mouth.x, mouth.y, (3.4 + mouthPulse * 1.4) * invZoom);
+    g.fill({ color: edgeCol, alpha: (0.18 + mouthPulse * 0.10) * detail.beamAlpha });
+    g.circle(mouth.x, mouth.y, 1.2 * invZoom);
+    g.fill({ color: 0xffffff, alpha: (0.18 + mouthPulse * 0.12) * detail.beamAlpha });
 
     mfDrawStroke(g, visibleMainBase, 5.4 * invZoom, glowCol, 0.12 * detail.beamAlpha);
     mfDrawDashed(g, visibleMainBase, 2.0 * invZoom, glowCol, 0.30 * detail.beamAlpha, dash[0] * invZoom * 4, dash[1] * invZoom * 4, -state.t * 36);
@@ -5445,13 +6251,22 @@
       const visibleRight = enterHold
         ? mfBuildPathSlice(route.right, 0, mainVisibleT)
         : (exit ? mfBuildPathSlice(route.right, 0, spliceT) : mfBuildPathSlice(route.right, 0, 1));
-      mfDrawDashed(g, visibleLeft, 1.05 * invZoom, 0x79e67a, 0.38 * detail.beamAlpha, 7 * invZoom, 12 * invZoom, state.t * 24);
-      mfDrawDashed(g, visibleRight, 1.05 * invZoom, 0xffbe54, 0.34 * detail.beamAlpha, 7 * invZoom, 12 * invZoom, -state.t * 22);
+      mfDrawDashed(g, visibleLeft, 1.05 * invZoom, accentCol, 0.34 * detail.beamAlpha, 7 * invZoom, 12 * invZoom, state.t * 24);
+      mfDrawDashed(g, visibleRight, 1.05 * invZoom, glowCol, 0.32 * detail.beamAlpha, 7 * invZoom, 12 * invZoom, -state.t * 22);
       if (detail.bridges) {
         const bridgeStep = Math.max(3, Math.floor(Math.min(visibleLeft.length, visibleRight.length) / 7));
         for (let i = bridgeStep; i < visibleLeft.length - 1 && i < visibleRight.length - 1; i += bridgeStep * 2) {
-          mfDrawStroke(g, [visibleLeft[i], visibleRight[i]], 0.55 * invZoom, 0xffe6a2, 0.18 * detail.beamAlpha);
+          mfDrawStroke(g, [visibleLeft[i], visibleRight[i]], 0.55 * invZoom, edgeCol, 0.18 * detail.beamAlpha);
         }
+      }
+    }
+
+    if ((variant.routeStyle === "siphon" || variant.haloNodes) && visibleMainBase.length > 3) {
+      const haloSamples = [0.24, 0.46, 0.68];
+      for (let hi = 0; hi < haloSamples.length; hi++) {
+        const halo = mfSamplePath(route.main, Math.min(mainVisibleT, haloSamples[hi] * Math.max(0.45, spliceT)));
+        g.circle(halo.x, halo.y, (4.6 + hi * 1.1) * invZoom);
+        g.stroke({ color: edgeCol, width: 0.55 * invZoom, alpha: (0.10 + hi * 0.03) * detail.beamAlpha });
       }
     }
 
@@ -5463,10 +6278,20 @@
     }
 
     if (mine._flowInterceptX != null && mine._flowInterceptY != null && route.phase !== MINE_FLOW_PHASE_NONE) {
-      g.circle(mine._flowInterceptX, mine._flowInterceptY, 6.5 * invZoom);
-      g.stroke({ color: interceptEdge, width: 0.9 * invZoom, alpha: 0.26 * detail.beamAlpha });
+      const splicePulse = 0.5 + 0.5 * Math.sin(state.t * 6.2 + mine.id * 1.31);
+      g.circle(mine._flowInterceptX, mine._flowInterceptY, (8.2 + splicePulse * 2.6) * invZoom);
+      g.stroke({ color: interceptEdge, width: 0.95 * invZoom, alpha: (0.18 + splicePulse * 0.14) * detail.beamAlpha });
+      g.circle(mine._flowInterceptX, mine._flowInterceptY, 4.0 * invZoom);
+      g.stroke({ color: interceptColor, width: 0.55 * invZoom, alpha: (0.22 + splicePulse * 0.08) * detail.beamAlpha });
       g.circle(mine._flowInterceptX, mine._flowInterceptY, 2.1 * invZoom);
       g.fill({ color: interceptColor, alpha: 0.42 * detail.beamAlpha });
+      if (route.redirect && route.redirect.length > 1) {
+        const redirectHead = mfSamplePath(route.redirect, Math.min(0.14, Math.max(0.05, redirectVisibleT * 0.24 + 0.05)));
+        mfDrawStroke(g, [
+          { x: mine._flowInterceptX, y: mine._flowInterceptY },
+          { x: redirectHead.x, y: redirectHead.y }
+        ], 0.65 * invZoom, interceptEdge, (0.14 + splicePulse * 0.10) * detail.beamAlpha);
+      }
     }
 
     if (detail.shimmer) {
@@ -5486,6 +6311,7 @@
 
   function updateMineFlowVisuals(dt) {
     ensureMineFlowVisuals();
+    updateMineAmbientVisuals();
     const beamG = state._mineFlowBeamGfx;
     const packetG = state._mineFlowPacketGfx;
     beamG.clear();
@@ -5495,9 +6321,13 @@
     const routes = new Map();
     for (const mine of state.mines.values()) {
       if (!mine.ownerId || mine.captureProgress < 1) continue;
-      const route = buildMineFlowRoute(mine, detail);
-      if (!route) continue;
-      routes.set(mine.id, route);
+      const outputs = getMineOutputResourceTypes(mine);
+      const signs = outputs.length === 2 ? [-1, 1] : [0];
+      for (let ri = 0; ri < outputs.length; ri++) {
+        const route = buildMineFlowRoute(mine, detail, outputs[ri], signs[ri] || 0);
+        if (!route) continue;
+        routes.set(route.key, route);
+      }
     }
 
     syncMineFlowPackets(routes, detail, dt);
@@ -5505,7 +6335,7 @@
     for (const route of routes.values()) drawMineFlowRoute(beamG, route, detail);
     for (let i = 0; i < state.mineFlowPackets.length; i++) {
       const pkt = state.mineFlowPackets[i];
-      const route = routes.get(pkt.mineId);
+      const route = routes.get(pkt.routeKey || getMineFlowRouteKey({ id: pkt.mineId }, pkt.resourceType || (pkt.isCredit ? "money" : "xp")));
       if (route) drawMineFlowPacket(packetG, route, pkt, detail);
     }
   }
@@ -5514,6 +6344,8 @@
   function placeNebulae(rndFn) {
     const rnd = rndFn || (() => Math.random());
     state.nebulae = [];
+    invalidateNebulaBodyGraphics();
+    const variantOffset = Math.floor(rnd() * NEBULA_VISUAL_VARIANTS.length);
     const baseInflR = CFG.INFLUENCE_BASE_R || 240;
     function nebulaTouchesAnyInitialZone(cx, cy, r) {
       for (const p of state.players.values()) {
@@ -5530,7 +6362,37 @@
     if (stateNebulaClouds && stateNebulaClouds.length) {
       for (const c of stateNebulaClouds) {
         if (nebulaTouchesAnyInitialZone(c.cx, c.cy, c.r)) continue;
-        state.nebulae.push({ x: c.cx, y: c.cy, radius: c.r, discharges: [], _hue: pickNebulaHue() });
+        const neb = {
+          x: c.cx,
+          y: c.cy,
+          radius: c.r,
+          _baseX: c.cx,
+          _baseY: c.cy,
+          _baseRadius: c.r,
+          _floatPhaseX: rnd() * Math.PI * 2,
+          _floatPhaseY: rnd() * Math.PI * 2,
+          _floatPhaseX2: rnd() * Math.PI * 2,
+          _floatPhaseY2: rnd() * Math.PI * 2,
+          _floatAmpX: 3 + rnd() * 6,
+          _floatAmpY: 3 + rnd() * 6,
+          _floatAmpX2: 1 + rnd() * 3,
+          _floatAmpY2: 1 + rnd() * 3,
+          _floatFreqX: 0.012 + rnd() * 0.010,
+          _floatFreqY: 0.011 + rnd() * 0.010,
+          _floatFreqX2: 0.007 + rnd() * 0.006,
+          _floatFreqY2: 0.006 + rnd() * 0.006,
+          _breathPhase: rnd() * Math.PI * 2,
+          _breathPhase2: rnd() * Math.PI * 2,
+          _breathAmp: 0.012 + rnd() * 0.016,
+          _breathAmp2: 0.004 + rnd() * 0.008,
+          _breathFreq: 0.010 + rnd() * 0.008,
+          _breathFreq2: 0.006 + rnd() * 0.005,
+          discharges: [],
+          _hue: pickNebulaHue(),
+          _visualVariantIndex: (variantOffset + state.nebulae.length) % NEBULA_VISUAL_VARIANTS.length
+        };
+        initNebulaVisual(neb);
+        state.nebulae.push(neb);
       }
     } else {
       const cx = CFG.WORLD_W * 0.5, cy = CFG.WORLD_H * 0.5;
@@ -5543,7 +6405,37 @@
       }
       for (const c of cand) {
         if (nebulaTouchesAnyInitialZone(c.x, c.y, c.r)) continue;
-        state.nebulae.push({ x: c.x, y: c.y, radius: c.r, discharges: [], _hue: pickNebulaHue() });
+        const neb = {
+          x: c.x,
+          y: c.y,
+          radius: c.r,
+          _baseX: c.x,
+          _baseY: c.y,
+          _baseRadius: c.r,
+          _floatPhaseX: rnd() * Math.PI * 2,
+          _floatPhaseY: rnd() * Math.PI * 2,
+          _floatPhaseX2: rnd() * Math.PI * 2,
+          _floatPhaseY2: rnd() * Math.PI * 2,
+          _floatAmpX: 3 + rnd() * 6,
+          _floatAmpY: 3 + rnd() * 6,
+          _floatAmpX2: 1 + rnd() * 3,
+          _floatAmpY2: 1 + rnd() * 3,
+          _floatFreqX: 0.012 + rnd() * 0.010,
+          _floatFreqY: 0.011 + rnd() * 0.010,
+          _floatFreqX2: 0.007 + rnd() * 0.006,
+          _floatFreqY2: 0.006 + rnd() * 0.006,
+          _breathPhase: rnd() * Math.PI * 2,
+          _breathPhase2: rnd() * Math.PI * 2,
+          _breathAmp: 0.012 + rnd() * 0.016,
+          _breathAmp2: 0.004 + rnd() * 0.008,
+          _breathFreq: 0.010 + rnd() * 0.008,
+          _breathFreq2: 0.006 + rnd() * 0.005,
+          discharges: [],
+          _hue: pickNebulaHue(),
+          _visualVariantIndex: (variantOffset + state.nebulae.length) % NEBULA_VISUAL_VARIANTS.length
+        };
+        initNebulaVisual(neb);
+        state.nebulae.push(neb);
       }
     }
   }
@@ -5551,58 +6443,49 @@
   function isInNebula(x, y) {
     if (!state.nebulae || !state.nebulae.length) return false;
     for (const neb of state.nebulae) {
-      const d2 = (x - neb.x) ** 2 + (y - neb.y) ** 2;
-      if (d2 <= neb.radius * neb.radius) return true;
+      const zone = getAnimatedNebulaZone(neb);
+      const d2 = (x - zone.x) ** 2 + (y - zone.y) ** 2;
+      if (d2 <= zone.radius * zone.radius) return true;
     }
     return false;
   }
 
   function stepNebulae(dt) {
     if (!state.nebulae) return;
+    const detail = getNebulaVisualDetail();
     for (const neb of state.nebulae) {
-      neb._glowPhase = (neb._glowPhase || 0) + dt * 0.008;
+      initNebulaVisual(neb);
+      const zone = getAnimatedNebulaZone(neb);
+      neb._glowPhase = (neb._glowPhase || 0) + dt * 0.24;
       neb._glowAlpha = 0.09;
 
-      const maxDischarges = 5;
-      const spawnRate = 0.008 + neb.radius * 0.00006;
+      const maxDischarges = detail.maxDischarges;
+      const spawnRate = 0.0014 + zone.radius * 0.000012;
       if (neb.discharges.length < maxDischarges && Math.random() < dt * spawnRate) {
         const a = Math.random() * Math.PI * 2;
-        const d = Math.random() * neb.radius * 0.4;
-        const sx = neb.x + Math.cos(a) * d;
-        const sy = neb.y + Math.sin(a) * d;
+        const d = zone.radius * (0.06 + Math.random() * 0.30);
+        const sx = zone.x + Math.cos(a) * d;
+        const sy = zone.y + Math.sin(a) * d;
         const segs = [];
         let px = sx, py = sy;
         let angle = Math.random() * Math.PI * 2;
-        const variety = Math.random();
-        let segCount, segLen, branchChance, angleJitter;
-        if (variety < 0.3) {
-          segCount = 2 + Math.floor(Math.random() * 3);
-          segLen = 5 + Math.random() * 12;
-          branchChance = 0.1;
-          angleJitter = 0.8;
-        } else if (variety < 0.7) {
-          segCount = 4 + Math.floor(Math.random() * 4);
-          segLen = 8 + Math.random() * 20;
-          branchChance = 0.4;
-          angleJitter = 1.2;
-        } else {
-          segCount = 6 + Math.floor(Math.random() * 5);
-          segLen = 12 + Math.random() * 25;
-          branchChance = 0.5;
-          angleJitter = 1.6;
-        }
+        const segCount = detail.dischargeSegMin + Math.floor(Math.random() * (detail.dischargeSegMax - detail.dischargeSegMin + 1));
+        const segLen = 16 + Math.random() * 26;
+        const branchChance = cam.zoom > 0.40 ? 0.08 : 0.03;
+        const angleJitter = 0.42 + Math.random() * 0.34;
         for (let s = 0; s < segCount; s++) {
           angle += (Math.random() - 0.5) * angleJitter;
-          const len = segLen * (0.7 + Math.random() * 0.6);
+          const len = segLen * (0.82 + Math.random() * 0.44);
           const nx = px + Math.cos(angle) * len;
           const ny = py + Math.sin(angle) * len;
           segs.push({ x1: px, y1: py, x2: nx, y2: ny });
           px = nx; py = ny;
           if (Math.random() < branchChance && s < segCount - 1) {
-            const ba = angle + (Math.random() < 0.5 ? 0.7 : -0.7) + (Math.random() - 0.5) * 0.5;
-            const bl = 4 + Math.random() * 12;
+            const ba = angle + (Math.random() < 0.5 ? 0.55 : -0.55) + (Math.random() - 0.5) * 0.32;
+            const bl = 10 + Math.random() * 18;
             segs.push({ x1: px, y1: py, x2: px + Math.cos(ba) * bl, y2: py + Math.sin(ba) * bl });
           }
+          if (Math.hypot(px - zone.x, py - zone.y) > zone.radius * 0.72) break;
         }
         let totalLen = 0;
         const segsWithLen = segs.map(seg => {
@@ -5610,12 +6493,22 @@
           totalLen += l;
           return { ...seg, cumLen: totalLen };
         });
-        const life = 4.0 + Math.random() * 4.0;
-        const baseHue = neb._hue != null ? neb._hue : 0x4488cc;
-        const hue = Math.random() < 0.4 ? (baseHue | 0x444444) : (Math.random() < 0.7 ? baseHue : (baseHue + 0x222222));
+        const life = 6.2 + Math.random() * 3.8;
+        const hue = getNebulaVisualVariant(neb).sparkColor;
         const startX = segs[0].x1, startY = segs[0].y1;
         const lastSeg = segs[segs.length - 1];
-        neb.discharges.push({ segs: segsWithLen, totalLen, life, maxLife: life, hue, startX, startY, endX: lastSeg.x2, endY: lastSeg.y2 });
+        neb.discharges.push({
+          segs: segsWithLen,
+          totalLen,
+          life,
+          maxLife: life,
+          revealDur: life * 0.58,
+          hue,
+          startX,
+          startY,
+          endX: lastSeg.x2,
+          endY: lastSeg.y2
+        });
       }
       for (let i = neb.discharges.length - 1; i >= 0; i--) {
         neb.discharges[i].life -= dt;
@@ -5625,6 +6518,9 @@
   }
 
   function resetWorld() {
+    invalidateNebulaBodyGraphics();
+    destroyChildren(nebulaLayer);
+    destroyChildren(nebulaFxLayer);
     destroyChildren(zonesLayer);
     destroyChildren(turretLayer);
     destroyChildren(resLayer);
@@ -5650,6 +6546,7 @@
     state.mines.clear();
     state.mineGems = [];
     state.mineFlowPackets = [];
+    state._mineIncomeSoundBudget = 0;
     state.nebulae = [];
     nextMineId = 1;
     state.nextTurretId = 1;
@@ -5686,6 +6583,7 @@
     state.smoothedFronts = {};
     state.persistentBattles = {};
     state.resourceClusters = [];
+    state._soloNoBotAi = false;
 
     const soloIdx = state._soloColorIndex ?? 0;
     const remainingColors = SOLO_PALETTE.filter((_, i) => i !== soloIdx);
@@ -5722,6 +6620,110 @@
     }
 
     state._survivalMode = false;
+    if (state._quickStartScenario === "stress400") {
+      state._soloNoBotAi = true;
+      state.botPlayerIds = new Set([2]);
+
+      const mePos = { x: CFG.WORLD_W * 0.22, y: CFG.WORLD_H * 0.50 };
+      const botPos = { x: CFG.WORLD_W * 0.78, y: CFG.WORLD_H * 0.50 };
+
+      const me = makePlayer(1, nameForId(1), mePos.x, mePos.y, CFG.POP_START);
+      me.color = SOLO_PALETTE[soloIdx];
+      PLAYER_COLORS[1] = me.color;
+      state.players.set(me.id, me);
+      makeCityVisual(me);
+      makeZoneVisual(me);
+
+      const bot = makePlayer(2, nameForId(2), botPos.x, botPos.y, CFG.POP_START);
+      bot.color = remainingColors[0] ?? SOLO_PALETTE[3];
+      PLAYER_COLORS[2] = bot.color;
+      state.players.set(bot.id, bot);
+      makeCityVisual(bot);
+      makeZoneVisual(bot);
+
+      centerOn(me.x, me.y);
+
+      state._timeSnapshots = [];
+      state._lastTimeSnapshotAt = 0;
+      state._timeJumpAvailableAt = state.players.size * 61;
+
+      placeMines([{ pos: mePos, ownerId: 1 }, { pos: botPos, ownerId: 2 }], soloRnd);
+      placeNebulae(soloRnd);
+
+      for (const mine of state.mines.values()) {
+        const keepMineForPlayer = mine.ownerId === 1;
+        mine.ownerId = keepMineForPlayer ? 1 : 2;
+        mine.captureProgress = 1;
+        mine._capturingOwner = null;
+        mine._captureProtectedUntil = 0;
+        clearMineFlowState(mine);
+        updateMineVisual(mine);
+        if (mine.gfx) updateMineProgressBar(mine);
+      }
+
+      if (state.pirateBase) {
+        if (state.pirateBase.gfx && state.pirateBase.gfx.parent) state.pirateBase.gfx.parent.removeChild(state.pirateBase.gfx);
+        if (state.pirateBase._emojiGfx && state.pirateBase._emojiGfx.parent) state.pirateBase._emojiGfx.parent.removeChild(state.pirateBase._emojiGfx);
+        state.pirateBase.gfx = null;
+        state.pirateBase._emojiGfx = null;
+        state.pirateBase = null;
+      }
+
+      const spawnStressCorvettes = (ownerId, origin, targetCity, attackTarget, mergeIntoOneSquad) => {
+        const count = 400;
+        const sourceTag = `stress400-${ownerId}`;
+        const spawnedSquadIds = [];
+        for (let i = 0; i < count; i++) {
+          const band = Math.floor(i / 40);
+          const ring = 88 + band * 18 + (i % 5) * 3;
+          const angle = (i / Math.max(1, count)) * Math.PI * 2 + band * 0.07;
+          const sx = clamp(origin.x + Math.cos(angle) * ring, 50, CFG.WORLD_W - 50);
+          const sy = clamp(origin.y + Math.sin(angle) * ring * 0.72, 50, CFG.WORLD_H - 50);
+          const holdWp = { x: sx, y: sy };
+          const attackWp = {
+            x: targetCity.x + Math.cos(angle) * 28,
+            y: targetCity.y + Math.sin(angle) * 28
+          };
+          const u = spawnUnitAt(
+            sx,
+            sy,
+            ownerId,
+            "fighter",
+            [attackTarget ? attackWp : holdWp],
+            { sourceTag, autoGroupUntil: state.t + 6, allowAutoJoinRecentSpawn: true }
+          );
+          if (!u) continue;
+          if (u.squadId != null) spawnedSquadIds.push(u.squadId);
+          if (attackTarget && typeof SQUADLOGIC !== "undefined" && u.squadId != null && SQUADLOGIC.issueSiegeOrder) {
+            SQUADLOGIC.issueSiegeOrder(state, u.squadId, targetCity.id, [{ x: targetCity.x, y: targetCity.y }]);
+          } else {
+            u.waypoints = [holdWp];
+            u.waypointIndex = 0;
+          }
+        }
+        if (
+          mergeIntoOneSquad &&
+          typeof SQUADLOGIC !== "undefined" &&
+          SQUADLOGIC.mergeSquads &&
+          spawnedSquadIds.length > 1
+        ) {
+          const merged = SQUADLOGIC.mergeSquads(state, [...new Set(spawnedSquadIds)], "line", 8, 1);
+          if (merged) {
+            if (SQUADLOGIC.issueSiegeOrder && attackTarget) {
+              SQUADLOGIC.issueSiegeOrder(state, merged.id, targetCity.id, [{ x: targetCity.x, y: targetCity.y }]);
+            }
+            if (SQUADLOGIC.recalculateFormation) {
+              SQUADLOGIC.recalculateFormation(state, merged.id, { getFormationOffsets }, true);
+            }
+          }
+        }
+      };
+
+      spawnStressCorvettes(1, mePos, me, false, false);
+      spawnStressCorvettes(2, botPos, me, true, true);
+      return;
+    }
+
     const botCount = Math.max(1, Math.min(5, state._soloBotCount ?? 2));
     const totalPlayers = 1 + botCount;
     const spawnPositions = getFixedSpawnPositions(totalPlayers);
@@ -5760,6 +6762,7 @@
 
   function resetWorldMulti(slots, slotToPid) {
     state._survivalMode = false;
+    state._soloNoBotAi = false;
     let locRand = rand;
     let locRnd = () => Math.random();
     if (state._gameSeed != null) {
@@ -5767,6 +6770,9 @@
       locRand = (a, b) => (b - a) * rng() + a;
       locRnd = rng;
     }
+    invalidateNebulaBodyGraphics();
+    destroyChildren(nebulaLayer);
+    destroyChildren(nebulaFxLayer);
     destroyChildren(zonesLayer);
     destroyChildren(turretLayer);
     destroyChildren(resLayer);
@@ -5791,6 +6797,7 @@
     state.mines.clear();
     state.mineGems = [];
     state.mineFlowPackets = [];
+    state._mineIncomeSoundBudget = 0;
     state.nebulae = [];
     nextMineId = 1;
     state.nextTurretId = 1;
@@ -6264,6 +7271,33 @@
 
   const UNIT_CREDIT_DROPS = { fighter: 5, destroyer: 50, cruiser: 150, battleship: 400, hyperDestroyer: 800 };
 
+  const UNIT_KILL_ENERGY_BONUSES = {
+    fighter: { amount: 0.1 * 60, durationSec: 10, label: "+0.1/с 10с" },
+    destroyer: { amount: 0.5 * 60, durationSec: 15, label: "+0.5/с 15с" },
+    cruiser: { amount: 1 * 60, durationSec: 25, label: "+1/с 25с" },
+    battleship: { amount: 4 * 60, durationSec: 60, label: "+4/с 60с" },
+    hyperDestroyer: { amount: 10 * 60, durationSec: 120, label: "+10/с 120с" }
+  };
+
+  const CORE_DESTROY_ENERGY_REWARD = {
+    instantAmount: 200,
+    amount: 25 * 60,
+    durationSec: 30 * 60,
+    label: "+25/с 30м"
+  };
+
+  function getActiveGrowthBonusPerMin(player) {
+    if (!player) return 0;
+    if (player._growthBonuses) player._growthBonuses = player._growthBonuses.filter((bonus) => bonus.expiresAt > state.t);
+    return (player._growthBonuses || []).reduce((sum, bonus) => sum + (bonus.amount || 0), 0);
+  }
+
+  function addTimedGrowthBonus(player, amountPerMin, durationSec) {
+    if (!player || !amountPerMin || !durationSec) return;
+    if (!player._growthBonuses) player._growthBonuses = [];
+    player._growthBonuses.push({ amount: amountPerMin, expiresAt: state.t + durationSec });
+  }
+
   function killUnit(u, reason = "dead", killerOwner) {
     if (typeof playExplosionSound === "function") playExplosionSound(u.x, u.y);
     const baseXP = UNIT_XP_DROPS[u.unitType] || 1;
@@ -6306,13 +7340,18 @@
       p.pop = Math.floor(p.popFloat);
       p.deadUnits++;
     }
-    if (reason === "killed" && killerOwner && killerOwner !== u.owner) {
-      const kp = state.players.get(killerOwner);
-      if (kp) {
-        kp.killGrowthStacks = kp.killGrowthStacks || [];
-        kp.killGrowthStacks.push(state.t + 240);
-        kp._growthBonuses = kp._growthBonuses || [];
-        kp._growthBonuses.push({ amount: 1, expiresAt: state.t + 60 });
+    if (rewardTarget != null && rewardTarget !== u.owner) {
+      const kp = state.players.get(rewardTarget);
+      const reward = UNIT_KILL_ENERGY_BONUSES[u.unitType];
+      if (kp && reward) {
+        addTimedGrowthBonus(kp, reward.amount, reward.durationSec);
+        state.floatingDamage.push({
+          x: u.x,
+          y: u.y - 34,
+          text: reward.label,
+          color: 0x7fe7ff,
+          ttl: 1.8
+        });
       }
     }
 
@@ -6557,11 +7596,16 @@
         if (p._lastCityAttacker != null) {
           const killer = state.players.get(p._lastCityAttacker);
           if (killer && killer.pop > 0) {
-            killer.popFloat += 100;
+            killer.popFloat += CORE_DESTROY_ENERGY_REWARD.instantAmount;
             killer.pop = Math.floor(killer.popFloat);
-            if (!killer._growthBonuses) killer._growthBonuses = [];
-            killer._growthBonuses.push({ amount: 20, expiresAt: state.t + 180 });
-            state.floatingDamage.push({ x: killer.x, y: killer.y - 40, text: "+100 нас, +20 рост!", color: 0xffd700, ttl: 3.0 });
+            addTimedGrowthBonus(killer, CORE_DESTROY_ENERGY_REWARD.amount, CORE_DESTROY_ENERGY_REWARD.durationSec);
+            state.floatingDamage.push({
+              x: killer.x,
+              y: killer.y - 40,
+              text: "+200 энергии, " + CORE_DESTROY_ENERGY_REWARD.label,
+              color: 0xffd700,
+              ttl: 3.0
+            });
           }
         }
         destroyCity(p);
@@ -7741,7 +8785,7 @@
   }
 
   // ------------------------------------------------------------
-  // Population / influence growth
+  // Energy / influence growth
   // ------------------------------------------------------------
   function sampleWaterRatioAround(cx, cy, radius, samples) {
     let water = 0;
@@ -7776,13 +8820,9 @@
 
       let pen = Math.min(CFG.ACTIVE_SOLDIER_PENALTY_CAP, active * CFG.ACTIVE_SOLDIER_PENALTY_PER);
       if (p.waterBonus) pen = Math.max(0, pen - CFG.WATER_PENALTY_REDUCTION);
-
-      p.killGrowthStacks = (p.killGrowthStacks || []).filter(et => et > state.t);
-      const killBonus = 0.30 * (p.killGrowthStacks || []).length;
-      if (p._growthBonuses) p._growthBonuses = p._growthBonuses.filter(b => b.expiresAt > state.t);
-      const cityDestroyBonus = (p._growthBonuses || []).reduce((s, b) => s + b.amount, 0);
+      const timedGrowthBonus = getActiveGrowthBonusPerMin(p);
       const growthMul = p.growthMul != null ? p.growthMul : 1;
-      const perMin = (base * (1 - pen) + killBonus + cityDestroyBonus) * growthMul;
+      const perMin = (base * (1 - pen) + timedGrowthBonus) * growthMul;
       const perSec = perMin / 60;
 
       p.popFloat = Math.max(0, p.popFloat + perSec * dt);
@@ -8044,6 +9084,7 @@
   }
 
   function botThink(dt) {
+    if (state._soloNoBotAi) return;
     for (const p of state.players.values()) {
       if (p.id === state.myPlayerId) continue;
       if (state.botPlayerIds && !state.botPlayerIds.has(p.id)) continue;
@@ -8286,10 +9327,9 @@
     const me = state.players.get(state.myPlayerId);
     const base = CFG.GROWTH_BASE_PER_MIN + Math.floor(p.pop / 100) * CFG.GROWTH_PER_100;
     const pen = Math.min(CFG.ACTIVE_SOLDIER_PENALTY_CAP, (p.activeUnits || 0) * CFG.ACTIVE_SOLDIER_PENALTY_PER);
-    const killBonus = 0.30 * ((p.killGrowthStacks || []).filter(et => et > state.t).length);
-    const cityDestroyBonus = ((p._growthBonuses || []).filter(b => b.expiresAt > state.t)).reduce((s, b) => s + b.amount, 0);
+    const timedGrowthBonus = getActiveGrowthBonusPerMin(p);
     const growthMul = p.growthMul != null ? p.growthMul : 1;
-    const perMin = (base * (1 - pen) + killBonus + cityDestroyBonus) * growthMul;
+    const perMin = (base * (1 - pen) + timedGrowthBonus) * growthMul;
     const turretCount = (p.turretIds || []).filter(tid => { const t = state.turrets.get(tid); return t && t.hp > 0; }).length;
     const cityDmgMul = p.turretDmgMul != null ? p.turretDmgMul : 1;
     const cityDmg = Math.max(1, Math.round(CFG.CITY_ATTACK_DMG * cityDmgMul * (p.waterBonus ? 1.25 : 1) * getLevelBonusMul(p)));
@@ -8298,12 +9338,12 @@
     const unitDmgMul = (p.unitDmgMul != null ? p.unitDmgMul : 1) * getLevelBonusMul(p);
     const unitSpdMul = (p.unitSpeedMul != null ? p.unitSpeedMul : 1) * getLevelBonusMul(p);
     const unitAtkRMul = (p.unitAtkRateMul != null ? p.unitAtkRateMul : 1) * getLevelBonusMul(p);
-    const enemyTurretVolley = Math.max(1, Math.round(CFG.TURRET_ATTACK_DMG * (p.turretDmgMul != null ? p.turretDmgMul : 1) * getLevelBonusMul(p))) * (1 + (p.turretTargetBonus || p.cityTargetBonus || 0));
+    const enemyTurretVolley = Math.max(1, Math.round(CFG.TURRET_ATTACK_DMG * (p.turretDmgMul != null ? p.turretDmgMul : 1) * getLevelBonusMul(p)));
     const myPop = me ? me.pop : 0;
     const myLevel = me ? me.level : 0;
     const myXpNext = me ? me.xpNext : 1;
-    const myPerMin = me ? (() => { const b = CFG.GROWTH_BASE_PER_MIN + Math.floor(me.pop / 100) * CFG.GROWTH_PER_100; const penM = Math.min(CFG.ACTIVE_SOLDIER_PENALTY_CAP, (me.activeUnits || 0) * CFG.ACTIVE_SOLDIER_PENALTY_PER); const killM = 0.30 * ((me.killGrowthStacks || []).filter(et => et > state.t).length); const cityM = ((me._growthBonuses || []).filter(b => b.expiresAt > state.t)).reduce((s, b) => s + b.amount, 0); return (b * (1 - penM) + killM + cityM) * (me.growthMul != null ? me.growthMul : 1); })() : 0;
-    const myTurretVolley = me ? Math.max(1, Math.round(CFG.TURRET_ATTACK_DMG * (me.turretDmgMul != null ? me.turretDmgMul : 1) * getLevelBonusMul(me))) * (1 + (me.turretTargetBonus || me.cityTargetBonus || 0)) : 0;
+    const myPerMin = me ? (() => { const b = CFG.GROWTH_BASE_PER_MIN + Math.floor(me.pop / 100) * CFG.GROWTH_PER_100; const penM = Math.min(CFG.ACTIVE_SOLDIER_PENALTY_CAP, (me.activeUnits || 0) * CFG.ACTIVE_SOLDIER_PENALTY_PER); const timedM = getActiveGrowthBonusPerMin(me); return (b * (1 - penM) + timedM) * (me.growthMul != null ? me.growthMul : 1); })() : 0;
+    const myTurretVolley = me ? Math.max(1, Math.round(CFG.TURRET_ATTACK_DMG * (me.turretDmgMul != null ? me.turretDmgMul : 1) * getLevelBonusMul(me))) : 0;
     const myInfR = me ? (me.influenceR || 0) : 0;
     const myInfSpd = me ? (me.influenceSpeedMul != null ? me.influenceSpeedMul : 1) : 1;
     const myTurretCount = me ? (me.turretIds || []).filter(tid => { const t = state.turrets.get(tid); return t && t.hp > 0; }).length : 0;
@@ -8314,19 +9354,23 @@
     const myUnitAtkR = me ? (ft.attackRate * (me.unitAtkRateMul != null ? me.unitAtkRateMul : 1) * getLevelBonusMul(me)) : 0;
     const enemyMineRates = getPlayerMineRates(p.id);
     const eMineIncPerMin = enemyMineRates.moneyPerSec * 60;
+    const eMineEnergyPerMin = enemyMineRates.energyPerSec * 60;
     const eMineXpPerMin = enemyMineRates.xpPerSec * 60;
     const ePopIncPerMin = Math.floor(p.pop / 100) * 60;
+    const eEnergyTotalPerMin = perMin + eMineEnergyPerMin;
     const eTotalIncPerMin = Math.round(eMineIncPerMin + ePopIncPerMin);
-    const myMineRates = me ? getPlayerMineRates(me.id) : { moneyPerSec: 0, xpPerSec: 0 };
+    const myMineRates = me ? getPlayerMineRates(me.id) : { moneyPerSec: 0, xpPerSec: 0, energyPerSec: 0 };
     const myMineIncPerMin = myMineRates.moneyPerSec * 60;
+    const myMineEnergyPerMin = myMineRates.energyPerSec * 60;
     const myMineXpPerMin = myMineRates.xpPerSec * 60;
     const myPopIncPerMin = me ? Math.floor(me.pop / 100) * 60 : 0;
+    const myEnergyTotalPerMin = myPerMin + myMineEnergyPerMin;
     const myTotalIncPerMin = Math.round(myMineIncPerMin + myPopIncPerMin);
     const cityPart =
-      "<div class='stat-line'><span class='stat-label'>Население</span><span class='stat-val'>" + p.pop + statDiffHTML(p.pop, myPop) + "</span></div>" +
+      "<div class='stat-line'><span class='stat-label'>Энергия</span><span class='stat-val'>" + p.pop + statDiffHTML(p.pop, myPop) + "</span></div>" +
       "<div class='stat-line'><span class='stat-label'>Уровень</span><span class='stat-val'>" + p.level + statDiffHTML(p.level, myLevel) + "</span></div>" +
       "<div class='stat-line'><span class='stat-label'>Опыт</span><span class='stat-val'>" + Math.floor(p.xp || 0) + "/" + Math.floor(p.xpNext || 0) + "</span></div>" +
-      "<div class='stat-line'><span class='stat-label'>Рост</span><span class='stat-val'>" + perMin.toFixed(1) + "/мин" + statDiffHTML(perMin, myPerMin) + "</span></div>" +
+      "<div class='stat-line'><span class='stat-label'>Приток Энергии</span><span class='stat-val'>" + eEnergyTotalPerMin.toFixed(1) + "/мин" + statDiffHTML(eEnergyTotalPerMin, myEnergyTotalPerMin) + "</span></div>" +
       "<div class='stat-line'><span class='stat-label'>Доход</span><span class='stat-val'>" + eTotalIncPerMin + "/мин" + statDiffHTML(eTotalIncPerMin, myTotalIncPerMin) + "</span></div>" +
       "<div class='stat-line'><span class='stat-label'>XP шахт</span><span class='stat-val'>" + Math.round(eMineXpPerMin) + "/мин" + statDiffHTML(eMineXpPerMin, myMineXpPerMin) + "</span></div>" +
       "<div class='stat-line'><span class='stat-label'>Залп турелей</span><span class='stat-val'>" + enemyTurretVolley + statDiffHTML(enemyTurretVolley, myTurretVolley) + "</span></div>" +
@@ -8488,7 +9532,7 @@
   function showPurchaseError(reason) {
     const me = state.players.get(state.myPlayerId);
     if (!me) return;
-    const msg = reason === "cap_reached" ? "Лимит юнитов!" : "Недостаточно ⚡€!";
+    const msg = reason === "cap_reached" ? "Лимит юнитов!" : "Недостаточно €!";
     state.floatingDamage.push({ x: me.x, y: me.y - 60, text: msg, color: 0xff4444, ttl: 1.5 });
     tickSound(180, 0.08, 0.06);
   }
@@ -8625,14 +9669,16 @@
     unitAtkRate: "Скорость атаки: юниты бьют чаще.",
     unitSpeed: "Скорость движения: отряды быстрее доходят до цели.",
     unitAtkRange: "Дальность атаки: юниты могут бить с большего расстояния.",
-    growth: "Рост населения: город быстрее набирает население.",
+    growth: "Прирост Энергии: ядро быстрее восстанавливает Энергию.",
     influence: "Расширение зоны: граница влияния растёт быстрее (штраф за армию всё равно применяется).",
     sendCooldown: "КД отправки: можно чаще отправлять отряды из города.",
-    turret: "Турели и город: урон, HP или радиус атаки турелей; урон города.",
-    popBonus: "Мгновенное население: сразу добавляет юнитов к лимиту отправки."
+    turret: "Турели и патрульные: урон, HP или радиус турелей; патрульные тоже усиливаются этими апгрейдами.",
+    turretTarget: "Мультизалп патрульных: каждый патрульный выпускает больше лучей за атаку.",
+    popBonus: "Мгновенная Энергия: сразу усиливает ядро и повышает лимит отправки."
   };
   function getCardParamTooltip(card) {
     const keys = Object.keys(card);
+    if (card.turretTargetBonus) return CARD_PARAM_TOOLTIPS.turretTarget;
     if (card.popBonus) return CARD_PARAM_TOOLTIPS.popBonus;
     if (keys.some(k => k.startsWith("unitHp"))) return CARD_PARAM_TOOLTIPS.unitHp;
     if (keys.some(k => k.startsWith("unitDmg"))) return CARD_PARAM_TOOLTIPS.unitDmg;
@@ -8651,7 +9697,8 @@
       const lv = (p.attackEffects && p.attackEffects[card.attackEffect]) || 0;
       return lv >= 3 ? "МАКС (ур. 3/3)" : "Сейчас: ур. " + lv + "/3";
     }
-    if (card.popBonus) return "Сейчас население: " + p.pop;
+    if (card.turretTargetBonus) return "Сейчас: " + (PATROL_BASE_SHOTS + (p.turretTargetBonus || 0)) + " выстр./залп патруля";
+    if (card.popBonus) return "Сейчас Энергия: " + p.pop;
     const keys = Object.keys(card);
     const uHp = (p.unitHpMul != null ? p.unitHpMul : 1) * (p._levelBonusMul ?? 1);
     const uDmg = (p.unitDmgMul != null ? p.unitDmgMul : 1) * (p._levelBonusMul ?? 1);
@@ -8816,13 +9863,24 @@
 
     updateLvlUpButton();
 
+    const mineRates = getPlayerMineRates(me.id);
+    const base = CFG.GROWTH_BASE_PER_MIN + Math.floor(me.pop / 100) * CFG.GROWTH_PER_100;
+    const pen = Math.min(CFG.ACTIVE_SOLDIER_PENALTY_CAP, me.activeUnits * CFG.ACTIVE_SOLDIER_PENALTY_PER);
+    const timedGrowthBonus = getActiveGrowthBonusPerMin(me);
+    const growthMulHUD = me.growthMul != null ? me.growthMul : 1;
+    const perMin = (base * (1 - pen) + timedGrowthBonus) * growthMulHUD;
+    const energyPerMin = perMin + mineRates.energyPerSec * 60;
+    const mineIncPerMin = mineRates.moneyPerSec * 60;
+    const popIncPerMin = Math.floor(me.pop / 100) * 60;
+    const totalIncPerMin = Math.round(mineIncPerMin + popIncPerMin);
+
+    const energyEl = document.getElementById("energyValue");
+    if (energyEl) {
+      energyEl.innerHTML = "<span class='resource-value-main'>" + Math.floor(me.pop || 0) + "</span><span class='resource-value-delta'>+" + energyPerMin.toFixed(1) + "/мин</span>";
+    }
     const eCreditsEl = document.getElementById("eCreditsValue");
     if (eCreditsEl) {
-      const mineRates = getPlayerMineRates(me.id);
-      const mineIncPerMin = mineRates.moneyPerSec * 60;
-      const popIncPerMin = Math.floor(me.pop / 100) * 60;
-      const totalIncPerMin = Math.round(mineIncPerMin + popIncPerMin);
-      eCreditsEl.textContent = Math.floor(me.eCredits || 0) + "  (+" + totalIncPerMin + "/мин)";
+      eCreditsEl.innerHTML = "<span class='resource-value-main'>" + Math.floor(me.eCredits || 0) + "</span><span class='resource-value-delta'>+" + totalIncPerMin + "/мин</span>";
     }
 
     document.querySelectorAll(".unit-buy-btn").forEach(btn => {
@@ -8832,20 +9890,12 @@
       const costMul = me.unitCostMul != null ? me.unitCostMul : 1;
       const cost = Math.max(1, Math.round(type.cost * costMul));
       const costEl = btn.querySelector(".unit-buy-cost");
-      if (costEl) costEl.textContent = cost + " ⚡€";
+      if (costEl) costEl.textContent = cost + " €";
       btn.disabled = (me.eCredits || 0) < cost;
     });
 
-    const base = CFG.GROWTH_BASE_PER_MIN + Math.floor(me.pop / 100) * CFG.GROWTH_PER_100;
-    const pen = Math.min(CFG.ACTIVE_SOLDIER_PENALTY_CAP, me.activeUnits * CFG.ACTIVE_SOLDIER_PENALTY_PER);
-    const killBonus = 0.30 * ((me.killGrowthStacks || []).filter(et => et > state.t).length);
-    const cityDestroyBonusHUD = ((me._growthBonuses || []).filter(b => b.expiresAt > state.t)).reduce((s, b) => s + b.amount, 0);
-    const growthMulHUD = me.growthMul != null ? me.growthMul : 1;
-    const perMin = (base * (1 - pen) + killBonus + cityDestroyBonusHUD) * growthMulHUD;
-
     const turretCount = (me.turretIds || []).filter(tid => { const t = state.turrets.get(tid); return t && t.hp > 0; }).length;
     const cityDmgMulHud = (me.turretDmgMul != null ? me.turretDmgMul : 1) * getLevelBonusMul(me);
-    const turretVolleyTargets = 1 + (me.turretTargetBonus || me.cityTargetBonus || 0);
     const cityDmg = Math.max(1, Math.round(CFG.TURRET_ATTACK_DMG * cityDmgMulHud));
     const turretHpMulHud = (me.turretHpMul != null ? me.turretHpMul : 1) * getLevelBonusMul(me);
     const turretHp = Math.max(1, Math.round(me.pop * (CFG.TURRET_HP_RATIO ?? 0.1) * turretHpMulHud));
@@ -8853,7 +9903,6 @@
     const turretDmg = ((CFG.TURRET_ATTACK_DMG ?? 3) * (CFG.TURRET_ATTACK_RATE ?? 1.2) * turretDmgMulHud2).toFixed(1);
 
     const infSpdMul = me.influenceSpeedMul != null ? me.influenceSpeedMul : 1;
-    const myMineRates = getPlayerMineRates(me.id);
     const popCreditPerSecHud = Math.floor(me.pop / 100);
     const shieldPct = me.shieldMaxHp > 0 ? Math.round((me.shieldHp / me.shieldMaxHp) * 100) : 0;
     const totalArea = CFG.WORLD_W * CFG.WORLD_H;
@@ -8873,8 +9922,7 @@
 
     const el = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
     el("hudPop", me.pop + " (+" + popCreditPerSecHud + "€/с)");
-    el("hudGrowth", perMin.toFixed(1));
-    el("hudMining", "€ " + myMineRates.moneyPerSec.toFixed(1) + "/с | XP " + myMineRates.xpPerSec.toFixed(1) + "/с");
+    el("hudMining", "⚡ " + mineRates.energyPerSec.toFixed(1) + "/с | € " + mineRates.moneyPerSec.toFixed(1) + "/с | XP " + mineRates.xpPerSec.toFixed(1) + "/с");
     el("hudShield", Math.round(me.shieldHp || 0) + " (" + shieldPct + "%)");
     el("hudZone", zonePct.toFixed(1) + "%");
     el("hudZoneSpeed", "×" + infSpdMul.toFixed(2));
@@ -8882,7 +9930,7 @@
     if (zoneFill) zoneFill.style.width = zonePct + "%";
     el("hudTurretHp", turretHp + " hp");
     el("hudTurretDmg", turretDmg + " dps");
-    el("hudCityDmg", cityDmg + " ×" + turretVolleyTargets);
+    el("hudCityDmg", String(cityDmg));
     el("hudPatrols", patrolCount);
 
     const lb = getLevelBonusMul(me);
@@ -8935,7 +9983,7 @@
       const enabled = canAfford && !atCap;
       b.style.opacity = enabled ? "1" : "0.35";
       b.style.pointerEvents = enabled ? "auto" : "none";
-      b.title = atCap ? "Лимит: " + cur + "/" + cap : totalCost + " ⚡€";
+      b.title = atCap ? "Лимит: " + cur + "/" + cap : totalCost + " €";
     });
     document.querySelectorAll(".unit-buy-btn").forEach(b => {
       const tk = b.dataset.type;
@@ -8996,7 +10044,7 @@
 
     const sections = [
       { title: "🌍 Планета", stats: [
-        { label: "Население", my: me.pop, his: enemy.pop },
+        { label: "Энергия", my: me.pop, his: enemy.pop },
         { label: "Уровень", my: me.level, his: enemy.level },
         { label: "Щит", my: Math.round(me.shieldHp || 0), his: Math.round(enemy.shieldHp || 0) },
         { label: "Зона %", my: myZonePct.toFixed(1), his: eZonePct.toFixed(1) },
@@ -9276,62 +10324,101 @@
   }
 
   function drawNebulae() {
-    if (!state.nebulae || !state.nebulae.length) return;
-    const t = (typeof performance !== "undefined" ? performance.now() / 1000 : state.t);
-    const wobbleFreq = 0.04;
-    const wobbleAmp = 1;
-
-    for (const neb of state.nebulae) {
-      if (!neb._bodyContainer || neb._bodyContainer.destroyed) {
-        if (!neb._radiusPhase) neb._radiusPhase = Math.random() * Math.PI * 2;
-        const fillColor = neb._hue != null ? neb._hue : 0x223355;
-        const strokeColor = neb._hue != null ? neb._hue : 0x4488cc;
-        const c = new PIXI.Container();
-        c.position.set(neb.x, neb.y);
-        const g = new PIXI.Graphics();
-        g.circle(0, 0, 1);
-        g.fill({ color: fillColor, alpha: 0.05 });
-        const steps = 64;
-        for (let s = 0; s < steps; s++) {
-          const a1 = (s / steps) * Math.PI * 2;
-          const a2 = ((s + 1) / steps) * Math.PI * 2;
-          g.moveTo(Math.cos(a1), Math.sin(a1));
-          g.lineTo(Math.cos(a2), Math.sin(a2));
-        }
-        g.stroke({ color: strokeColor, width: 2 / Math.max(1, neb.radius), alpha: 0.35 });
-        c.addChild(g);
-        combatLayer.addChild(c);
-        neb._bodyContainer = c;
-      }
-      const rWobble = neb.radius + Math.sin(t * wobbleFreq + (neb._radiusPhase || 0)) * wobbleAmp;
-      neb._bodyContainer.visible = inView(neb.x, neb.y);
-      neb._bodyContainer.position.set(neb.x, neb.y);
-      neb._bodyContainer.scale.set(rWobble);
+    if (!state.nebulae || !state.nebulae.length) {
+      invalidateNebulaBodyGraphics();
+      if (state._nebulaDischargeGfx && !state._nebulaDischargeGfx.destroyed) state._nebulaDischargeGfx.clear();
+      return;
     }
-
+    const detail = getNebulaVisualDetail();
+    const bodyLod = LOD.getLevel(cam.zoom || 0.22);
+    if (!state._nebulaBodyGfx || state._nebulaBodyGfx.destroyed || state._nebulaBodyLod !== bodyLod) {
+      invalidateNebulaBodyGraphics();
+      state._nebulaBodyGfx = new PIXI.Graphics();
+      nebulaLayer.addChild(state._nebulaBodyGfx);
+      state._nebulaBodyLod = bodyLod;
+    }
     if (!state._nebulaDischargeGfx || state._nebulaDischargeGfx.destroyed) {
       state._nebulaDischargeGfx = new PIXI.Graphics();
-      combatLayer.addChild(state._nebulaDischargeGfx);
+      nebulaFxLayer.addChild(state._nebulaDischargeGfx);
     }
-    state._nebulaDischargeGfx.clear();
+    const bg = state._nebulaBodyGfx;
     const dg = state._nebulaDischargeGfx;
+    if (!bg._drawnForNebulaScene) {
+      bg.clear();
+
+      const softEllipse = (g, x, y, rx, ry, color, alpha) => {
+        g.ellipse(x, y, rx * 1.18, ry * 1.18);
+        g.fill({ color, alpha: alpha * 0.22 });
+        g.ellipse(x, y, rx, ry);
+        g.fill({ color, alpha: alpha * 0.36 });
+        g.ellipse(x, y, rx * 0.76, ry * 0.76);
+        g.fill({ color, alpha: alpha * 0.22 });
+      };
+      const ribbonStroke = (g, ax, ay, mx, my, bx, by, width, color, alpha) => {
+        const pts = [];
+        for (let i = 0; i <= 10; i++) {
+          const t = i / 10;
+          const omt = 1 - t;
+          pts.push(
+            omt * omt * ax + 2 * omt * t * mx + t * t * bx,
+            omt * omt * ay + 2 * omt * t * my + t * t * by
+          );
+        }
+        g.poly(pts);
+        g.stroke({ width, color, alpha });
+      };
+
+      const fogCount = Math.min(detail.fogWisps, stateNebulaFogWisps.length);
+      for (let i = 0; i < fogCount; i++) {
+        const fog = stateNebulaFogWisps[i];
+        softEllipse(bg, fog.x, fog.y, fog.rx, fog.ry, fog.color, fog.alpha);
+        softEllipse(bg, fog.x, fog.y, fog.rx * 0.42, fog.ry * 0.42, fog.edgeColor, fog.alpha * 0.55);
+      }
+      bg._drawnForNebulaScene = true;
+      bg.cacheAsBitmap = true;
+    }
+
     for (const neb of state.nebulae) {
-      if (!inView(neb.x, neb.y)) continue;
+      const zone = getAnimatedNebulaZone(neb);
+      ensureNebulaCachedVisuals(neb, detail, bodyLod);
+      const vis = inView(zone.x, zone.y);
+      const baseRadius = neb._baseRadius ?? neb.radius;
+      const scale = zone.radius / Math.max(1, baseRadius);
+      if (neb._bodyContainer) {
+        neb._bodyContainer.visible = vis;
+        neb._bodyContainer.position.set(zone.x, zone.y);
+        neb._bodyContainer.scale.set(scale);
+      }
+      if (neb._zoneContainer) {
+        neb._zoneContainer.visible = vis;
+        neb._zoneContainer.position.set(zone.x, zone.y);
+        neb._zoneContainer.scale.set(scale);
+      }
+    }
+
+    const dischargeStride = Math.max(1, detail.dischargeStride || 1);
+    if (((state._frameCtr || 0) % dischargeStride) !== 0) return;
+    dg.clear();
+
+    for (const neb of state.nebulae) {
+      const zone = getAnimatedNebulaZone(neb);
+      if (!inView(zone.x, zone.y)) continue;
+      const revealScale = 0.58;
       for (const d of neb.discharges) {
         const age = d.maxLife - d.life;
-        const lifeFrac = d.life / d.maxLife;
-        const fadeIn = age < d.maxLife * 0.2 ? age / (d.maxLife * 0.2) : 1;
-        const fadeOut = lifeFrac < 0.25 ? lifeFrac / 0.25 : 1;
-        const alpha = 0.92 * fadeIn * fadeOut;
-        const revealFrac = age < d.maxLife * 0.2 ? age / (d.maxLife * 0.2) : 1;
+        const fadeIn = age < d.maxLife * 0.16 ? age / (d.maxLife * 0.16) : 1;
+        const fadeOut = d.life < d.maxLife * 0.30 ? d.life / (d.maxLife * 0.30) : 1;
+        const alpha = 0.88 * fadeIn * fadeOut;
+        const revealFrac = Math.min(1, age / Math.max(0.001, d.revealDur || (d.maxLife * revealScale)));
         const visibleLen = (d.totalLen || 9999) * revealFrac;
         const hue = d.hue || 0x6699cc;
         let drawn = 0;
         for (const seg of (d.segs || [])) {
           if (drawn >= visibleLen) break;
-          const segLen = Math.hypot(seg.x2 - seg.x1, seg.y2 - seg.y1);
+          const segLen = Math.hypot(seg.x2 - seg.x1, seg.y2 - seg.y1) || 1;
           const segEnd = drawn + segLen;
-          let ex = seg.x2, ey = seg.y2;
+          let ex = seg.x2;
+          let ey = seg.y2;
           if (segEnd > visibleLen) {
             const tf = (visibleLen - drawn) / segLen;
             ex = seg.x1 + (seg.x2 - seg.x1) * tf;
@@ -9339,13 +10426,13 @@
           }
           dg.moveTo(seg.x1, seg.y1);
           dg.lineTo(ex, ey);
-          dg.stroke({ color: hue, width: 4.5, alpha: 0.22 * alpha });
+          dg.stroke({ color: hue, width: detail.dischargeGlowWidth, alpha: 0.10 * alpha });
           dg.moveTo(seg.x1, seg.y1);
           dg.lineTo(ex, ey);
-          dg.stroke({ color: 0xaaddff, width: 2.5, alpha: 0.45 * alpha });
+          dg.stroke({ color: 0xd6ecff, width: detail.dischargeCoreWidth, alpha: 0.24 * alpha });
           dg.moveTo(seg.x1, seg.y1);
           dg.lineTo(ex, ey);
-          dg.stroke({ color: 0xccddff, width: 0.8, alpha: 0.22 * alpha });
+          dg.stroke({ color: 0xffffff, width: Math.max(0.6, detail.dischargeCoreWidth * 0.34), alpha: 0.10 * alpha });
           drawn = segEnd;
         }
       }
@@ -9384,7 +10471,7 @@
     { id: "activeShield", name: "Активный Щит", desc: "Щит +25% от макс. HP всем кораблям", cooldown: 90, icon: "🛡️" },
     { id: "pirateRaid", name: "Налёт Пиратов", desc: "Пираты атакуют всех (5+2+1)", cooldown: 150, icon: "🏴‍☠️", targeting: "point" },
     { id: "gloriousBattleMarch", name: "Боевой Марш", desc: "+30% скорости всем кораблям 30с", cooldown: 60, icon: "🎺" },
-    { id: "raiderCapture", name: "Рейдерский захват", desc: "Ворует 10% населения врага", cooldown: 120, icon: "⚔️", targeting: "city" },
+    { id: "raiderCapture", name: "Рейдерский захват", desc: "Ворует 10% Энергии врага", cooldown: 120, icon: "⚔️", targeting: "city" },
     { id: "loan", name: "Заём", desc: "+5000€. Через 3 мин вычтет 7500€", cooldown: 300, icon: "💰" },
     { id: "spatialRift", name: "Разлом", desc: "АоЕ урон + замедление 10с", cooldown: 100, icon: "🌀", targeting: "point" },
     { id: "gravAnchor", name: "Грав. Якорь", desc: "Иммобилизация врагов в радиусе 5с", cooldown: 90, icon: "⚓", targeting: "point" },
@@ -10259,36 +11346,36 @@
   function stepBgComets(dt) {
     if (!state._bgComets) state._bgComets = [];
     if (state._bgCometNextAt === undefined) state._bgCometNextAt = 0;
-    if (state._bgCometNextAt > 0 && state.t >= state._bgCometNextAt && state._bgComets.length < 4) {
+    if (state._bgCometNextAt > 0 && state.t >= state._bgCometNextAt && state._bgComets.length < 2) {
       const W = CFG.WORLD_W, H = CFG.WORLD_H;
-      const edge = Math.floor(Math.random() * 4);
-      let x, y, vx, vy;
-      const speed = 80 + Math.random() * 100;
-      if (edge === 0) {
-        x = Math.random() * W;
-        y = -80;
-        vx = (Math.random() - 0.5) * 40;
-        vy = speed;
-      } else if (edge === 1) {
-        x = W + 80;
-        y = Math.random() * H;
-        vx = -speed;
-        vy = (Math.random() - 0.5) * 40;
-      } else if (edge === 2) {
-        x = Math.random() * W;
-        y = H + 80;
-        vx = (Math.random() - 0.5) * 40;
-        vy = -speed;
-      } else {
-        x = -80;
-        y = Math.random() * H;
-        vx = speed;
-        vy = (Math.random() - 0.5) * 40;
+      const startTop = Math.random() > 0.5;
+      const sx = startTop ? (-140 - Math.random() * 120) : (W + 140 + Math.random() * 120);
+      const sy = (startTop ? H * 0.16 : H * 0.74) + (Math.random() - 0.5) * H * 0.12;
+      const tx = startTop ? (W + 180) : -180;
+      const ty = startTop ? (H * 0.68 + (Math.random() - 0.5) * H * 0.14) : (H * 0.22 + (Math.random() - 0.5) * H * 0.14);
+      const dir = Math.atan2(ty - sy, tx - sx);
+      const speed = 340 + Math.random() * 110;
+      const baseVx = Math.cos(dir) * speed;
+      const baseVy = Math.sin(dir) * speed;
+      const tint = [0xe8f1ff, 0xd7e6ff, 0xc4d7ff, 0xbacfff][Math.floor(Math.random() * 4)];
+      for (let burst = 0; burst < 2; burst++) {
+        const separation = burst === 0 ? -18 : 18;
+        const px = -Math.sin(dir) * separation;
+        const py = Math.cos(dir) * separation;
+        const life = 4.4 + Math.random() * 1.3;
+        state._bgComets.push({
+          x: sx + px,
+          y: sy + py,
+          vx: baseVx * (0.98 + burst * 0.03),
+          vy: baseVy * (0.98 + burst * 0.03),
+          tailLen: 180 + Math.random() * 90,
+          life,
+          maxLife: life,
+          tint,
+          head: 3.8 + Math.random() * 1.8
+        });
       }
-      const tailLen = 40 + Math.random() * 80;
-      const life = 18 + Math.random() * 12;
-      state._bgComets.push({ x, y, vx, vy, tailLen, life, maxLife: life });
-      state._bgCometNextAt = state.t + 8 + Math.random() * 7;
+      state._bgCometNextAt = state.t + 165 + Math.random() * 30;
     }
     for (let i = state._bgComets.length - 1; i >= 0; i--) {
       const c = state._bgComets[i];
@@ -10302,30 +11389,83 @@
     }
   }
 
+  // Backdrop-only FX: keep cold hues and alpha low so they never read as gameplay hazards.
+  function stepBgFlares(dt) {
+    if (!state._bgFlares) state._bgFlares = [];
+    if (state._bgFlareNextAt === undefined) state._bgFlareNextAt = 0;
+    if (state._bgFlareNextAt > 0 && state.t >= state._bgFlareNextAt && state._bgFlares.length < 2) {
+      const marginX = CFG.WORLD_W * 0.12;
+      const marginY = CFG.WORLD_H * 0.12;
+      const life = 7 + Math.random() * 6;
+      state._bgFlares.push({
+        x: marginX + Math.random() * (CFG.WORLD_W - marginX * 2),
+        y: marginY + Math.random() * (CFG.WORLD_H - marginY * 2),
+        r: 140 + Math.random() * 180,
+        life,
+        maxLife: life,
+        tint: [0x88b8ff, 0x9f8cff, 0xb6cfff][Math.floor(Math.random() * 3)]
+      });
+      state._bgFlareNextAt = state.t + 18 + Math.random() * 16;
+    }
+    for (let i = state._bgFlares.length - 1; i >= 0; i--) {
+      const flare = state._bgFlares[i];
+      flare.life -= dt;
+      if (flare.life <= 0) state._bgFlares.splice(i, 1);
+    }
+  }
+
   function drawBgComets() {
     if (!state._bgCometLayer || !state._bgComets || !state._bgComets.length) return;
     const g = state._bgCometLayer;
     g.clear();
-    const W = CFG.WORLD_W, H = CFG.WORLD_H;
     for (const c of state._bgComets) {
       const len = Math.hypot(c.vx, c.vy) || 1;
       const nx = -c.vx / len;
       const ny = -c.vy / len;
       const tx = c.x + nx * c.tailLen;
       const ty = c.y + ny * c.tailLen;
-      for (let s = 0; s <= 8; s++) {
-        const f = s / 8;
+      const lifeK = Math.max(0, c.life / Math.max(0.001, c.maxLife));
+      g.moveTo(c.x, c.y);
+      g.lineTo(tx, ty);
+      g.stroke({ color: c.tint || 0xaaccff, alpha: 0.10 * lifeK, width: 7.5 });
+      g.moveTo(c.x, c.y);
+      g.lineTo(tx, ty);
+      g.stroke({ color: 0xf6fbff, alpha: 0.08 * lifeK, width: 2.8 });
+      for (let s = 0; s <= 14; s++) {
+        const f = s / 14;
         const px = c.x + (tx - c.x) * f;
         const py = c.y + (ty - c.y) * f;
-        const alpha = (1 - f) * 0.2 * (c.life / c.maxLife);
-        const rad = 2 + (1 - f) * 6;
+        const alpha = (1 - f) * (1 - f) * 0.13 * lifeK;
+        const rad = 1.2 + (1 - f) * 5.4;
         g.circle(px, py, rad);
-        g.fill({ color: 0xaaccff, alpha });
+        g.fill({ color: c.tint || 0xaaccff, alpha });
       }
-      g.circle(c.x, c.y, 4);
-      g.fill({ color: 0xffffff, alpha: 0.9 });
-      g.circle(c.x, c.y, 2);
-      g.fill({ color: 0xeeeeff, alpha: 1 });
+      g.circle(c.x, c.y, (c.head || 3.4) * 2.2);
+      g.fill({ color: c.tint || 0xaaccff, alpha: 0.10 * lifeK });
+      g.circle(c.x, c.y, c.head || 3.4);
+      g.fill({ color: 0xffffff, alpha: 0.72 * lifeK });
+      g.circle(c.x, c.y, Math.max(1.2, (c.head || 3.4) * 0.46));
+      g.fill({ color: 0xf4f8ff, alpha: 0.95 * lifeK });
+    }
+  }
+
+  function drawBgFlares() {
+    if (!state._bgFlareLayer) return;
+    const g = state._bgFlareLayer;
+    g.clear();
+    if (!state._bgFlares || !state._bgFlares.length) return;
+    for (const flare of state._bgFlares) {
+      const age = 1 - (flare.life / Math.max(0.001, flare.maxLife));
+      const appear = age < 0.22 ? age / 0.22 : 1;
+      const fade = flare.life < flare.maxLife * 0.34 ? flare.life / (flare.maxLife * 0.34) : 1;
+      const pulse = 0.6 + 0.4 * Math.sin(state.t * 0.8 + flare.r * 0.01);
+      const alpha = appear * fade * pulse;
+      g.circle(flare.x, flare.y, flare.r * 1.08);
+      g.fill({ color: flare.tint, alpha: 0.010 * alpha });
+      g.circle(flare.x, flare.y, flare.r * 0.68);
+      g.fill({ color: flare.tint, alpha: 0.016 * alpha });
+      g.circle(flare.x, flare.y, flare.r * 0.20);
+      g.fill({ color: 0xf7fbff, alpha: 0.040 * alpha });
     }
   }
 
@@ -11293,7 +12433,7 @@
           g.stroke({ color: 0xff4422, width: 3, alpha: pulse });
           g.circle(p.x, p.y, pr + 20);
           g.stroke({ color: 0xff6644, width: 1.5, alpha: pulse * 0.5 });
-          const stolen = Math.round((p.population || 0) * 0.1);
+          const stolen = Math.round((p.pop || 0) * 0.1);
           if (stolen > 0) {
             for (let i = 0; i < 6; i++) {
               const a = (i / 6) * Math.PI * 2 + t * 2;
@@ -11641,9 +12781,756 @@
   const multiConnectScreenEl = document.getElementById("multiConnectScreen");
   const lobbyScreenEl = document.getElementById("lobbyScreen");
   const roomCodeInputEl = document.getElementById("roomCodeInput");
+  const menuSimBackdropEl = document.getElementById("menuSimBackdrop");
+  const menuSimCanvasEl = document.getElementById("menuSimCanvas");
 
   const SOLO_PALETTE = [0xff8800, 0xcc2222, 0xddcc00, 0x4488ff, 0x22aa44, 0xaa44cc, 0x44cccc];
   state._soloColorIndex = 0;
+  state._quickStartScenario = null;
+  state._soloNoBotAi = false;
+
+  const menuSimApi = (() => {
+    if (!menuSimBackdropEl || !menuSimCanvasEl) return null;
+    const ctx = menuSimCanvasEl.getContext("2d", { alpha: true });
+    if (!ctx) return null;
+
+    const SIM_FPS = 30;
+    const FRAME_MS = 1000 / SIM_FPS;
+    const ARENA_COUNT = 1;
+    const UNIT_LIMIT_PER_SIDE = 34;
+    const SHOT_LIMIT = 150;
+    const STAR_COUNT = 180;
+    const TAU = Math.PI * 2;
+    const sim = {
+      visible: false,
+      raf: 0,
+      lastNow: 0,
+      width: 1,
+      height: 1,
+      dpr: 1,
+      stars: [],
+      arenas: [],
+      time: 0
+    };
+    const MENU_SIM_UNIT_TYPES = ["fighter", "destroyer", "cruiser"].map((key) => {
+      const type = UNIT_TYPES[key] || UNIT_TYPES.fighter;
+      return {
+        key,
+        speed: type.speed * 2.35,
+        hp: Math.max(10, Math.round(type.hp * 0.24)),
+        damage: Math.max(2, Math.round(type.damage * 0.90)),
+        range: type.attackRange * 0.92,
+        reload: Math.max(0.18, 1 / Math.max(0.01, type.attackRate)),
+        size: 2.2 + (type.sizeMultiplier || 1) * 0.85
+      };
+    });
+
+    function rnd(min, max) { return min + Math.random() * (max - min); }
+    function clamp01(v) { return Math.max(0, Math.min(1, v)); }
+    function lerp(a, b, t) { return a + (b - a) * t; }
+    function hexToRgb(hex) {
+      return {
+        r: (hex >> 16) & 0xff,
+        g: (hex >> 8) & 0xff,
+        b: hex & 0xff
+      };
+    }
+    function rgba(hex, a) {
+      const c = hexToRgb(hex);
+      return "rgba(" + c.r + "," + c.g + "," + c.b + "," + a.toFixed(3) + ")";
+    }
+    function tracePoly(points) {
+      if (!points || points.length === 0) return;
+      ctx.beginPath();
+      ctx.moveTo(points[0].x, points[0].y);
+      for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x, points[i].y);
+      ctx.closePath();
+    }
+    function softEllipse(x, y, rx, ry, color, alpha) {
+      ctx.beginPath();
+      ctx.ellipse(x, y, rx * 1.46, ry * 1.46, 0, 0, TAU);
+      ctx.fillStyle = rgba(color, alpha * 0.10);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(x, y, rx * 1.18, ry * 1.18, 0, 0, TAU);
+      ctx.fillStyle = rgba(color, alpha * 0.18);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(x, y, rx, ry, 0, 0, TAU);
+      ctx.fillStyle = rgba(color, alpha * 0.32);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(x, y, rx * 0.76, ry * 0.76, 0, 0, TAU);
+      ctx.fillStyle = rgba(color, alpha * 0.22);
+      ctx.fill();
+    }
+    function buildStars() {
+      sim.stars.length = 0;
+      for (let i = 0; i < STAR_COUNT; i++) {
+        sim.stars.push({
+          x: Math.random() * sim.width,
+          y: Math.random() * sim.height,
+          r: 0.5 + Math.random() * 1.8,
+          a: 0.08 + Math.random() * 0.52,
+          t: Math.random() * TAU,
+          s: 0.4 + Math.random() * 1.8,
+          depth: 0.25 + Math.random() * 0.75
+        });
+      }
+    }
+    function createCore(side, x, y, color) {
+      return {
+        side,
+        x,
+        y,
+        hp: 320,
+        maxHp: 320,
+        spawnCd: rnd(0.10, 0.30),
+        spawnRate: rnd(0.34, 0.50),
+        color,
+        orbit: Math.random() * TAU,
+        pulse: Math.random() * TAU,
+        zoneRadius: (CFG.INFLUENCE_BASE_R || 240) * rnd(1.04, 1.16)
+      };
+    }
+    function createMenuNebula(x, y, radius, variantIndex) {
+      const neb = {
+        x, y, radius,
+        _baseX: x,
+        _baseY: y,
+        _baseRadius: radius,
+        _visualVariantIndex: variantIndex
+      };
+      initNebulaVisual(neb, variantIndex);
+      neb._menuFloatPhaseX = Math.random() * TAU;
+      neb._menuFloatPhaseY = Math.random() * TAU;
+      neb._menuBreathPhase = Math.random() * TAU;
+      neb._menuFloatAmpX = radius * rnd(0.02, 0.05);
+      neb._menuFloatAmpY = radius * rnd(0.015, 0.04);
+      neb._menuBreathAmp = rnd(0.015, 0.035);
+      return neb;
+    }
+    function getMenuNebulaZone(neb, time) {
+      return {
+        x: (neb._baseX ?? neb.x) + Math.sin(time * 0.08 + (neb._menuFloatPhaseX || 0)) * (neb._menuFloatAmpX || 0),
+        y: (neb._baseY ?? neb.y) + Math.cos(time * 0.07 + (neb._menuFloatPhaseY || 0)) * (neb._menuFloatAmpY || 0),
+        radius: (neb._baseRadius ?? neb.radius) * (1 + Math.sin(time * 0.12 + (neb._menuBreathPhase || 0)) * (neb._menuBreathAmp || 0))
+      };
+    }
+    function buildArena(index) {
+      const bandH = sim.height * 0.44;
+      const laneY = sim.height * 0.53;
+      const laneTop = laneY - bandH * 0.5;
+      const leftX = sim.width * 0.18;
+      const rightX = sim.width * 0.82;
+      const arena = {
+        index,
+        y: laneY,
+        top: laneTop,
+        height: bandH,
+        leftX,
+        rightX,
+        centerX: (leftX + rightX) * 0.5,
+        units: [],
+        shots: [],
+        sparks: [],
+        blackHole: null,
+        holeUsed: false,
+        winner: null,
+        winnerTimer: 0,
+        roundTime: 0,
+        nebulas: []
+      };
+      arena.leftCore = createCore(0, leftX, laneY + rnd(-28, 18), 0xff8800);
+      arena.rightCore = createCore(1, rightX, laneY + rnd(-18, 28), 0x4488ff);
+      arena.nebulas = [
+        createMenuNebula(arena.centerX + rnd(-70, 10), laneY + rnd(-bandH * 0.16, bandH * 0.10), bandH * rnd(0.26, 0.34), (index * 2) % NEBULA_VISUAL_VARIANTS.length),
+        createMenuNebula(arena.centerX + rnd(40, 120), laneY + rnd(-bandH * 0.12, bandH * 0.14), bandH * rnd(0.18, 0.26), (index * 2 + 1) % NEBULA_VISUAL_VARIANTS.length)
+      ];
+      return arena;
+    }
+    function rebuildArenas() {
+      sim.arenas = [];
+      for (let i = 0; i < ARENA_COUNT; i++) sim.arenas.push(buildArena(i));
+    }
+    function resize() {
+      const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+      const w = Math.max(1, window.innerWidth);
+      const h = Math.max(1, window.innerHeight);
+      sim.dpr = dpr;
+      sim.width = w;
+      sim.height = h;
+      menuSimCanvasEl.width = Math.round(w * dpr);
+      menuSimCanvasEl.height = Math.round(h * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      buildStars();
+      rebuildArenas();
+    }
+    function resetArena(arena) {
+      const fresh = buildArena(arena.index);
+      arena.y = fresh.y;
+      arena.top = fresh.top;
+      arena.height = fresh.height;
+      arena.leftX = fresh.leftX;
+      arena.rightX = fresh.rightX;
+      arena.centerX = fresh.centerX;
+      arena.leftCore = fresh.leftCore;
+      arena.rightCore = fresh.rightCore;
+      arena.nebulas = fresh.nebulas;
+      arena.units.length = 0;
+      arena.shots.length = 0;
+      arena.sparks.length = 0;
+      arena.blackHole = null;
+      arena.holeUsed = false;
+      arena.winner = null;
+      arena.winnerTimer = 0;
+      arena.roundTime = 0;
+    }
+    function countUnits(arena, side) {
+      let n = 0;
+      for (let i = 0; i < arena.units.length; i++) if (arena.units[i].side === side && arena.units[i].hp > 0) n++;
+      return n;
+    }
+    function spawnUnit(arena, core) {
+      if (!core || core.hp <= 0) return;
+      if (countUnits(arena, core.side) >= UNIT_LIMIT_PER_SIDE) return;
+      const type = MENU_SIM_UNIT_TYPES[(Math.random() * MENU_SIM_UNIT_TYPES.length) | 0];
+      const dir = core.side === 0 ? 1 : -1;
+      arena.units.push({
+        side: core.side,
+        x: core.x + dir * rnd(32, 50),
+        y: core.y + rnd(-36, 36),
+        vx: 0,
+        vy: 0,
+        hp: type.hp,
+        maxHp: type.hp,
+        speed: type.speed * rnd(0.92, 1.08),
+        damage: type.damage,
+        range: type.range,
+        reload: rnd(0.0, type.reload),
+        reloadBase: type.reload,
+        size: type.size,
+        wobble: Math.random() * TAU
+      });
+    }
+    function acquireTarget(arena, unit) {
+      let best = null;
+      let bestD2 = unit.range * unit.range;
+      for (let i = 0; i < arena.units.length; i++) {
+        const other = arena.units[i];
+        if (other.side === unit.side || other.hp <= 0) continue;
+        const dx = other.x - unit.x;
+        const dy = other.y - unit.y;
+        const d2 = dx * dx + dy * dy;
+        if (d2 < bestD2) {
+          bestD2 = d2;
+          best = { kind: "unit", unit: other };
+        }
+      }
+      const enemyCore = unit.side === 0 ? arena.rightCore : arena.leftCore;
+      if (enemyCore && enemyCore.hp > 0) {
+        const dx = enemyCore.x - unit.x;
+        const dy = enemyCore.y - unit.y;
+        const d2 = dx * dx + dy * dy;
+        if (d2 < bestD2 * 1.4) best = { kind: "core", core: enemyCore };
+      }
+      return best;
+    }
+    function spawnShot(arena, unit, target) {
+      if (arena.shots.length >= SHOT_LIMIT) return;
+      const tx = target.kind === "core" ? target.core.x : target.unit.x;
+      const ty = target.kind === "core" ? target.core.y : target.unit.y;
+      const dx = tx - unit.x;
+      const dy = ty - unit.y;
+      const len = Math.hypot(dx, dy) || 1;
+      arena.shots.push({
+        side: unit.side,
+        x: unit.x,
+        y: unit.y,
+        vx: dx / len * 248,
+        vy: dy / len * 248,
+        damage: unit.damage,
+        life: 1.15,
+        target
+      });
+    }
+    function spawnBlackHole(arena) {
+      arena.blackHole = {
+        x: arena.centerX + rnd(-56, 56),
+        y: arena.y + rnd(-arena.height * 0.20, arena.height * 0.20),
+        r: rnd(26, 38),
+        life: 5.6,
+        maxLife: 5.6,
+        pull: rnd(150, 220)
+      };
+      arena.holeUsed = true;
+    }
+    function applyBlackHoleForce(arena, obj, dt, massMul) {
+      if (!arena.blackHole) return;
+      const dx = arena.blackHole.x - obj.x;
+      const dy = arena.blackHole.y - obj.y;
+      const d = Math.hypot(dx, dy) || 1;
+      const infl = clamp01(1 - d / (arena.blackHole.r * 6.2));
+      if (infl <= 0) return;
+      const pull = arena.blackHole.pull * infl * dt * massMul;
+      obj.x += dx / d * pull;
+      obj.y += dy / d * pull;
+    }
+    function spawnSpark(arena, x, y, side) {
+      if (arena.sparks.length > 90) return;
+      const color = side === 0 ? 0xffb980 : 0x9bc6ff;
+      arena.sparks.push({
+        x,
+        y,
+        vx: rnd(-26, 26),
+        vy: rnd(-26, 26),
+        life: rnd(0.24, 0.50),
+        maxLife: 0.50,
+        color
+      });
+    }
+    function updateArena(arena, dt) {
+      arena.roundTime += dt;
+      arena.leftCore.orbit += dt * 0.42;
+      arena.rightCore.orbit -= dt * 0.42;
+      arena.leftCore.pulse += dt * 1.26;
+      arena.rightCore.pulse += dt * 1.18;
+
+      if (!arena.winner) {
+        const cores = [arena.leftCore, arena.rightCore];
+        for (let i = 0; i < cores.length; i++) {
+          const core = cores[i];
+          if (!core || core.hp <= 0) continue;
+          core.spawnCd -= dt;
+          if (core.spawnCd <= 0) {
+            spawnUnit(arena, core);
+            core.spawnCd = core.spawnRate * rnd(0.86, 1.14);
+          }
+        }
+        if (!arena.holeUsed && arena.roundTime > 7.5) spawnBlackHole(arena);
+      }
+
+      if (arena.blackHole) {
+        arena.blackHole.life -= dt;
+        if (arena.blackHole.life <= 0) arena.blackHole = null;
+      }
+
+      const laneMinY = arena.top + 20;
+      const laneMaxY = arena.top + arena.height - 20;
+
+      for (let i = arena.units.length - 1; i >= 0; i--) {
+        const u = arena.units[i];
+        if (u.hp <= 0) { arena.units.splice(i, 1); continue; }
+        u.reload -= dt;
+        const target = acquireTarget(arena, u);
+        const enemyCore = u.side === 0 ? arena.rightCore : arena.leftCore;
+        const tx = target ? (target.kind === "core" ? target.core.x : target.unit.x) : (enemyCore ? enemyCore.x : u.x);
+        const ty = target ? (target.kind === "core" ? target.core.y : target.unit.y) : (enemyCore ? enemyCore.y : u.y);
+        const dx = tx - u.x;
+        const dy = ty - u.y;
+        const d = Math.hypot(dx, dy) || 1;
+        if (target && d <= u.range) {
+          if (u.reload <= 0) {
+            spawnShot(arena, u, target);
+            u.reload = u.reloadBase * rnd(0.86, 1.12);
+          }
+          u.vx *= 0.84;
+          u.vy *= 0.84;
+        } else {
+          const nx = dx / d;
+          const ny = dy / d;
+          const tangent = Math.sin(arena.roundTime * 0.8 + u.wobble) * 14;
+          u.vx += (nx * u.speed - u.vx) * 0.08;
+          u.vy += (ny * u.speed * 0.62 + tangent - u.vy) * 0.08;
+        }
+        u.x += u.vx * dt;
+        u.y += u.vy * dt;
+        applyBlackHoleForce(arena, u, dt, 1.0);
+        u.y = Math.max(laneMinY, Math.min(laneMaxY, u.y));
+      }
+
+      for (let i = arena.shots.length - 1; i >= 0; i--) {
+        const s = arena.shots[i];
+        s.life -= dt;
+        if (s.life <= 0) { arena.shots.splice(i, 1); continue; }
+        s.x += s.vx * dt;
+        s.y += s.vy * dt;
+        applyBlackHoleForce(arena, s, dt, 0.7);
+        const target = s.target;
+        if (target.kind === "unit") {
+          if (!target.unit || target.unit.hp <= 0) { arena.shots.splice(i, 1); continue; }
+          if (Math.hypot(target.unit.x - s.x, target.unit.y - s.y) <= target.unit.size + 4) {
+            target.unit.hp -= s.damage;
+            for (let j = 0; j < 3; j++) spawnSpark(arena, s.x, s.y, s.side);
+            arena.shots.splice(i, 1);
+            continue;
+          }
+        } else if (target.kind === "core") {
+          if (!target.core || target.core.hp <= 0) { arena.shots.splice(i, 1); continue; }
+          if (Math.hypot(target.core.x - s.x, target.core.y - s.y) <= 24) {
+            target.core.hp -= s.damage;
+            for (let j = 0; j < 5; j++) spawnSpark(arena, s.x, s.y, s.side);
+            arena.shots.splice(i, 1);
+            continue;
+          }
+        }
+      }
+
+      for (let i = arena.sparks.length - 1; i >= 0; i--) {
+        const p = arena.sparks[i];
+        p.life -= dt;
+        if (p.life <= 0) { arena.sparks.splice(i, 1); continue; }
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.vx *= 0.96;
+        p.vy *= 0.96;
+      }
+
+      if (!arena.winner) {
+        if (arena.leftCore.hp <= 0 || arena.rightCore.hp <= 0 || arena.roundTime > 30) {
+          arena.winner = arena.leftCore.hp > arena.rightCore.hp ? 0 : 1;
+          arena.winnerTimer = 3.4;
+          arena.blackHole = null;
+        }
+      } else {
+        arena.winnerTimer -= dt;
+        if (arena.winnerTimer <= 0) resetArena(arena);
+      }
+    }
+    function buildZonePoints(core, arena, scaleMul) {
+      const pts = [];
+      const steps = 38;
+      const forwardSign = core.side === 0 ? 1 : -1;
+      const baseR = core.zoneRadius * scaleMul;
+      for (let i = 0; i <= steps; i++) {
+        const angle = (i / steps) * TAU;
+        const forward = Math.cos(angle) * forwardSign;
+        const lateral = Math.abs(Math.sin(angle));
+        const wobble =
+          Math.sin(angle * 2.0 + core.orbit) * 0.05 +
+          Math.sin(angle * 5.0 + core.pulse) * 0.02;
+        const radial = baseR * (1 + wobble + Math.max(0, forward) * 0.18 - Math.max(0, -forward) * 0.04);
+        pts.push({
+          x: core.x + Math.cos(angle) * radial * (1.14 + Math.max(0, forward) * 0.24),
+          y: core.y + Math.sin(angle) * radial * (0.88 + lateral * 0.08)
+        });
+      }
+      return pts;
+    }
+    function drawZone(core, arena) {
+      const palette = FACTION_VIS.getFactionPalette(core.color);
+      const outer = buildZonePoints(core, arena, 1.06);
+      const mid = buildZonePoints(core, arena, 1.0);
+      const inner = buildZonePoints(core, arena, 0.92);
+
+      tracePoly(outer);
+      ctx.fillStyle = rgba(palette.core, 0.030);
+      ctx.fill();
+      tracePoly(mid);
+      ctx.fillStyle = rgba(palette.core, 0.050);
+      ctx.fill();
+      tracePoly(inner);
+      ctx.fillStyle = rgba(palette.core, 0.034);
+      ctx.fill();
+
+      tracePoly(outer);
+      ctx.strokeStyle = rgba(palette.edge, 0.06);
+      ctx.lineWidth = 10;
+      ctx.stroke();
+      tracePoly(mid);
+      ctx.strokeStyle = rgba(palette.edge, 0.10);
+      ctx.lineWidth = 4;
+      ctx.stroke();
+      tracePoly(mid);
+      ctx.strokeStyle = rgba(palette.edge, 0.20);
+      ctx.lineWidth = 1.1;
+      ctx.stroke();
+    }
+    function drawMenuCore(core) {
+      const pulse = 0.82 + 0.18 * Math.sin(core.pulse);
+      const palette = FACTION_VIS.getFactionPalette(core.color);
+      const radiusRef = getPlanetRadius({ influenceR: core.zoneRadius });
+      const haloR = radiusRef * 1.85;
+      const shellR = radiusRef * 0.96;
+      const coreR = radiusRef * 0.54;
+
+      ctx.beginPath();
+      ctx.arc(core.x, core.y, haloR, 0, TAU);
+      ctx.fillStyle = rgba(palette.glow || core.color, 0.08);
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.arc(core.x, core.y, shellR, 0, TAU);
+      ctx.fillStyle = "rgba(5,9,18,0.92)";
+      ctx.fill();
+      ctx.strokeStyle = rgba(palette.edge, 0.30);
+      ctx.lineWidth = 1.4;
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.arc(core.x, core.y, radiusRef * 0.74, 0, TAU);
+      ctx.fillStyle = rgba(palette.core, 0.16);
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.arc(core.x, core.y, coreR, 0, TAU);
+      ctx.fillStyle = rgba(palette.core, 0.34);
+      ctx.fill();
+      ctx.strokeStyle = rgba(palette.solid || palette.edge, 0.48);
+      ctx.lineWidth = 1.1;
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.arc(core.x, core.y, radiusRef * 0.24, 0, TAU);
+      ctx.fillStyle = rgba(palette.core, 0.58);
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.arc(core.x, core.y, radiusRef * 0.10, 0, TAU);
+      ctx.fillStyle = "rgba(255,255,255,0.82)";
+      ctx.fill();
+
+      ctx.strokeStyle = rgba(palette.edge, 0.20);
+      ctx.lineWidth = 0.9;
+      ctx.beginPath();
+      ctx.arc(core.x, core.y, radiusRef * 0.42, 0, TAU);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(core.x, core.y, radiusRef * 0.60, 0, TAU);
+      ctx.lineWidth = 0.7;
+      ctx.strokeStyle = rgba(palette.edge, 0.14);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.arc(core.x - radiusRef * 0.10, core.y - radiusRef * 0.12, radiusRef * 0.18, 0, TAU);
+      ctx.fillStyle = "rgba(255,255,255,0.18)";
+      ctx.fill();
+
+      const ringRadii = [radiusRef * 1.08, radiusRef * 1.34];
+      for (let i = 0; i < ringRadii.length; i++) {
+        ctx.save();
+        ctx.translate(core.x, core.y);
+        ctx.rotate(core.orbit * (i === 0 ? 0.8 : -0.55));
+        ctx.beginPath();
+        ctx.ellipse(0, 0, ringRadii[i], ringRadii[i] * 0.42, 0, 0, TAU);
+        ctx.strokeStyle = rgba(palette.edge, i === 0 ? 0.22 : 0.16);
+        ctx.lineWidth = 0.95;
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      const shieldPct = clamp01(core.hp / core.maxHp);
+      const shieldR = radiusRef + 12;
+      ctx.beginPath();
+      ctx.arc(core.x, core.y, shieldR + 4, 0, TAU);
+      ctx.strokeStyle = rgba(core.color, 0.10 * shieldPct * pulse);
+      ctx.lineWidth = 12;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(core.x, core.y, shieldR, 0, TAU);
+      ctx.strokeStyle = rgba(core.color, 0.38 * shieldPct * pulse);
+      ctx.lineWidth = 2.2;
+      ctx.stroke();
+    }
+    function drawNebula(neb) {
+      const visual = getMenuNebulaZone(neb, sim.time);
+      const variant = getNebulaVisualVariant(neb);
+      const fillColor = neb._fillColor || (variant.cloudColors && variant.cloudColors[0]) || 0x3b467a;
+      const detail = { outlineSteps: 26, outlineSmoothPasses: 2, plumes: 4, knots: 2, ribbons: 2, fringePoints: 6 };
+      const localNeb = { ...neb, x: 0, y: 0, radius: visual.radius };
+      const feather = buildNebulaOutlinePoints(localNeb, detail, 1.24 * variant.outerMul);
+      const outer = buildNebulaOutlinePoints(localNeb, detail, 1.10 * variant.outerMul);
+      const mid = buildNebulaOutlinePoints(localNeb, detail, 1.00);
+      const inner = buildNebulaOutlinePoints(localNeb, detail, 0.90 * variant.innerMul);
+
+      ctx.save();
+      ctx.translate(visual.x, visual.y);
+      tracePoly(feather);
+      ctx.fillStyle = rgba(fillColor, 0.024 * (variant.bodyAlphaMul || 1));
+      ctx.fill();
+      tracePoly(outer);
+      ctx.fillStyle = rgba(fillColor, 0.040 * (variant.bodyAlphaMul || 1));
+      ctx.fill();
+      tracePoly(mid);
+      ctx.fillStyle = rgba(fillColor, 0.062 * (variant.bodyAlphaMul || 1));
+      ctx.fill();
+      tracePoly(inner);
+      ctx.fillStyle = rgba(fillColor, 0.042 * (variant.bodyAlphaMul || 1));
+      ctx.fill();
+
+      for (let i = 0; i < Math.min(detail.plumes, (neb._plumes || []).length); i++) {
+        const plume = neb._plumes[i];
+        const ang = plume.angle;
+        const dist = plume.dist;
+        const px = Math.cos(ang) * dist;
+        const py = Math.sin(ang * 0.92) * dist * 0.74;
+        softEllipse(px, py, plume.rx * 0.95, plume.ry * plume.squish * 0.84, fillColor, plume.alpha * 0.85);
+      }
+
+      tracePoly(mid);
+      ctx.strokeStyle = rgba(variant.edgeColor, 0.10 * variant.edgeMul);
+      ctx.lineWidth = 0.9;
+      ctx.stroke();
+      tracePoly(outer);
+      ctx.strokeStyle = rgba(variant.edgeColor, 0.05 * variant.edgeMul);
+      ctx.lineWidth = 4.8;
+      ctx.stroke();
+      ctx.restore();
+    }
+    function drawUnit(u) {
+      const palette = FACTION_VIS.getFactionPalette(u.side === 0 ? 0xff8800 : 0x4488ff);
+      const dir = u.side === 0 ? 1 : -1;
+      ctx.save();
+      ctx.translate(u.x, u.y);
+      ctx.rotate(Math.atan2(u.vy || 0, u.vx || dir) + (dir > 0 ? 0 : Math.PI));
+      ctx.beginPath();
+      ctx.moveTo(u.size * 1.60, 0);
+      ctx.lineTo(-u.size * 0.95, -u.size * 0.70);
+      ctx.lineTo(-u.size * 0.52, 0);
+      ctx.lineTo(-u.size * 0.95, u.size * 0.70);
+      ctx.closePath();
+      ctx.fillStyle = rgba(palette.core, 0.86);
+      ctx.fill();
+      ctx.strokeStyle = rgba(palette.edge, 0.60);
+      ctx.lineWidth = 0.9;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(-u.size * 0.82, -u.size * 0.18);
+      ctx.lineTo(-u.size * 1.52, -u.size * 0.08);
+      ctx.moveTo(-u.size * 0.82, u.size * 0.18);
+      ctx.lineTo(-u.size * 1.52, u.size * 0.08);
+      ctx.strokeStyle = rgba(palette.edge, 0.34);
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+      ctx.restore();
+    }
+    function drawShots(arena) {
+      for (let i = 0; i < arena.shots.length; i++) {
+        const s = arena.shots[i];
+        const palette = FACTION_VIS.getFactionPalette(s.side === 0 ? 0xff8800 : 0x4488ff);
+        ctx.beginPath();
+        ctx.moveTo(s.x, s.y);
+        ctx.lineTo(s.x - s.vx * 0.03, s.y - s.vy * 0.03);
+        ctx.strokeStyle = rgba(palette.edge, 0.70);
+        ctx.lineWidth = 1.6;
+        ctx.stroke();
+      }
+    }
+    function drawBlackHole(arena) {
+      if (!arena.blackHole) return;
+      const bh = arena.blackHole;
+      const life = clamp01(bh.life / bh.maxLife);
+      const grow = 1 - life;
+      const r = bh.r * (0.9 + grow * 0.2);
+      ctx.beginPath();
+      ctx.arc(bh.x, bh.y, r * 3.2, 0, TAU);
+      ctx.fillStyle = "rgba(90,120,255,0.08)";
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(bh.x, bh.y, r * 1.55, 0, TAU);
+      ctx.strokeStyle = "rgba(156,190,255,0.25)";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(bh.x, bh.y, r, 0, TAU);
+      ctx.fillStyle = "rgba(5,7,12,0.98)";
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(bh.x, bh.y, r * 0.52, 0, TAU);
+      ctx.fillStyle = "rgba(0,0,0,1)";
+      ctx.fill();
+    }
+    function drawArenaBackdrop(arena) {
+      const band = ctx.createLinearGradient(0, arena.top, 0, arena.top + arena.height);
+      band.addColorStop(0, "rgba(14,19,34,0)");
+      band.addColorStop(0.5, "rgba(20,28,48,0.34)");
+      band.addColorStop(1, "rgba(14,19,34,0)");
+      ctx.fillStyle = band;
+      ctx.fillRect(0, arena.top, sim.width, arena.height);
+
+      const seam = ctx.createLinearGradient(arena.leftX, 0, arena.rightX, 0);
+      seam.addColorStop(0, "rgba(255,140,90,0)");
+      seam.addColorStop(0.5, "rgba(160,190,255,0.08)");
+      seam.addColorStop(1, "rgba(90,160,255,0)");
+      ctx.fillStyle = seam;
+      ctx.fillRect(0, arena.y - arena.height * 0.18, sim.width, arena.height * 0.36);
+    }
+    function render() {
+      ctx.clearRect(0, 0, sim.width, sim.height);
+      const bg = ctx.createLinearGradient(0, 0, 0, sim.height);
+      bg.addColorStop(0, "#040812");
+      bg.addColorStop(1, "#060a14");
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, sim.width, sim.height);
+
+      for (let i = 0; i < sim.stars.length; i++) {
+        const s = sim.stars[i];
+        const driftX = Math.sin(sim.time * (0.05 + s.depth * 0.09) + s.t) * 8 * s.depth;
+        const driftY = Math.cos(sim.time * (0.04 + s.depth * 0.07) + s.t * 0.7) * 5 * s.depth;
+        const a = s.a * (0.72 + 0.28 * Math.sin(sim.time * s.s + s.t));
+        ctx.fillStyle = "rgba(210,224,255," + a.toFixed(3) + ")";
+        ctx.fillRect(s.x + driftX, s.y + driftY, s.r, s.r);
+      }
+
+      for (let ai = 0; ai < sim.arenas.length; ai++) {
+        const arena = sim.arenas[ai];
+        drawArenaBackdrop(arena);
+        for (let ni = 0; ni < arena.nebulas.length; ni++) drawNebula(arena.nebulas[ni]);
+        drawZone(arena.leftCore, arena);
+        drawZone(arena.rightCore, arena);
+        drawShots(arena);
+        for (let i = 0; i < arena.units.length; i++) drawUnit(arena.units[i]);
+        for (let i = 0; i < arena.sparks.length; i++) {
+          const p = arena.sparks[i];
+          const a = clamp01(p.life / p.maxLife);
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, 1.1, 0, TAU);
+          ctx.fillStyle = rgba(p.color, a * 0.8);
+          ctx.fill();
+        }
+        drawMenuCore(arena.leftCore);
+        drawMenuCore(arena.rightCore);
+        drawBlackHole(arena);
+      }
+    }
+    function updateRound(dt) {
+      sim.time += dt;
+      for (let i = 0; i < sim.arenas.length; i++) updateArena(sim.arenas[i], dt);
+    }
+    function frame(now) {
+      if (!sim.visible) { sim.raf = 0; return; }
+      if (document.hidden) {
+        sim.lastNow = now;
+        sim.raf = requestAnimationFrame(frame);
+        return;
+      }
+      const elapsed = now - sim.lastNow;
+      if (elapsed < FRAME_MS - 1) {
+        sim.raf = requestAnimationFrame(frame);
+        return;
+      }
+      sim.lastNow = now;
+      updateRound(Math.min(0.05, elapsed / 1000));
+      render();
+      sim.raf = requestAnimationFrame(frame);
+    }
+    function setVisible(visible) {
+      sim.visible = !!visible;
+      menuSimBackdropEl.style.display = sim.visible ? "block" : "none";
+      if (!sim.visible) {
+        if (sim.raf) cancelAnimationFrame(sim.raf);
+        sim.raf = 0;
+        return;
+      }
+      if (!sim.width || !sim.height) resize();
+      sim.lastNow = performance.now();
+      if (!sim.raf) sim.raf = requestAnimationFrame(frame);
+    }
+
+    window.addEventListener("resize", resize);
+    resize();
+    return { setVisible };
+  })();
 
   function showScreen(visibleId) {
     const ids = ["mainMenu", "nicknameScreen", "soloLobbyScreen", "multiConnectScreen", "lobbyScreen"];
@@ -11652,6 +13539,7 @@
       if (el) el.style.display = id === visibleId ? "flex" : "none";
     }
     if (gameWrapEl) gameWrapEl.style.display = visibleId === "gameWrap" ? "block" : "none";
+    if (menuSimApi && menuSimApi.setVisible) menuSimApi.setVisible(visibleId !== "gameWrap");
     if (visibleId === "soloLobbyScreen" && typeof window !== "undefined") {
       state._myNickname = state._myNickname || window._myNickname || "";
     }
@@ -11708,8 +13596,23 @@
   (function bindMainMenuButtonsEarly() {
     const btnSingle = document.getElementById("btnSingle");
     const btnMulti = document.getElementById("btnMulti");
-    if (btnMulti) btnMulti.addEventListener("click", () => { state._menuMode = "multi"; showScreen("nicknameScreen"); });
-    if (btnSingle) btnSingle.addEventListener("click", () => { state._menuMode = "single"; showScreen("nicknameScreen"); });
+    const btnTestMap400 = document.getElementById("btnTestMap400");
+    if (btnMulti) btnMulti.addEventListener("click", () => { state._quickStartScenario = null; state._menuMode = "multi"; showScreen("nicknameScreen"); });
+    if (btnSingle) btnSingle.addEventListener("click", () => { state._quickStartScenario = null; state._menuMode = "single"; showScreen("nicknameScreen"); });
+    if (btnTestMap400) btnTestMap400.addEventListener("click", () => {
+      state._menuMode = "single";
+      state._quickStartScenario = "stress400";
+      state._soloGameMode = "standard";
+      state._mapVariation = 1;
+      state._soloBotCount = 1;
+      state._customMapSeed = null;
+      state._soloSpawnIndex = 0;
+      const nick =
+        (state._myNickname || (typeof window !== "undefined" && window._myNickname) || nicknameInputEl?.value?.trim() || "Игрок")
+          .trim()
+          .slice(0, 24) || "Игрок";
+      startGameSingle(nick);
+    });
   })();
 
   function refreshLobbyList() {
@@ -12032,6 +13935,7 @@
     stepLoanDebts,
     stepMeteors,
     stepBgComets,
+    stepBgFlares,
     stepSurvivalWaves
   });
 
@@ -12049,6 +13953,7 @@
     updateDischarges,
     pulseStars,
     drawBgComets,
+    drawBgFlares,
     updateActivityZones,
     drawTurrets,
     updateCityPopLabels,

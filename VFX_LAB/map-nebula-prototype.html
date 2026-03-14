@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Map Nebula Prototype 01</title>
+  <link rel="stylesheet" href="./vfx-lab.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <h2 id="variantTitle">Map Nebula Prototype 01</h2>
+      <p id="variantSubtitle">Переделка существующей игровой туманности: не набор пересекающихся кругов, а единое живое облако с массой, дымкой, fringe и внутренними токами.</p>
+      <p>Тяни туманность мышью. Крути форму, haze и разряды, пока силуэт не станет похож на настоящую космическую туманность, а не на геометрию из кружков.</p>
+    </div>
+    <div class="controls">
+      <div class="control">
+        <label>Style Direction</label>
+        <select id="variantSelect"></select>
+      </div>
+      <div class="control">
+        <label>LOD</label>
+        <select id="lodMode">
+          <option value="auto">Auto</option>
+          <option value="near">Near</option>
+          <option value="mid">Mid</option>
+          <option value="far">Far</option>
+        </select>
+      </div>
+      <div class="control">
+        <label>Radius</label>
+        <input id="radius" type="range" min="140" max="320" value="230">
+      </div>
+      <div class="control">
+        <label>Distortion</label>
+        <input id="distortion" type="range" min="0" max="100" value="54">
+      </div>
+      <div class="control">
+        <label>Core Glow</label>
+        <input id="coreGlow" type="range" min="0" max="100" value="58">
+      </div>
+      <div class="control">
+        <label>Outer Haze</label>
+        <input id="outerHaze" type="range" min="0" max="100" value="64">
+      </div>
+      <div class="control">
+        <label>Fringe</label>
+        <input id="fringe" type="range" min="0" max="100" value="52">
+      </div>
+      <div class="control">
+        <label>Filaments</label>
+        <input id="filaments" type="range" min="0" max="100" value="48">
+      </div>
+      <div class="control">
+        <label>Discharge Rate</label>
+        <input id="dischargeRate" type="range" min="0" max="100" value="40">
+      </div>
+    </div>
+    <div class="actions">
+      <button type="button" id="randomizeSeed">Randomize Seed</button>
+      <button type="button" id="randomizeShape">Randomize Shape</button>
+      <button type="button" id="calmPreset">Calm</button>
+      <button type="button" id="stormPreset">Storm</button>
+    </div>
+  </header>
+
+  <nav class="nav">
+    <a href="./index.html">Overview</a>
+    <a href="./zone-pressure-prototype.html">Zone Prototype 01</a>
+    <a href="./ships-prototype.html">Ships Prototype 01</a>
+    <a href="./mine-flow-prototype.html">Mine Flow Prototype 01</a>
+    <a href="./map-nebula-prototype.html" class="active">Nebula Prototype 01</a>
+    <a href="./pirate-base-prototype.html">Pirate Base Prototype 01</a>
+    <a href="./OLD/vfx_test2_OLD/index.html">OLD vfx_test2</a>
+  </nav>
+
+  <main class="scene-wrap">
+    <canvas id="scene"></canvas>
+  </main>
+
+  <div id="statusLine" class="status-line">
+    Reworking the in-game nebula from a simple round zone into a single layered cloud body with inner haze, soft silhouette and electrical life.
+  </div>
+
+  <section class="legend">
+    <article class="legend-card">
+      <h3>Current Basis</h3>
+      <p id="legendSpawn">В игре туманность сейчас читается почти как круглая зона с легким контуром. Эта лаба нужна, чтобы сохранить gameplay-радиус, но полностью заменить visual body.</p>
+    </article>
+    <article class="legend-card">
+      <h3>Visual Goal</h3>
+      <p id="legendVisual">Нужна единая cloud-mass: крупная форма, мягкий outer haze, живой fringe, внутренние прожилки и редкие discharges, а не пересечение отдельных шаров.</p>
+    </article>
+    <article class="legend-card">
+      <h3>Prototype Focus</h3>
+      <p id="legendFocus">Здесь подбирается именно язык одной игровой туманности: silhouette, плотность дыма, edge behavior и характер электрической активности.</p>
+    </article>
+  </section>
+
+  <script src="./map-nebula-prototype.js"></script>
+</body>
+</html>
