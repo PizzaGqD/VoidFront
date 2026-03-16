@@ -454,22 +454,22 @@
 
     // Real zone body: layered fills toward the real radius, fading with zoom.
     var fillLodMul = detail.sensorNodes ? 1.0 : (detail.innerRings > 0 ? 0.42 : 0.14);
-    var fillScales = [0.78, 0.88, 0.93, 0.95, 0.99];
-    var fillAlphas = [0.018, 0.068, 0.053, 0.040, 0.026];
+    var fillScales = [0.78, 0.88, 0.94, 0.985, 1.01];
+    var fillAlphas = [0.016, 0.060, 0.056, 0.048, 0.036];
     for (var fi = 0; fi < fillScales.length; fi++) {
       var fillPoly = scaledPoly(smoothPoly, p.x, p.y, fillScales[fi]);
       fillSmoothClosed(p.zoneGfx, fillPoly, palette.core, fillAlphas[fi] * fillLodMul);
     }
 
     // Real contour: multiple translucent edge layers near the border, LOD-faded.
-    drawSmoothClosed(p.zoneGlow, smoothPoly, 16 * pxToWorld, palette.core, 0.020 * lodAlpha);
-    drawSmoothClosed(p.zoneGlow, smoothPoly, 9 * pxToWorld, palette.edge, 0.032 * lodAlpha);
-    drawSmoothClosed(p.zoneGfx, smoothPoly, 2.4 * pxToWorld, palette.core, 0.11 * lodAlpha);
-    drawSmoothClosed(p.zoneGfx, smoothPoly, 1.2 * pxToWorld, palette.edge, 0.18 * lodAlpha);
-    drawDashedClosed(p.zoneGfx, smoothPoly, 9 * pxToWorld, 7 * pxToWorld, detail.edgeWidth * pxToWorld, palette.core, 0.20 * lodAlpha);
+    drawSmoothClosed(p.zoneGlow, smoothPoly, 18 * pxToWorld, palette.core, 0.024 * lodAlpha);
+    drawSmoothClosed(p.zoneGlow, smoothPoly, 10 * pxToWorld, palette.edge, 0.040 * lodAlpha);
+    drawSmoothClosed(p.zoneGfx, smoothPoly, 2.8 * pxToWorld, palette.core, 0.14 * lodAlpha);
+    drawSmoothClosed(p.zoneGfx, smoothPoly, 1.4 * pxToWorld, palette.edge, 0.24 * lodAlpha);
+    drawDashedClosed(p.zoneGfx, smoothPoly, 9 * pxToWorld, 7 * pxToWorld, detail.edgeWidth * pxToWorld, palette.core, 0.24 * lodAlpha);
 
     var ringScales = [0.70, 0.84, 0.93];
-    var ringAlphas = [0.020, 0.032, 0.048];
+    var ringAlphas = [0.024, 0.040, 0.060];
     var ringWidths = [0.30 * pxToWorld, 0.42 * pxToWorld, 0.56 * pxToWorld];
     var ringCount = Math.min(detail.innerRings, ringScales.length);
     for (var ri = 0; ri < ringCount; ri++) {
@@ -500,7 +500,7 @@
     }
 
     // --- 6. Outer glow (subtle) ---
-    drawSmoothClosed(p.zoneGlow, smoothPoly, 2.2 * pxToWorld, palette.glow || palette.core, 0.015 * lodAlpha);
+    drawSmoothClosed(p.zoneGlow, smoothPoly, 2.2 * pxToWorld, palette.glow || palette.core, 0.020 * lodAlpha);
 
     if (p.zoneShellGfx && !p.zoneShellGfx.destroyed) {
       drawPlexusShell(p.zoneShellGfx, shell, palette, pxToWorld, detail, cfg.time || 0);

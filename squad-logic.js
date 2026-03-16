@@ -50,7 +50,16 @@
     return Array.isArray(wp) ? wp.map(clonePoint).filter(Boolean) : [];
   }
 
-  function cloneOrder(order) {
+  function cloneCaptureQueue(queue) {
+    return Array.isArray(queue)
+      ? queue.map((entry) => ({
+          mineId: entry?.mineId ?? null,
+          point: clonePoint(entry?.point)
+        })).filter((entry) => entry.mineId != null && entry.point)
+      : [];
+  }
+
+  function cloneQueuedOrder(order) {
     if (!order) return null;
     return {
       type: order.type || "idle",
@@ -60,9 +69,46 @@
       targetCityId: order.targetCityId,
       targetPirateBase: !!order.targetPirateBase,
       mineId: order.mineId,
+      captureQueue: cloneCaptureQueue(order.captureQueue),
+      commandQueue: [],
       angle: order.angle,
       suppressPathPreview: !!order.suppressPathPreview
     };
+  }
+
+  function cloneCommandQueue(queue) {
+    return Array.isArray(queue) ? queue.map(cloneQueuedOrder).filter(Boolean) : [];
+  }
+
+  function cloneOrder(order) {
+    const out = cloneQueuedOrder(order);
+    if (!out) return null;
+    out.commandQueue = cloneCommandQueue(order.commandQueue);
+    return out;
+  }
+
+  function buildCaptureQueueOrders(captureQueue) {
+    return cloneCaptureQueue(captureQueue).map((entry) => ({
+      type: "capture",
+      mineId: entry.mineId,
+      waypoints: entry.point ? [clonePoint(entry.point)] : [],
+      holdPoint: null,
+      targetUnitId: null,
+      targetCityId: null,
+      targetPirateBase: false,
+      captureQueue: [],
+      commandQueue: [],
+      angle: null,
+      suppressPathPreview: false
+    }));
+  }
+
+  function getNextQueuedOrder(order) {
+    const queue = cloneCommandQueue(order?.commandQueue);
+    if (!queue.length) return null;
+    const next = queue.shift();
+    next.commandQueue = queue;
+    return next;
   }
 
   function ensureRuntime(state) {
@@ -366,6 +412,7 @@
       targetCityId: order.targetCityId ?? null,
       mineId: order.mineId ?? null,
       waypointCount: Array.isArray(order.waypoints) ? order.waypoints.length : 0,
+      queuedCount: Array.isArray(order.commandQueue) ? order.commandQueue.length : 0,
       holdPoint: clonePoint(order.holdPoint)
     };
   }
@@ -416,8 +463,15 @@
     }
   }
 
-  function issueMoveOrder(state, squadId, waypoints, angle) {
-    const order = { type: "move", waypoints, holdPoint: null, angle, suppressPathPreview: false };
+  function issueMoveOrder(state, squadId, waypoints, angle, commandQueue) {
+    const order = {
+      type: "move",
+      waypoints,
+      holdPoint: null,
+      angle,
+      commandQueue: cloneCommandQueue(commandQueue),
+      suppressPathPreview: false
+    };
     const queued = queueIfLocked(state, squadId, order);
     if (queued) return queued;
     clearCombatForSquad(state, squadId, false);
@@ -429,33 +483,61 @@
     return sq;
   }
 
-  function issueAttackUnitOrder(state, squadId, targetUnitId, waypoints) {
-    const order = { type: "attackUnit", targetUnitId, waypoints: cloneWaypoints(waypoints), suppressPathPreview: true };
+  function issueAttackUnitOrder(state, squadId, targetUnitId, waypoints, commandQueue) {
+    const order = {
+      type: "attackUnit",
+      targetUnitId,
+      waypoints: cloneWaypoints(waypoints),
+      commandQueue: cloneCommandQueue(commandQueue),
+      suppressPathPreview: true
+    };
     const queued = queueIfLocked(state, squadId, order);
     if (queued) return queued;
     clearCombatForSquad(state, squadId, false);
     return setSquadOrder(state, squadId, order);
   }
 
-  function issueSiegeOrder(state, squadId, targetCityId, waypoints) {
-    const order = { type: "siege", targetCityId, waypoints: cloneWaypoints(waypoints), suppressPathPreview: true };
+  function issueSiegeOrder(state, squadId, targetCityId, waypoints, commandQueue) {
+    const order = {
+      type: "siege",
+      targetCityId,
+      waypoints: cloneWaypoints(waypoints),
+      commandQueue: cloneCommandQueue(commandQueue),
+      suppressPathPreview: true
+    };
     const queued = queueIfLocked(state, squadId, order);
     if (queued) return queued;
     clearCombatForSquad(state, squadId, false);
     return setSquadOrder(state, squadId, order);
   }
 
-  function issuePirateBaseOrder(state, squadId, waypoints) {
-    const order = { type: "attackPirateBase", targetPirateBase: true, waypoints: cloneWaypoints(waypoints), suppressPathPreview: true };
+  function issuePirateBaseOrder(state, squadId, waypoints, commandQueue) {
+    const order = {
+      type: "attackPirateBase",
+      targetPirateBase: true,
+      waypoints: cloneWaypoints(waypoints),
+      commandQueue: cloneCommandQueue(commandQueue),
+      suppressPathPreview: true
+    };
     const queued = queueIfLocked(state, squadId, order);
     if (queued) return queued;
     clearCombatForSquad(state, squadId, false);
     return setSquadOrder(state, squadId, order);
   }
 
-  function issueCaptureOrder(state, squadId, mineId, point, waypoints) {
+  function issueCaptureOrder(state, squadId, mineId, point, waypoints, captureQueue, commandQueue) {
     const wp = cloneWaypoints(waypoints != null ? waypoints : (point ? [point] : []));
-    const order = { type: "capture", mineId, waypoints: wp, suppressPathPreview: false };
+    const legacyCaptureOrders = buildCaptureQueueOrders(captureQueue);
+    const nextQueue = cloneCommandQueue(commandQueue);
+    if (legacyCaptureOrders.length > 0) nextQueue.unshift(...legacyCaptureOrders);
+    const order = {
+      type: "capture",
+      mineId,
+      waypoints: wp,
+      captureQueue: cloneCaptureQueue(captureQueue),
+      commandQueue: nextQueue,
+      suppressPathPreview: false
+    };
     const queued = queueIfLocked(state, squadId, order);
     if (queued) return queued;
     clearCombatForSquad(state, squadId, false);
@@ -980,17 +1062,10 @@
       if (order.type === "capture" && order.mineId != null && state.mines) {
         const mine = state.mines.get(order.mineId);
         if (!mine) {
-          squad.order = squad.combat.queuedOrder ? cloneOrder(squad.combat.queuedOrder) : { type: "idle", waypoints: [] };
-          if (squad.combat.queuedOrder) { squad.combat.queuedOrder = null; squad.combat.resumeOrder = null; }
-          applyCompatibility(state, squad);
-          return;
-        }
-        const distToMine = d(center.x, center.y, mine.x, mine.y);
-        const inRadius = distToMine <= (config.mineCaptureDoneRadius || 55);
-        const mineOurs = mine.ownerId === squad.ownerId && (mine.captureProgress >= 1 || mine.captureProgress === undefined);
-        const weCapturing = mine._capturingOwner === squad.ownerId;
-        if (inRadius && (mineOurs || weCapturing)) {
-          if (squad.combat.queuedOrder) {
+          const nextQueuedOrder = getNextQueuedOrder(order);
+          if (nextQueuedOrder) {
+            squad.order = nextQueuedOrder;
+          } else if (squad.combat.queuedOrder) {
             squad.order = cloneOrder(squad.combat.queuedOrder);
             squad.combat.queuedOrder = null;
             squad.combat.resumeOrder = null;
@@ -1000,6 +1075,59 @@
           applyCompatibility(state, squad);
           return;
         }
+        const distToMine = d(center.x, center.y, mine.x, mine.y);
+        const inRadius = distToMine <= (config.mineCaptureDoneRadius || 55);
+        const mineOurs = mine.ownerId === squad.ownerId && (mine.captureProgress >= 1 || mine.captureProgress === undefined);
+        const weCapturing = mine._capturingOwner === squad.ownerId;
+        if (mineOurs) {
+          const remainingWaypoints = cloneWaypoints(order.waypoints || []);
+          if (remainingWaypoints.length > 0) {
+            const firstWp = remainingWaypoints[0];
+            if (firstWp && d(firstWp.x, firstWp.y, mine.x, mine.y) <= config.waypointReachRadius) {
+              remainingWaypoints.shift();
+            }
+          }
+          const nextQueuedOrder = getNextQueuedOrder(order);
+          if (nextQueuedOrder) {
+            squad.order = nextQueuedOrder;
+          } else if (remainingWaypoints.length > 0) {
+            squad.order = {
+              type: "move",
+              waypoints: remainingWaypoints,
+              holdPoint: null,
+              angle: order.angle,
+              suppressPathPreview: false
+            };
+          } else if (squad.combat.queuedOrder) {
+            squad.order = cloneOrder(squad.combat.queuedOrder);
+            squad.combat.queuedOrder = null;
+            squad.combat.resumeOrder = null;
+          } else {
+            squad.order = { type: "idle", waypoints: [] };
+          }
+          applyCompatibility(state, squad);
+          return;
+        }
+        if (inRadius || weCapturing) {
+          desX = center.x;
+          desY = center.y;
+          desFacing = order.angle ?? Math.atan2(mine.y - center.y, mine.x - center.x);
+          squad.anchor.x = desX;
+          squad.anchor.y = desY;
+          squad.formation.targetFacing = desFacing;
+          return;
+        }
+        const stopR = config.mineCaptureDoneRadius || 55;
+        const dx = center.x - mine.x;
+        const dy = center.y - mine.y;
+        const len = Math.hypot(dx, dy) || 1;
+        desX = mine.x + (dx / len) * stopR;
+        desY = mine.y + (dy / len) * stopR;
+        desFacing = order.angle ?? Math.atan2(mine.y - center.y, mine.x - center.x);
+        squad.anchor.x = desX;
+        squad.anchor.y = desY;
+        squad.formation.targetFacing = desFacing;
+        return;
       }
       if (order.waypoints && order.waypoints.length > 0) {
         const wp = order.waypoints[0];
@@ -1011,16 +1139,33 @@
           if (order.waypoints.length > 0) {
             desX = order.waypoints[0].x; desY = order.waypoints[0].y;
             desFacing = order.angle ?? Math.atan2(desY - center.y, desX - center.x);
+          } else {
+            const nextQueuedOrder = getNextQueuedOrder(order);
+            if (nextQueuedOrder) {
+              squad.order = nextQueuedOrder;
+              applyCompatibility(state, squad);
+              return;
+            }
           }
         }
       } else if (order.holdPoint) {
         desX = order.holdPoint.x; desY = order.holdPoint.y;
         desFacing = order.angle ?? desFacing;
+      } else {
+        const nextQueuedOrder = getNextQueuedOrder(order);
+        if (nextQueuedOrder) {
+          squad.order = nextQueuedOrder;
+          applyCompatibility(state, squad);
+          return;
+        }
       }
     } else if (order.type === "attackUnit") {
       const target = getUnit(state, order.targetUnitId);
       if (!target || target.hp <= 0) {
-        squad.order = { type: "idle", waypoints: [] };
+        const nextQueuedOrder = getNextQueuedOrder(order);
+        squad.order = nextQueuedOrder || { type: "idle", waypoints: [] };
+        applyCompatibility(state, squad);
+        return;
       } else if (order.waypoints && order.waypoints.length > 0) {
         const wp = order.waypoints[0];
         desX = wp.x; desY = wp.y;
@@ -1033,7 +1178,10 @@
     } else if (order.type === "siege") {
       const city = order.targetCityId != null ? state.players.get(order.targetCityId) : null;
       if (!city || city.eliminated) {
-        squad.order = { type: "idle", waypoints: [] };
+        const nextQueuedOrder = getNextQueuedOrder(order);
+        squad.order = nextQueuedOrder || { type: "idle", waypoints: [] };
+        applyCompatibility(state, squad);
+        return;
       } else if (order.waypoints && order.waypoints.length > 0) {
         const wp = order.waypoints[0];
         desX = wp.x; desY = wp.y;
@@ -1052,7 +1200,10 @@
     } else if (order.type === "attackPirateBase") {
       const pirateBase = state.pirateBase && state.pirateBase.hp > 0 ? state.pirateBase : null;
       if (!pirateBase) {
-        squad.order = { type: "idle", waypoints: [] };
+        const nextQueuedOrder = getNextQueuedOrder(order);
+        squad.order = nextQueuedOrder || { type: "idle", waypoints: [] };
+        applyCompatibility(state, squad);
+        return;
       } else if (order.waypoints && order.waypoints.length > 0) {
         const wp = order.waypoints[0];
         desX = wp.x; desY = wp.y;

@@ -168,19 +168,19 @@
     }
   },
   "nebula": {
-    "centerRadius": 210,
-    "extraCount": 3,
-    "extraRadiusMin": 140,
-    "extraRadiusMax": 200,
-    "speedPenalty": 0.5,
-    "damageTakenBonus": 0.25,
-    "attackRateBonus": 0.1,
-    "attackRangeBonus": 0.1,
-    "damageBonus": 0.1,
+    "centerRadius": 0,
+    "extraCount": 0,
+    "extraRadiusMin": 0,
+    "extraRadiusMax": 0,
+    "speedPenalty": 0,
+    "damageTakenBonus": 0,
+    "attackRateBonus": 0,
+    "attackRangeBonus": 0,
+    "damageBonus": 0,
     "dischargeLifetime": 0.3,
     "dischargeSegments": 5,
     "parallaxLayers": 4,
-    "comment": "Center nebula = contested zone. -50% speed, +25% dmg taken, +10% atk rate/range/dmg. High risk high reward."
+    "comment": "Gameplay-neutral backdrop only. Nebulae are now visual background layers with parallax and do not affect combat or movement."
   },
   "waterBonus": {
     "waterRatioThreshold": 0.4,
@@ -213,7 +213,7 @@
     "comment": "Show influence polygons around cities."
   },
   "grid": {
-    "enabled": true,
+    "enabled": false,
     "step": 100,
     "comment": "Tactical grid overlay."
   },
@@ -238,7 +238,7 @@
   "cryoEffect": {
     "slowPercent": 0.4,
     "duration": 2,
-    "comment": "Slows target 40% for 2s. Stacks with nebula slow."
+    "comment": "Slows target 40% for 2s."
   },
   "fireEffect": {
     "dotDamagePerSec": 3,

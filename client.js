@@ -13,6 +13,7 @@
   const socketUrlEarly = window.GAME_SERVER_URL || location.origin;
   const socket = typeof io !== "undefined" ? io(socketUrlEarly, { transports: ["websocket", "polling"] }) : null;
   state._socket = socket;
+  const CardSystemApi = (typeof window !== "undefined" && window.CardSystem) ? window.CardSystem : null;
 
   const EARLY_LOBBY_COLORS = [0xff6600,0xcc2222,0xffcc00,0x44aa44,0x4488ff,0xaa44cc,0xff8844,0xee4444,0xdddd00,0x22cc66,0x6699ff,0xcc66aa,0xcc4400,0xaa2222,0xaaaa00,0x228844,0x4466dd,0x8844aa,0xffaa66,0xff6666,0xcccc44,0x66cc88,0x88aaff,0xbb88cc,0x993300,0x881111,0x888800,0x116633,0x2244bb,0x663388,0xdd8844,0xcc5555,0xbbbb66,0x44aa66,0x6688dd,0x9966aa];
 
@@ -209,158 +210,6 @@
       ).join("\n\n");
     }
   }
-
-  // Music Player — single existing track, progress bar with seek
-  const MusicPlayer = (() => {
-    const audio = document.getElementById("bgMusic");
-    if (!audio) return null;
-    const tracks = [
-      { file: "assets/Gravitational%20Echoes.mp3", name: "Gravitational Echoes" }
-    ];
-    let idx = 0;
-    let started = false;
-    let seeking = false;
-    let userUnlocked = false;
-    let pendingPlay = false;
-    let trackErrorRecovering = false;
-    audio.volume = 0.35;
-    audio.loop = true;
-    audio.autoplay = true;
-    audio.muted = true;
-
-    const playBtn = document.getElementById("mpPlay");
-    const prevBtn = document.getElementById("mpPrev");
-    const nextBtn = document.getElementById("mpNext");
-    const trackName = document.getElementById("mpTrackName");
-    const volSlider = document.getElementById("mpVolume");
-    const menuBtn = document.getElementById("btnMusicToggle");
-    const progressBar = document.getElementById("mpProgress");
-    const timeNow = document.getElementById("mpTimeNow");
-    const timeDur = document.getElementById("mpTimeDur");
-
-    function fmtTime(s) {
-      if (!isFinite(s) || s < 0) return "0:00";
-      const m = Math.floor(s / 60);
-      const sec = Math.floor(s % 60);
-      return m + ":" + String(sec).padStart(2, "0");
-    }
-
-    function loadTrack(i) {
-      idx = ((i % tracks.length) + tracks.length) % tracks.length;
-      audio.src = tracks[idx].file;
-      audio.load();
-      if (trackName) trackName.textContent = tracks[idx].name;
-      if (progressBar) progressBar.value = 0;
-      if (timeNow) timeNow.textContent = "0:00";
-      if (timeDur) timeDur.textContent = "0:00";
-    }
-    function syncButtonsPlaying(isPlaying) {
-      if (playBtn) playBtn.innerHTML = isPlaying ? "&#9646;&#9646;" : "&#9654;";
-      if (menuBtn) {
-        if (isPlaying) menuBtn.classList.remove("muted");
-        else menuBtn.classList.add("muted");
-      }
-    }
-    function syncMuteState() {
-      audio.muted = !userUnlocked;
-    }
-    function attemptPlay() {
-      if (!pendingPlay) return;
-      syncMuteState();
-      audio.play().then(() => {
-        started = true;
-        pendingPlay = false;
-        syncButtonsPlaying(true);
-      }).catch(() => {
-        syncButtonsPlaying(false);
-      });
-    }
-    function unlockAudio() {
-      userUnlocked = true;
-      syncMuteState();
-      if (!pendingPlay && audio.paused) pendingPlay = true;
-      attemptPlay();
-    }
-    function play() {
-      pendingPlay = true;
-      attemptPlay();
-    }
-    function pause() {
-      pendingPlay = false;
-      audio.pause();
-      syncButtonsPlaying(false);
-    }
-    function toggle() { audio.paused ? play() : pause(); }
-    function next() { pendingPlay = true; loadTrack(0); attemptPlay(); }
-    function prev() { pendingPlay = true; loadTrack(0); attemptPlay(); }
-
-    let lastEndedAt = 0;
-    audio.addEventListener("ended", () => {
-      const dur = audio.duration || 0;
-      const cur = audio.currentTime || 0;
-      const now = performance.now();
-      if (dur > 0 && cur < dur * 0.95) return;
-      if (now - lastEndedAt < 500) return;
-      lastEndedAt = now;
-      audio.currentTime = 0;
-      if (pendingPlay) attemptPlay();
-    });
-    audio.addEventListener("canplay", () => { errorCount = 0; attemptPlay(); });
-    let errorCount = 0;
-    audio.addEventListener("error", () => {
-      if (trackErrorRecovering) return;
-      errorCount++;
-      if (errorCount >= tracks.length) {
-        console.warn("[Music] All tracks failed to load, stopping.");
-        return;
-      }
-      trackErrorRecovering = true;
-      setTimeout(() => {
-        loadTrack(0);
-        attemptPlay();
-        trackErrorRecovering = false;
-      }, 1000);
-    });
-    audio.addEventListener("timeupdate", () => {
-      if (seeking) return;
-      const dur = audio.duration || 0;
-      const cur = audio.currentTime || 0;
-      if (timeNow) timeNow.textContent = fmtTime(cur);
-      if (timeDur) timeDur.textContent = fmtTime(dur);
-      if (progressBar && dur > 0) progressBar.value = Math.round((cur / dur) * 1000);
-    });
-    audio.addEventListener("loadedmetadata", () => {
-      if (timeDur) timeDur.textContent = fmtTime(audio.duration || 0);
-    });
-
-    if (progressBar) {
-      progressBar.addEventListener("input", () => { seeking = true; });
-      progressBar.addEventListener("change", () => {
-        const dur = audio.duration || 0;
-        if (dur > 0) audio.currentTime = (progressBar.value / 1000) * dur;
-        seeking = false;
-      });
-    }
-    if (playBtn) playBtn.addEventListener("click", () => { unlockAudio(); toggle(); });
-    if (nextBtn) nextBtn.addEventListener("click", () => { unlockAudio(); next(); });
-    if (prevBtn) prevBtn.addEventListener("click", () => { unlockAudio(); prev(); });
-    if (volSlider) volSlider.addEventListener("input", () => { audio.volume = volSlider.value / 100; });
-    if (menuBtn) menuBtn.addEventListener("click", (e) => { e.stopPropagation(); unlockAudio(); toggle(); });
-
-    loadTrack(idx);
-    pendingPlay = true;
-    attemptPlay();
-    function tryStart() {
-      if (userUnlocked && started) return;
-      unlockAudio();
-      if (audio.paused) play();
-    }
-    document.addEventListener("pointerdown", tryStart, { once: false, passive: true });
-    document.addEventListener("keydown", tryStart, { once: false });
-    document.addEventListener("touchstart", tryStart, { once: false, passive: true });
-
-    return { tracks, next, prev, toggle, addTrack(file, name) { tracks.push({ file, name }); } };
-  })();
 
   // ------------------------------------------------------------
   // Balance: load from JSON (all parameters, no magic numbers)
@@ -625,6 +474,7 @@
   const regenBtn = document.getElementById("regenBtn");
   const toggleZonesBtn = document.getElementById("toggleZones");
   const toggleGridBtn = document.getElementById("toggleGrid");
+  if (toggleGridBtn) toggleGridBtn.style.opacity = CFG.GRID_ENABLED ? "1" : "0.55";
   const leaderboardBody = document.getElementById("leaderboardBody");
   const mergeSquadBtn = document.getElementById("mergeSquadBtn");
   const splitSquadBtn = document.getElementById("splitSquadBtn");
@@ -1092,6 +942,7 @@
     }
   }
   function playMineIncomeSound(creditGain = 0) {
+    if (state._menuBackdropActive) return;
     if (creditGain <= 0) return;
     state._mineIncomeSoundBudget = (state._mineIncomeSoundBudget || 0) + creditGain;
     if (state._mineIncomeSoundBudget < 100) return;
@@ -1100,6 +951,7 @@
   }
   const COLLECT_SOUND_THROTTLE = 0.06;
   function playCollectSound() {
+    if (state._menuBackdropActive) return;
     if (!audioCtx || audioCtx.state !== "running") return;
     if (state._lastCollectSoundAt != null && (state.t - state._lastCollectSoundAt) < COLLECT_SOUND_THROTTLE) return;
     state._lastCollectSoundAt = state.t;
@@ -1179,7 +1031,7 @@
   }
 
   document.body.appendChild(app.canvas);
-  app.canvas.style.cssText = "position:fixed;inset:0;z-index:0;";
+  app.canvas.style.cssText = "position:fixed;inset:0;z-index:0;transition:opacity 260ms ease;";
   app.canvas.addEventListener("webglcontextlost", (ev) => {
     ev.preventDefault();
     console.error("[PIXI] WebGL context lost");
@@ -1202,6 +1054,7 @@
     return _audioCtx;
   }
   function isNearCamera(wx, wy) {
+    if (state._menuBackdropActive) return false;
     const v = state._vp;
     if (!v) return false;
     const cx = (v.x + v.x2) / 2, cy = (v.y + v.y2) / 2;
@@ -1260,6 +1113,8 @@
   // ── Storm Fringe starfield: crisp layers, colder palette, clearer parallax ─
   const starLayer = new PIXI.Container();
   app.stage.addChildAt(starLayer, 0); // behind world
+  const starNebulaLayer = new PIXI.Container();
+  app.stage.addChildAt(starNebulaLayer, 1); // independent nebula backdrop, above stars and below world
 
   const STAR_PARALLAX = [0.52, 0.42, 0.34, 0.27, 0.21, 0.16, 0.11, 0.07, 0.04, 0.02];
   const STARS_COUNT = [18, 22, 26, 32, 36, 40, 44, 48, 52, 56];
@@ -1280,39 +1135,6 @@
     if (layerIndex === 0) {
       ctx.fillStyle = "#04070f";
       ctx.fillRect(0, 0, TW, TH);
-      const dustRng = mulberry32(seed + 0xDEAD);
-      const dustColors = ["#0c1220", "#10182a", "#12162a", "#1a1832", "#0b1321"];
-      for (let d = 0; d < 6; d++) {
-        const dx = dustRng() * TW, dy = dustRng() * TH;
-        const dr = 120 + dustRng() * 200;
-        const grad = ctx.createRadialGradient(dx, dy, 0, dx, dy, dr);
-        const col = dustColors[d % dustColors.length];
-        grad.addColorStop(0, col);
-        grad.addColorStop(1, "transparent");
-        ctx.globalAlpha = 0.3 + dustRng() * 0.25;
-        ctx.fillStyle = grad;
-        ctx.fillRect(dx - dr, dy - dr, dr * 2, dr * 2);
-      }
-      for (let band = 0; band < 3; band++) {
-        const bx = TW * (0.25 + band * 0.24) + (dustRng() - 0.5) * 120;
-        const by = TH * (0.22 + (band % 2) * 0.26) + (dustRng() - 0.5) * 90;
-        const rx = 320 + dustRng() * 180;
-        const ry = 44 + dustRng() * 26;
-        const rot = -0.45 + band * 0.28 + (dustRng() - 0.5) * 0.15;
-        ctx.save();
-        ctx.translate(bx, by);
-        ctx.rotate(rot);
-        const bandGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, rx);
-        bandGrad.addColorStop(0, "rgba(86,118,212,0.070)");
-        bandGrad.addColorStop(0.5, "rgba(54,74,124,0.035)");
-        bandGrad.addColorStop(1, "transparent");
-        ctx.fillStyle = bandGrad;
-        ctx.scale(1, ry / rx);
-        ctx.beginPath();
-        ctx.arc(0, 0, rx, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
-      }
       ctx.globalAlpha = 1;
     }
 
@@ -1414,6 +1236,7 @@
   const ghostLayer = new PIXI.Container();
   const pathPreviewLayer = new PIXI.Container();
   const selectionBoxLayer = new PIXI.Container();
+  const offMapAmbienceLayer = new PIXI.Container();
   // Zone visual effects: running border lights and contact glows (above zone fill, below units)
   const zoneEffectsLayer = new PIXI.Container();
   const contactGfx = new PIXI.Graphics();
@@ -1429,11 +1252,28 @@
   combatDebugLayer.addChild(combatDebugGfx);
   const combatDebugLabels = new Map(); // squad:<id> -> PIXI.Text
   world.addChild(mapLayer, nebulaLayer, gridLayer, nebulaFxLayer, zonesLayer, zoneEffectsLayer, turretLayer, activityZoneLayer, abilityFxLayer, shipTrailsLayer, unitsLayer, resLayer, cityLayer, shieldHitEffectsLayer, squadLabelsLayer, combatLayer, floatingDamageLayer, bulletsLayer, ghostLayer, combatDebugLayer);
+  nebulaLayer.visible = false;
+  nebulaFxLayer.visible = false;
   world.addChild(fogLayer);
   world.addChild(pathPreviewLayer, selectionBoxLayer);
   world.addChild(worldBorderDarkenLayer);
   fogLayer.visible = false;
   app.stage.addChild(world);
+
+  const offMapAmbienceApi =
+    (typeof window !== "undefined" && window.OffMapAmbienceRenderer)
+      ? window.OffMapAmbienceRenderer
+      : null;
+  if (offMapAmbienceApi && typeof offMapAmbienceApi.attach === "function") {
+    offMapAmbienceApi.attach({
+      layer: offMapAmbienceLayer,
+      worldWidth: CFG.WORLD_W,
+      worldHeight: CFG.WORLD_H,
+      screenWidth: app.renderer.width,
+      screenHeight: app.renderer.height
+    });
+  }
+  starLayer.addChild(offMapAmbienceLayer);
 
   const screenFxLayer = new PIXI.Container();
   app.stage.addChild(screenFxLayer);
@@ -1472,6 +1312,9 @@
       _starSprites[L].tilePosition.y = -cam.y * f;
     }
     applyNebulaParallax();
+    if (offMapAmbienceApi && typeof offMapAmbienceApi.applyCamera === "function") {
+      offMapAmbienceApi.applyCamera(cam.x, cam.y, cam.zoom || 0.22, app.renderer.width, app.renderer.height);
+    }
   }
 
   // Center world initially
@@ -1624,6 +1467,23 @@
     }
     _destroyQueue.length = 0;
   }
+  function clearLayerButKeepGraphics(container, keepGraphic) {
+    const children = container.removeChildren();
+    for (let i = 0; i < children.length; i++) {
+      const child = children[i];
+      if (child === keepGraphic) continue;
+      _destroyQueue.push(child);
+    }
+    if (keepGraphic) {
+      if (typeof keepGraphic.clear === "function") keepGraphic.clear();
+      container.addChild(keepGraphic);
+    }
+  }
+  function clearTransientWorldFxLayers() {
+    clearLayerButKeepGraphics(zoneEffectsLayer, contactGfx);
+    clearLayerButKeepGraphics(shieldHitEffectsLayer, shieldHitEffectsGfx);
+    destroyChildren(shipTrailsLayer);
+  }
 
   /** Compute influence zone polygon: 96 rays, budget burns by terrain cost per step. */
   function computeInfluencePolygon(cx, cy, pop) {
@@ -1651,53 +1511,202 @@
   }
 
 
-  /** Glass base only: dark, semi-transparent so starfield shows through. */
+  /** Transparent playfield base: starfield supplies the background. */
   function makeMapTexture() {
     const W = CFG.MAP_TEX_W;
     const H = CFG.MAP_TEX_H;
     const cnv = document.createElement("canvas");
     cnv.width = W;
     cnv.height = H;
-    const c = cnv.getContext("2d");
-    // Slight gradient: darker corners, very subtle center
-    const g = c.createRadialGradient(W * 0.5, H * 0.5, 0, W * 0.5, H * 0.5, Math.hypot(W, H) * 0.55);
-    g.addColorStop(0, "rgba(6, 8, 22, 0.28)");
-    g.addColorStop(1, "rgba(4, 6, 18, 0.38)");
-    c.fillStyle = g;
-    c.fillRect(0, 0, W, H);
     const tex = PIXI.Texture.from(cnv);
     return tex;
   }
 
-  /** Build an irregular nebula texture using noise on canvas. */
-  function buildNebulaTexture(seed, hue) {
-    const S = 256;
+  /** Build a structured nebula texture with cavities and bright cores. */
+  function buildNebulaTexture(seed, hue, accentHue) {
+    const S = 192;
     const cnv = document.createElement("canvas");
     cnv.width = S; cnv.height = S;
     const ctx = cnv.getContext("2d");
     const img = ctx.createImageData(S, S);
     const d = img.data;
-    const rng = mulberry32(seed);
+    const rng = mulberry32((seed ^ 0xa53c9e17) >>> 0);
+    const accent = accentHue == null ? hue : accentHue;
+    const hr = ((hue >> 16) & 0xff), hg = ((hue >> 8) & 0xff), hb = (hue & 0xff);
+    const ar = ((accent >> 16) & 0xff), ag = ((accent >> 8) & 0xff), ab = (accent & 0xff);
+    const cavities = [];
+    const cores = [];
+    const silhouetteLobes = [];
+    const shapeRot = rng() * Math.PI * 2;
+    const shapeCos = Math.cos(shapeRot);
+    const shapeSin = Math.sin(shapeRot);
+    const shapeScaleX = 0.76 + rng() * 0.62;
+    const shapeScaleY = 0.74 + rng() * 0.66;
+    const shapeShear = (rng() - 0.5) * 0.50;
+    const shapePower = 1.28 + rng() * 1.18;
+    const cavityCount = 2 + Math.floor(rng() * 3);
+    const coreCount = 2 + Math.floor(rng() * 3);
+    const silhouetteLobeCount = 2 + Math.floor(rng() * 4);
+    for (let i = 0; i < silhouetteLobeCount; i++) {
+      const rot = rng() * Math.PI * 2;
+      const ang = rng() * Math.PI * 2;
+      const dist = 0.08 + rng() * 0.28;
+      silhouetteLobes.push({
+        x: Math.cos(ang) * dist * (0.78 + rng() * 0.30),
+        y: Math.sin(ang) * dist * (0.62 + rng() * 0.34),
+        rx: 0.14 + rng() * 0.22,
+        ry: 0.08 + rng() * 0.18,
+        cos: Math.cos(rot),
+        sin: Math.sin(rot),
+        strength: 0.26 + rng() * 0.34
+      });
+    }
+    for (let i = 0; i < cavityCount; i++) {
+      const rot = rng() * Math.PI * 2;
+      cavities.push({
+        x: (rng() - 0.5) * 0.54,
+        y: (rng() - 0.5) * 0.40,
+        rx: 0.11 + rng() * 0.16,
+        ry: 0.08 + rng() * 0.14,
+        cos: Math.cos(rot),
+        sin: Math.sin(rot),
+        strength: 0.72 + rng() * 0.22
+      });
+    }
+    for (let i = 0; i < coreCount; i++) {
+      const rot = rng() * Math.PI * 2;
+      cores.push({
+        x: (rng() - 0.5) * 0.42,
+        y: (rng() - 0.5) * 0.34,
+        rx: 0.08 + rng() * 0.14,
+        ry: 0.07 + rng() * 0.12,
+        cos: Math.cos(rot),
+        sin: Math.sin(rot),
+        strength: 0.76 + rng() * 0.22
+      });
+    }
     for (let y = 0; y < S; y++) {
       for (let x = 0; x < S; x++) {
         const i = (y * S + x) * 4;
         const nx = x / S, ny = y / S;
         const cx = nx - 0.5, cy = ny - 0.5;
-        const dist = Math.sqrt(cx * cx + cy * cy) * 2;
-        const n1 = valueNoise(x * 3, y * 3, 0.03, seed);
-        const n2 = valueNoise(x * 3, y * 3, 0.06, seed + 999) * 0.5;
-        const shape = Math.max(0, 1 - dist * (0.8 + n1 * 0.6) - n2 * 0.3);
-        const alpha = shape * shape * 255;
-        const hr = ((hue >> 16) & 0xff), hg = ((hue >> 8) & 0xff), hb = (hue & 0xff);
-        d[i] = hr; d[i+1] = hg; d[i+2] = hb; d[i+3] = alpha | 0;
+        const rx = cx * shapeCos + cy * shapeSin;
+        const ry = -cx * shapeSin + cy * shapeCos;
+        const sx = (rx + ry * shapeShear) / shapeScaleX;
+        const sy = ry / shapeScaleY;
+        const dist = Math.pow(
+          Math.pow(Math.abs(sx), shapePower) +
+          Math.pow(Math.abs(sy), shapePower),
+          1 / shapePower
+        ) * 2;
+        const n1 = valueNoise(x * 3, y * 3, 0.022, seed);
+        const n2 = valueNoise(x * 3, y * 3, 0.046, seed + 999);
+        const n3 = valueNoise(x * 3, y * 3, 0.010, seed + 2222);
+        const n4 = valueNoise(x * 3, y * 3, 0.090, seed + 4444);
+        const n5 = valueNoise(x * 3, y * 3, 0.180, seed + 8888);
+        const warp = (n1 - 0.5) * 0.28 + (n2 - 0.5) * 0.14;
+        let silhouetteLift = 0;
+        let silhouetteRim = 0;
+        for (let l = 0; l < silhouetteLobes.length; l++) {
+          const lobe = silhouetteLobes[l];
+          const dx = cx - lobe.x;
+          const dy = cy - lobe.y;
+          const qx = dx * lobe.cos + dy * lobe.sin;
+          const qy = -dx * lobe.sin + dy * lobe.cos;
+          const e = Math.sqrt((qx * qx) / (lobe.rx * lobe.rx) + (qy * qy) / (lobe.ry * lobe.ry));
+          const lift = Math.max(0, 1 - e);
+          const rim = Math.max(0, 1 - Math.abs(e - 1) / 0.24);
+          silhouetteLift = Math.max(silhouetteLift, lift * lobe.strength);
+          silhouetteRim = Math.max(silhouetteRim, rim * lobe.strength);
+        }
+        const outer = Math.max(0, 1 - dist * (0.86 + warp * 0.26) + (n3 - 0.5) * 0.15 + silhouetteLift * 0.42);
+        const inner = Math.max(0, 1 - dist * (1.16 + warp * 0.18) + silhouetteLift * 0.20);
+        const core = Math.max(0, 1 - dist * (1.64 + n2 * 0.10));
+        const halo = Math.max(0, 1 - dist * 0.84);
+        const shell = Math.max(0, outer - inner * 0.52) + silhouetteRim * 0.10;
+        let cavityField = 0;
+        let cavityRim = 0;
+        for (let c = 0; c < cavities.length; c++) {
+          const cav = cavities[c];
+          const dx = cx - cav.x;
+          const dy = cy - cav.y;
+          const qx = dx * cav.cos + dy * cav.sin;
+          const qy = -dx * cav.sin + dy * cav.cos;
+          const e = Math.sqrt((qx * qx) / (cav.rx * cav.rx) + (qy * qy) / (cav.ry * cav.ry));
+          const cut = Math.max(0, 1 - e);
+          const rim = Math.max(0, 1 - Math.abs(e - 1) / 0.22);
+          cavityField = Math.max(cavityField, cut * cav.strength);
+          cavityRim = Math.max(cavityRim, rim * cav.strength);
+        }
+        let coreField = 0;
+        for (let c = 0; c < cores.length; c++) {
+          const coreBlob = cores[c];
+          const dx = cx - coreBlob.x;
+          const dy = cy - coreBlob.y;
+          const qx = dx * coreBlob.cos + dy * coreBlob.sin;
+          const qy = -dx * coreBlob.sin + dy * coreBlob.cos;
+          const e = Math.sqrt((qx * qx) / (coreBlob.rx * coreBlob.rx) + (qy * qy) / (coreBlob.ry * coreBlob.ry));
+          coreField = Math.max(coreField, Math.max(0, 1 - e) * coreBlob.strength);
+        }
+        const filament = Math.max(0, 1 - Math.abs(n4 - 0.54) * 5.4) * (0.40 + shell * 0.90 + silhouetteRim * 0.38);
+        const grain = Math.max(0, 1 - Math.abs(n5 - 0.50) * 3.2) * (0.12 + inner * 0.24);
+        const density = 1.04 + n1 * 0.16 + filament * 0.10;
+        const edgeFade = Math.pow(clamp((1.02 - dist) / 0.30, 0, 1), 1.6);
+        const alpha = Math.min(
+          255,
+          (
+            Math.pow(halo, 2.4) * 24 +
+            Math.pow(outer, 1.58) * 126 +
+            Math.pow(inner, 1.20) * 118 +
+            Math.pow(core, 0.96) * 68 +
+            Math.pow(shell, 1.08) * 40 +
+            filament * 56 +
+            grain * 18
+          ) * density * (1 - cavityField * 0.76) * edgeFade
+        );
+        const toneShift = 0.5 + 0.5 * Math.sin((cx * 2.4 + cy * 1.8 + n3 * 2.1) * Math.PI * 1.3);
+        const accentMix = clamp(shell * 0.22 + cavityRim * 0.38 + coreField * 0.52 + silhouetteRim * 0.24, 0, 0.96);
+        const baseR = hr * (1 - accentMix) + ar * accentMix;
+        const baseG = hg * (1 - accentMix) + ag * accentMix;
+        const baseB = hb * (1 - accentMix) + ab * accentMix;
+        const warmTone = toneShift * (shell + cavityRim * 0.8);
+        const coolTone = (1 - toneShift) * (inner + coreField * 0.4);
+        const saturationBoost = 1.06 + shell * 0.10 + coreField * 0.16;
+        const coreLift = 0.98 + inner * 0.20 + core * 0.22 + coreField * 0.34;
+        d[i] = Math.min(255, baseR * saturationBoost * (coreLift + shell * 0.16) + 22 * warmTone + 12 * cavityRim + 14 * coreField + 18 * filament + 10 * grain) | 0;
+        d[i+1] = Math.min(255, baseG * saturationBoost * (1.00 + inner * 0.20 + shell * 0.10) + 14 * warmTone + 14 * coolTone + 10 * coreField + 16 * filament + 8 * grain) | 0;
+        d[i+2] = Math.min(255, baseB * saturationBoost * (1.06 + inner * 0.22 + shell * 0.18) + 26 * coolTone + 16 * cavityRim + 16 * coreField + 22 * filament + 12 * grain) | 0;
+        d[i+3] = alpha | 0;
       }
     }
     ctx.putImageData(img, 0, 0);
     return PIXI.Texture.from(cnv);
   }
 
-  const NEBULA_HUES = [0x22345a, 0x2e3b68, 0x3a4278, 0x2b446e, 0x5f5aa0];
-  const NEBULA_LAYER_PARALLAX = [0.0018, 0.0032, 0.0048, 0.0066, 0.0084];
+  // Nebulae are treated like a deep decorative backdrop.
+  const NEBULA_LAYER_PARALLAX = [0];
+  const NEBULA_BACKGROUND_PALETTES = [
+    {
+      key: "ghost-blue",
+      layerColors: [0x20467d, 0x3a6eb0, 0x69a9d8, 0xaed8f3, 0xf2fbff],
+      accentColors: [0x8bdcff, 0xf2b2ff]
+    },
+    {
+      key: "ember-red",
+      layerColors: [0x431626, 0x7e2841, 0xc65364, 0xf09a6a, 0xffe7be],
+      accentColors: [0xff8e5d, 0xffc96f]
+    },
+    {
+      key: "teal-violet",
+      layerColors: [0x174156, 0x2b7190, 0x53b1c5, 0xa2e1eb, 0xf3feff],
+      accentColors: [0x7df4ff, 0xc893ff]
+    },
+    {
+      key: "royal-dust",
+      layerColors: [0x341d58, 0x62338f, 0xa06dca, 0xe0aed3, 0xffece3],
+      accentColors: [0xffa980, 0xaec8ff]
+    }
+  ];
   const NEBULA_VISUAL_VARIANTS = [
     {
       key: "veil-mass",
@@ -1779,6 +1788,45 @@
   let nebulaContainers = []; // one PIXI.Container per parallax layer
   let stateNebulaClouds = [];
   let stateNebulaFogWisps = [];
+
+  function tagNebulaBackdropSprite(sp, rng, driftAmount, alphaJitter, scaleJitter) {
+    if (!sp) return;
+    sp._nebulaAnim = {
+      baseX: sp.x,
+      baseY: sp.y,
+      baseAlpha: sp.alpha,
+      baseScaleX: sp.scale.x || 1,
+      baseScaleY: sp.scale.y || 1,
+      driftX: (rng() - 0.5) * driftAmount,
+      driftY: (rng() - 0.5) * driftAmount * 0.7,
+      speed: 0.045 + rng() * 0.030,
+      phase: rng() * Math.PI * 2,
+      alphaJitter: alphaJitter * (0.85 + rng() * 0.35),
+      scaleJitter: scaleJitter * (0.85 + rng() * 0.35)
+    };
+  }
+
+  function animateNebulaBackdrop(timeSec) {
+    for (let i = 0; i < nebulaContainers.length; i++) {
+      const layerC = nebulaContainers[i];
+      if (!layerC) continue;
+      const layerWave = Math.sin(timeSec * (0.020 + i * 0.004) + (layerC._animPhase || 0));
+      layerC.alpha = 0.95 + layerWave * 0.04;
+      for (let j = 0; j < layerC.children.length; j++) {
+        const sp = layerC.children[j];
+        const anim = sp && sp._nebulaAnim;
+        if (!anim) continue;
+        const waveA = Math.sin(timeSec * anim.speed + anim.phase);
+        const waveB = Math.cos(timeSec * (anim.speed * 0.72) + anim.phase * 1.31);
+        sp.position.set(anim.baseX + anim.driftX * waveA, anim.baseY + anim.driftY * waveB);
+        sp.alpha = anim.baseAlpha * (0.94 + anim.alphaJitter * (0.5 + 0.5 * waveA));
+        sp.scale.set(
+          anim.baseScaleX * (1 + anim.scaleJitter * waveB),
+          anim.baseScaleY * (1 + anim.scaleJitter * waveA * 0.85)
+        );
+      }
+    }
+  }
 
   function getNebulaVisualVariant(neb) {
     const idx = neb && neb._visualVariantIndex != null ? neb._visualVariantIndex : 0;
@@ -2151,81 +2199,362 @@
     stateNebulaFogWisps = [];
     invalidateNebulaBodyGraphics();
 
-    const rng = mulberry32(mapSeed ^ 0xe3b014);
-    const gameplayClouds = [];
+    const rng = mulberry32((mapSeed ^ 0xe3b014) >>> 0);
     const backdropClouds = [];
-    const anchors = [];
-    const anchorCount = 4 + Math.floor(rng() * 2);
-    for (let i = 0; i < anchorCount; i++) {
-      const anchor = {
-        x: CFG.WORLD_W * (0.10 + rng() * 0.80),
-        y: CFG.WORLD_H * (0.10 + rng() * 0.80),
-        r: 180 + rng() * 180
-      };
-      anchors.push(anchor);
-      gameplayClouds.push({ cx: anchor.x, cy: anchor.y, r: anchor.r });
-    }
-    const scatteredCount = 24 + Math.floor(rng() * 10);
-    for (let i = 0; i < scatteredCount; i++) {
-      const anchor = anchors[(rng() * anchors.length) | 0];
-      const aroundAnchor = rng() < 0.62;
-      const dist = aroundAnchor ? anchor.r * (0.35 + rng() * 1.35) : Math.min(CFG.WORLD_W, CFG.WORLD_H) * (0.10 + rng() * 0.30);
-      const angle = rng() * Math.PI * 2;
+    const backdropFilaments = [];
+    const backdropSwirls = [];
+    const backdropVeils = [];
+    const fieldLayouts = ["left", "right", "top", "bottom"]
+      .map(side => ({ side, sort: rng() }))
+      .sort((a, b) => a.sort - b.sort)
+      .map(({ side }) => {
+        if (side === "left") {
+          return {
+            x: -(0.16 + rng() * 0.24),
+            y: 0.10 + rng() * 0.80,
+            size: 0.84 + rng() * 0.26,
+            jitterX: 46 + rng() * 54,
+            jitterY: 56 + rng() * 96
+          };
+        }
+        if (side === "right") {
+          return {
+            x: 1.16 + rng() * 0.24,
+            y: 0.10 + rng() * 0.80,
+            size: 0.84 + rng() * 0.26,
+            jitterX: 46 + rng() * 54,
+            jitterY: 56 + rng() * 96
+          };
+        }
+        if (side === "top") {
+          return {
+            x: 0.08 + rng() * 0.84,
+            y: -(0.18 + rng() * 0.24),
+            size: 0.84 + rng() * 0.26,
+            jitterX: 72 + rng() * 120,
+            jitterY: 44 + rng() * 52
+          };
+        }
+        return {
+          x: 0.08 + rng() * 0.84,
+          y: 1.18 + rng() * 0.24,
+          size: 0.84 + rng() * 0.26,
+          jitterX: 72 + rng() * 120,
+          jitterY: 44 + rng() * 52
+        };
+      });
+    const nebulaMinX = -CFG.WORLD_W * 0.60;
+    const nebulaMaxX = CFG.WORLD_W * 1.60;
+    const nebulaMinY = -CFG.WORLD_H * 0.60;
+    const nebulaMaxY = CFG.WORLD_H * 1.60;
+
+    const paletteOffset = Math.floor(rng() * NEBULA_BACKGROUND_PALETTES.length);
+    for (let i = 0; i < fieldLayouts.length; i++) {
+      const layout = fieldLayouts[i];
+      const paletteIndex = (paletteOffset + i) % NEBULA_BACKGROUND_PALETTES.length;
+      const fieldR = (560 + rng() * 240) * layout.size;
+      const centerX = clamp(CFG.WORLD_W * layout.x + (rng() - 0.5) * (layout.jitterX || 80), nebulaMinX, nebulaMaxX);
+      const centerY = clamp(CFG.WORLD_H * layout.y + (rng() - 0.5) * (layout.jitterY || 60), nebulaMinY, nebulaMaxY);
+      const fieldAxis = rng() * Math.PI * 2;
+      const primaryLayer = 0;
+      const satelliteCount = rng() < 0.34 ? 0 : 1 + ((rng() * 2) | 0);
+      const bodyMode = (rng() * 4) | 0;
+      const primaryStretchW =
+        bodyMode === 0 ? 1.42 + rng() * 0.34 :
+        bodyMode === 1 ? 0.82 + rng() * 0.22 :
+        bodyMode === 2 ? 1.04 + rng() * 0.46 :
+        1.16 + rng() * 0.54;
+      const primaryStretchH =
+        bodyMode === 0 ? 0.62 + rng() * 0.18 :
+        bodyMode === 1 ? 1.20 + rng() * 0.38 :
+        bodyMode === 2 ? 0.72 + rng() * 0.46 :
+        0.86 + rng() * 0.56;
+
       backdropClouds.push({
-        cx: clamp((aroundAnchor ? anchor.x : CFG.WORLD_W * (0.08 + rng() * 0.84)) + Math.cos(angle) * dist, 70, CFG.WORLD_W - 70),
-        cy: clamp((aroundAnchor ? anchor.y : CFG.WORLD_H * (0.08 + rng() * 0.84)) + Math.sin(angle) * dist * 0.82, 70, CFG.WORLD_H - 70),
-        r: 90 + rng() * 150
+        cx: centerX,
+        cy: centerY,
+        r: fieldR * (0.92 + rng() * 0.08),
+        stretchW: primaryStretchW,
+        stretchH: primaryStretchH,
+        rot: rng() * Math.PI * 2,
+        alpha: 0.092 + rng() * 0.026,
+        paletteIndex,
+        isPrimary: true,
+        layerIndex: primaryLayer,
+        shapeBias: (rng() * 10000) | 0
       });
-    }
-    stateNebulaClouds = gameplayClouds;
+      for (let c = 0; c < satelliteCount; c++) {
+        const ringT = satelliteCount <= 1 ? 0.5 : c / Math.max(1, satelliteCount - 1);
+        const ang = fieldAxis + (rng() - 0.5) * Math.PI * 1.45 + ringT * Math.PI * (0.45 + rng() * 0.45);
+        const dist = fieldR * (0.015 + rng() * 0.060 + ringT * 0.035);
+        const offsetX = Math.cos(ang) * dist;
+        const offsetY = Math.sin(ang) * dist * (0.68 + rng() * 0.18);
+        const sizeMul = c === 0
+          ? (0.54 + rng() * 0.10)
+          : (0.26 + rng() * 0.18);
+        const alphaMul = c === 0
+          ? (0.034 + rng() * 0.010)
+          : (0.016 + rng() * 0.010);
+        const satMode = (rng() * 4) | 0;
+        backdropClouds.push({
+          cx: clamp(centerX + offsetX, nebulaMinX, nebulaMaxX),
+          cy: clamp(centerY + offsetY, nebulaMinY, nebulaMaxY),
+          r: fieldR * sizeMul,
+          stretchW:
+            satMode === 0 ? 1.28 + rng() * 0.34 :
+            satMode === 1 ? 0.74 + rng() * 0.24 :
+            0.92 + rng() * 0.42,
+          stretchH:
+            satMode === 0 ? 0.58 + rng() * 0.18 :
+            satMode === 1 ? 1.02 + rng() * 0.32 :
+            0.60 + rng() * 0.34,
+          rot: ang + (rng() - 0.5) * 0.42,
+          alpha: alphaMul,
+          paletteIndex,
+          isPrimary: false,
+          layerIndex: primaryLayer,
+          shapeBias: (rng() * 10000) | 0
+        });
+      }
 
-    const fogCount = 54 + Math.floor(rng() * 18);
-    for (let i = 0; i < fogCount; i++) {
-      const variant = NEBULA_VISUAL_VARIANTS[i % NEBULA_VISUAL_VARIANTS.length];
-      stateNebulaFogWisps.push({
-        x: CFG.WORLD_W * (0.06 + rng() * 0.88),
-        y: CFG.WORLD_H * (0.06 + rng() * 0.88),
-        rx: 46 + rng() * 150,
-        ry: 20 + rng() * 72,
-        alpha: 0.006 + rng() * 0.012,
-        color: variant.cloudColors[(rng() * variant.cloudColors.length) | 0],
-        edgeColor: variant.edgeColor,
-        rot: rng() * Math.PI * 2
-      });
+      const filamentCount = 4 + (layout.size > 0.9 ? 1 : 0);
+      for (let f = 0; f < filamentCount; f++) {
+        const ang = rng() * Math.PI * 2;
+        const dist = fieldR * (0.08 + rng() * 0.20);
+        backdropFilaments.push({
+          cx: clamp(centerX + Math.cos(ang) * dist, nebulaMinX, nebulaMaxX),
+          cy: clamp(centerY + Math.sin(ang) * dist * 0.72, nebulaMinY, nebulaMaxY),
+          len: fieldR * (0.72 + rng() * 0.40),
+          width: fieldR * (0.12 + rng() * 0.06),
+          rot: ang + (rng() - 0.5) * 0.44,
+          alpha: 0.040 + rng() * 0.018,
+          paletteIndex,
+          layerIndex: primaryLayer,
+          shapeBias: (rng() * 10000) | 0
+        });
+      }
+
+      const swirlCount = 4 + (layout.size > 1.0 ? 1 : 0);
+      for (let s = 0; s < swirlCount; s++) {
+        const ang = rng() * Math.PI * 2;
+        const dist = fieldR * (0.04 + rng() * 0.16);
+        backdropSwirls.push({
+          cx: clamp(centerX + Math.cos(ang) * dist, nebulaMinX, nebulaMaxX),
+          cy: clamp(centerY + Math.sin(ang) * dist * 0.68, nebulaMinY, nebulaMaxY),
+          r: fieldR * (0.24 + rng() * 0.12),
+          stretchW: 1.28 + rng() * 0.26,
+          stretchH: 0.44 + rng() * 0.12,
+          rot: ang + Math.PI * 0.5 + (rng() - 0.5) * 0.54,
+          alpha: 0.044 + rng() * 0.018,
+          paletteIndex,
+          layerIndex: primaryLayer,
+          shapeBias: (rng() * 10000) | 0
+        });
+      }
+
+      // Wide veil passes created large blurry patches in the foreground.
     }
 
-    for (let L = 0; L < 5; L++) {
+    stateNebulaClouds = backdropClouds.filter(c => c.isPrimary || c.r >= 300).map(c => ({
+      cx: c.cx,
+      cy: c.cy,
+      r: c.r
+    }));
+    stateNebulaFogWisps = backdropVeils;
+
+    const blendModes = PIXI && PIXI.BLEND_MODES ? PIXI.BLEND_MODES : null;
+    const screenBlend = blendModes && blendModes.SCREEN != null ? blendModes.SCREEN : "screen";
+    const normalBlend = blendModes && blendModes.NORMAL != null ? blendModes.NORMAL : "normal";
+    const nebulaTextureCache = new Map();
+    const SHAPE_VARIANTS = 9;
+
+    function getCachedNebulaTexture(cacheKey, seed, color, accentColor) {
+      if (nebulaTextureCache.has(cacheKey)) return nebulaTextureCache.get(cacheKey);
+      const tex = buildNebulaTexture(seed >>> 0, color, accentColor);
+      nebulaTextureCache.set(cacheKey, tex);
+      return tex;
+    }
+
+    if (starNebulaLayer.parent !== app.stage) app.stage.addChildAt(starNebulaLayer, Math.min(1, app.stage.children.length));
+    starNebulaLayer.removeChildren();
+
+    const renderLayerCount = 1;
+    for (let L = 0; L < renderLayerCount; L++) {
+      const layerRng = mulberry32((mapSeed ^ ((L + 1) * 0x9e3779b9)) >>> 0);
       const layerC = new PIXI.Container();
       layerC._parallax = NEBULA_LAYER_PARALLAX[L];
-      layerC._basePivotX = 0; layerC._basePivotY = 0;
-      const hue = NEBULA_HUES[L];
+      layerC._scaleMul = 1.26;
+      layerC._animPhase = layerRng() * Math.PI * 2;
+      const bodyBlend = normalBlend;
+      const accentBlend = screenBlend || normalBlend;
       for (let n = 0; n < backdropClouds.length; n++) {
         const c = backdropClouds[n];
-        const tex = buildNebulaTexture(mapSeed + n * 1000 + L * 333, hue);
+        if ((c.layerIndex ?? L) !== L) continue;
+        const palette = NEBULA_BACKGROUND_PALETTES[c.paletteIndex % NEBULA_BACKGROUND_PALETTES.length];
+        const layerColor = palette.layerColors[Math.min(L, palette.layerColors.length - 1)];
+        const contrastColor = palette.accentColors[(n + L) % palette.accentColors.length];
+        const shapeIdx = (((c.shapeBias || 0) + n * 3) + ((layerRng() * SHAPE_VARIANTS) | 0)) % SHAPE_VARIANTS;
+        const offX = (layerRng() - 0.5) * c.r * (0.10 + L * 0.018);
+        const offY = (layerRng() - 0.5) * c.r * (0.08 + L * 0.016);
+        if (c.isPrimary) {
+          const glowColor = palette.accentColors[(n + L + 1) % palette.accentColors.length];
+          const glowTex = getCachedNebulaTexture(
+            "glow:" + c.paletteIndex + ":" + L + ":" + shapeIdx + ":" + glowColor + ":" + layerColor,
+            mapSeed + 30000 + c.paletteIndex * 733 + L * 97 + shapeIdx * 19 + (c.shapeBias || 0),
+            glowColor,
+            layerColor
+          );
+          const glow = new PIXI.Sprite(glowTex);
+          glow.anchor.set(0.5, 0.5);
+          glow.position.set(c.cx + offX * 0.45, c.cy + offY * 0.45);
+          glow.width = c.r * (1.66 + L * 0.12) * c.stretchW;
+          glow.height = c.r * (1.28 + L * 0.10) * c.stretchH;
+          glow.rotation = c.rot + (L - 1) * 0.03;
+          glow.alpha = (0.018 + L * 0.006) * (0.86 + layerRng() * 0.10);
+          glow.blendMode = accentBlend;
+          tagNebulaBackdropSprite(glow, layerRng, Math.min(18, c.r * 0.018), 0.10, 0.018);
+          layerC.addChild(glow);
+
+          const coreTex = getCachedNebulaTexture(
+            "core:" + c.paletteIndex + ":" + L + ":" + shapeIdx + ":" + contrastColor + ":" + glowColor,
+            mapSeed + 36000 + c.paletteIndex * 811 + L * 113 + shapeIdx * 23 + (c.shapeBias || 0),
+            contrastColor,
+            glowColor
+          );
+          const core = new PIXI.Sprite(coreTex);
+          core.anchor.set(0.5, 0.5);
+          core.position.set(c.cx + offX * 0.20, c.cy + offY * 0.20);
+          core.width = c.r * (0.92 + L * 0.08) * c.stretchW;
+          core.height = c.r * (0.70 + L * 0.06) * c.stretchH;
+          core.rotation = c.rot + (layerRng() - 0.5) * 0.14;
+          core.alpha = (0.042 + L * 0.012) * (0.88 + layerRng() * 0.10);
+          core.blendMode = accentBlend;
+          tagNebulaBackdropSprite(core, layerRng, Math.min(12, c.r * 0.010), 0.14, 0.022);
+          layerC.addChild(core);
+        }
+        const tex = getCachedNebulaTexture(
+          "cloud:" + c.paletteIndex + ":" + L + ":" + shapeIdx + ":" + layerColor + ":" + contrastColor,
+          mapSeed + c.paletteIndex * 1000 + L * 333 + shapeIdx * 811,
+          layerColor,
+          contrastColor
+        );
         const sp = new PIXI.Sprite(tex);
         sp.anchor.set(0.5, 0.5);
-        const offX = (rng() - 0.5) * c.r * 0.18;
-        const offY = (rng() - 0.5) * c.r * 0.18;
         sp.position.set(c.cx + offX, c.cy + offY);
-        const stretchW = 0.78 + rng() * 0.54 + L * 0.03;
-        const stretchH = 0.62 + rng() * 0.40 + L * 0.04;
-        sp.width = c.r * 2.0 * stretchW;
-        sp.height = c.r * 1.9 * stretchH;
-        sp.rotation = rng() * Math.PI * 2;
-        sp.alpha = 0.10 + L * 0.035 + rng() * 0.018;
+        sp.width = c.r * (1.62 + L * 0.12) * c.stretchW * (0.94 + layerRng() * 0.16);
+        sp.height = c.r * (1.22 + L * 0.10) * c.stretchH * (0.94 + layerRng() * 0.14);
+        sp.rotation = c.rot + (layerRng() - 0.5) * 0.28 + (L - 2) * 0.05;
+        sp.alpha = c.alpha * (0.94 + L * 0.08) * (0.96 + layerRng() * 0.12);
+        sp.blendMode = bodyBlend;
+        tagNebulaBackdropSprite(sp, layerRng, Math.min(16, c.r * 0.016), 0.08, 0.015);
         layerC.addChild(sp);
       }
-      const idx = mapLayer.children.indexOf(mapSprite);
-      mapLayer.addChildAt(layerC, idx >= 0 ? idx + 1 + L : L);
+
+      for (let f = 0; f < backdropFilaments.length; f++) {
+        const filament = backdropFilaments[f];
+        if ((filament.layerIndex ?? L) !== L) continue;
+        const palette = NEBULA_BACKGROUND_PALETTES[filament.paletteIndex % NEBULA_BACKGROUND_PALETTES.length];
+        const filamentColor = palette.accentColors[(f + L) % palette.accentColors.length];
+        const baseColor = palette.layerColors[Math.min(L + 1, palette.layerColors.length - 1)];
+        const filamentTex = getCachedNebulaTexture(
+          "filament:" + filament.paletteIndex + ":" + L + ":" + f + ":" + baseColor + ":" + filamentColor + ":" + (filament.shapeBias || 0),
+          mapSeed + 70000 + filament.paletteIndex * 991 + L * 83 + f * 17 + (filament.shapeBias || 0),
+          baseColor,
+          filamentColor
+        );
+        const sp = new PIXI.Sprite(filamentTex);
+        sp.anchor.set(0.5, 0.5);
+        sp.position.set(
+          filament.cx + (layerRng() - 0.5) * filament.width * 0.4,
+          filament.cy + (layerRng() - 0.5) * filament.width * 0.3
+        );
+        sp.width = filament.len * (0.94 + layerRng() * 0.12);
+        sp.height = filament.width * (0.90 + layerRng() * 0.16);
+        sp.rotation = filament.rot + (layerRng() - 0.5) * 0.20;
+        sp.alpha = filament.alpha * (0.92 + L * 0.08);
+        sp.blendMode = accentBlend;
+        tagNebulaBackdropSprite(sp, layerRng, Math.min(10, filament.width * 0.18), 0.10, 0.020);
+        layerC.addChild(sp);
+      }
+
+      for (let s = 0; s < backdropSwirls.length; s++) {
+        const swirl = backdropSwirls[s];
+        if ((swirl.layerIndex ?? L) !== L) continue;
+        const palette = NEBULA_BACKGROUND_PALETTES[swirl.paletteIndex % NEBULA_BACKGROUND_PALETTES.length];
+        const swirlColor = palette.accentColors[(s + L + 1) % palette.accentColors.length];
+        const swirlBase = palette.layerColors[Math.min(L + 1, palette.layerColors.length - 1)];
+        const swirlTex = getCachedNebulaTexture(
+          "swirl:" + swirl.paletteIndex + ":" + L + ":" + s + ":" + swirlBase + ":" + swirlColor + ":" + (swirl.shapeBias || 0),
+          mapSeed + 90000 + swirl.paletteIndex * 577 + L * 131 + s * 29 + (swirl.shapeBias || 0),
+          swirlBase,
+          swirlColor
+        );
+        const sp = new PIXI.Sprite(swirlTex);
+        sp.anchor.set(0.5, 0.5);
+        sp.position.set(
+          swirl.cx + (layerRng() - 0.5) * swirl.r * 0.12,
+          swirl.cy + (layerRng() - 0.5) * swirl.r * 0.10
+        );
+        sp.width = swirl.r * (1.16 + layerRng() * 0.20) * swirl.stretchW;
+        sp.height = swirl.r * (0.92 + layerRng() * 0.16) * swirl.stretchH;
+        sp.rotation = swirl.rot + (layerRng() - 0.5) * 0.24;
+        sp.alpha = swirl.alpha * (0.98 + L * 0.10);
+        sp.blendMode = accentBlend;
+        tagNebulaBackdropSprite(sp, layerRng, Math.min(10, swirl.r * 0.08), 0.12, 0.022);
+        layerC.addChild(sp);
+      }
+
+      const veilCount = Math.max(0, Math.min(backdropVeils.length, 0));
+      for (let v = 0; v < veilCount; v++) {
+        const veil = backdropVeils[v];
+        if (L < (veil.depthMin ?? 0) || L > (veil.depthMax ?? 99)) continue;
+        const palette = NEBULA_BACKGROUND_PALETTES[veil.paletteIndex % NEBULA_BACKGROUND_PALETTES.length];
+        const veilColor = palette.accentColors[(v + L) % palette.accentColors.length];
+        const veilBaseColor = palette.layerColors[Math.max(0, Math.min(palette.layerColors.length - 1, L))];
+        const veilShapeIdx = (((veil.shapeBias || 0) + v * 7) + ((layerRng() * SHAPE_VARIANTS) | 0)) % SHAPE_VARIANTS;
+        const veilTex = getCachedNebulaTexture(
+          "veil:" + veil.paletteIndex + ":" + L + ":" + veilShapeIdx + ":" + veilColor + ":" + veilBaseColor,
+          mapSeed + 50000 + veil.paletteIndex * 577 + L * 67 + veilShapeIdx * 223,
+          veilBaseColor,
+          veilColor
+        );
+        const veilSp = new PIXI.Sprite(veilTex);
+        veilSp.anchor.set(0.5, 0.5);
+        veilSp.position.set(
+          veil.x + (layerRng() - 0.5) * veil.rx * 0.18,
+          veil.y + (layerRng() - 0.5) * veil.rx * 0.10
+        );
+        veilSp.width = veil.rx * (0.84 + L * 0.06) * (0.92 + layerRng() * 0.12);
+        veilSp.height = veil.ry * (0.92 + L * 0.06) * (0.94 + layerRng() * 0.10);
+        veilSp.rotation = veil.rot + (layerRng() - 0.5) * 0.24;
+        veilSp.alpha = veil.alpha * (0.48 + L * 0.04) * (0.92 + layerRng() * 0.08);
+        veilSp.blendMode = bodyBlend;
+        tagNebulaBackdropSprite(veilSp, layerRng, Math.min(12, veil.rx * 0.010), 0.06, 0.010);
+        layerC.addChild(veilSp);
+      }
+      starNebulaLayer.addChild(layerC);
       nebulaContainers.push(layerC);
+    }
+
+    if (starNebulaLayer.parent === app.stage) {
+      app.stage.setChildIndex(starNebulaLayer, Math.min(1, Math.max(0, app.stage.children.length - 1)));
     }
   }
 
   function applyNebulaParallax() {
-    const cx = cam.x / cam.zoom, cy = cam.y / cam.zoom;
+    const z = Math.max(0.001, cam.zoom || 0.22);
+    const sw = app.renderer.width;
+    const sh = app.renderer.height;
+    const baseScale = Math.min(sw / CFG.WORLD_W, sh / CFG.WORLD_H);
+    const zoomBase = Math.max(0.001, CFG.CAMERA_START_ZOOM || 0.22);
+    const zoomScale = Math.pow(z / zoomBase, 0.12);
     for (const c of nebulaContainers) {
-      const f = c._parallax || 0;
-      c.pivot.set(cx * f, cy * f);
+      const scale = baseScale * (c._scaleMul || 1) * zoomScale;
+      c.scale.set(scale, scale);
+      c.position.set(
+        (sw - CFG.WORLD_W * scale) * 0.5,
+        (sh - CFG.WORLD_H * scale) * 0.5
+      );
     }
   }
 
@@ -2256,7 +2585,7 @@
     neonEdgeSprite.alpha = pulse;
   }
 
-  /** Electrical discharges: zigzag lightning, along map edge and inside nebulae. */
+  /** Electrical discharges: zigzag lightning, mostly along the map edge. */
   let dischargeGfx = null;
   let _dischargeSpawnAcc = 0;
   const DISCHARGE_SPAWN_INTERVAL = 1.8;
@@ -2289,8 +2618,8 @@
     if (stateNebulaClouds.length === 0) return null;
     const c = stateNebulaClouds[rng() * stateNebulaClouds.length | 0];
     const a = rng() * Math.PI * 2;
-    const r = c.r * (0.1 + rng() * 0.4);
-    return { pts: makeZigzag(c.cx, c.cy, c.cx + Math.cos(a)*r, c.cy + Math.sin(a)*r, rng, 4 + (rng()*4|0)), progress: 0, speed: 0.003 + rng() * 0.003 };
+    const r = c.r * (0.18 + rng() * 0.34);
+    return { pts: makeZigzag(c.cx, c.cy, c.cx + Math.cos(a) * r, c.cy + Math.sin(a) * r, rng, 6 + (rng() * 5 | 0)), progress: 0, speed: 0.0026 + rng() * 0.0022 };
   }
 
   function updateDischarges(dt) {
@@ -2304,7 +2633,7 @@
     if (_dischargeSpawnAcc >= DISCHARGE_SPAWN_INTERVAL) {
       _dischargeSpawnAcc = 0;
       const rng = mulberry32((mapSeed >>> 0) + (state._frameCtr || 0) * 7);
-      if (stateNebulaClouds.length > 0 && rng() < 0.65) {
+      if (stateNebulaClouds.length > 0 && rng() < 0.84) {
         const d = spawnNebulaDischarge(rng);
         if (d) list.push(d);
       } else {
@@ -2344,19 +2673,23 @@
     g.clear();
     const W = CFG.WORLD_W, H = CFG.WORLD_H;
     const big = 2e5;
+    const outsideShadeAlpha = offMapAmbienceApi && typeof offMapAmbienceApi.getOutsideShadeAlpha === "function"
+      ? offMapAmbienceApi.getOutsideShadeAlpha()
+      : 0.55;
     g.rect(-big, -big, W + big * 2, big);
-    g.fill({ color: 0x000000, alpha: 0.55 });
+    g.fill({ color: 0x000000, alpha: outsideShadeAlpha });
     g.rect(-big, H, W + big * 2, big);
-    g.fill({ color: 0x000000, alpha: 0.55 });
-    g.rect(-big, -big, big, H + big * 2);
-    g.fill({ color: 0x000000, alpha: 0.55 });
-    g.rect(W, -big, big, H + big * 2);
-    g.fill({ color: 0x000000, alpha: 0.55 });
+    g.fill({ color: 0x000000, alpha: outsideShadeAlpha });
+    g.rect(-big, 0, big, H);
+    g.fill({ color: 0x000000, alpha: outsideShadeAlpha });
+    g.rect(W, 0, big, H);
+    g.fill({ color: 0x000000, alpha: outsideShadeAlpha });
   }
 
   function rebuildMap(optionalSeed) {
     mapSeed = optionalSeed != null ? (optionalSeed >>> 0) : (Date.now() >>> 0);
     initStarfield(mapSeed);
+    starLayer.addChild(offMapAmbienceLayer);
     const tex = makeMapTexture();
     if (mapSprite) mapLayer.removeChild(mapSprite);
     mapSprite = new PIXI.Sprite(tex);
@@ -2364,21 +2697,13 @@
     mapSprite.height = CFG.WORLD_H;
     mapSprite.zIndex = 0;
     mapLayer.addChild(mapSprite);
-    if (!state._bgFlareLayer) {
-      state._bgFlareLayer = new PIXI.Graphics();
-      state._bgFlareLayer.zIndex = -3;
-      mapLayer.addChild(state._bgFlareLayer);
+    if (offMapAmbienceApi && typeof offMapAmbienceApi.rebuild === "function") {
+      offMapAmbienceApi.rebuild({
+        seed: mapSeed,
+        worldWidth: CFG.WORLD_W,
+        worldHeight: CFG.WORLD_H
+      });
     }
-    if (!state._bgCometLayer) {
-      state._bgCometLayer = new PIXI.Graphics();
-      state._bgCometLayer.zIndex = -2;
-      mapLayer.addChild(state._bgCometLayer);
-    }
-    state._bgFlares = [];
-    state._bgFlareNextAt = 1.5 + Math.random() * 3.5;
-    state._bgComets = [];
-    state._bgCometNextAt = 150 + Math.random() * 45;
-
     drawWorldBorderDarken();
     rebuildNebulae();
     rebuildNeonEdges();
@@ -2441,6 +2766,7 @@
     res: new Map(),
     turrets: new Map(),
     mines: new Map(),
+    pirateBases: [],
     mineGems: [],
     mineFlowPackets: [],
     nebulae: [],
@@ -2516,6 +2842,23 @@
       .sort((a, b) => perfStepAcc[b] - perfStepAcc[a])
       .map(k => k + "=" + (perfStepAcc[k] / 1000).toFixed(2) + "s")
       .join(" ");
+    const pktSamples = state._netPacketStats && Array.isArray(state._netPacketStats.samples)
+      ? state._netPacketStats.samples.slice(-30)
+      : [];
+    const avgPacketBytes = pktSamples.length > 0
+      ? Math.round(pktSamples.reduce((sum, sample) => sum + (sample.size || 0), 0) / pktSamples.length)
+      : 0;
+    state.perfStats = {
+      avgFrameMs: avg,
+      maxFrameMs: max,
+      units,
+      bullets,
+      floating,
+      resources: res,
+      avgPacketBytes,
+      samples: n,
+      at: state.t
+    };
     perfStepAcc = {};
 
     const line = `[perf] t=${(state.t / 60).toFixed(1)}min | frame avg=${(avg).toFixed(1)}ms max=${(max).toFixed(0)}ms | units=${units} bullets=${bullets} floatDmg=${floating} res=${res} heap=${mem} | ${stepStr || "—"}`;
@@ -2542,7 +2885,7 @@
       const d = Math.hypot(pt.x - x, pt.y - y);
       if (d > maxR) maxR = d;
     }
-    return {
+    const player = {
       id,
       name: displayName,
       x, y,
@@ -2588,11 +2931,21 @@
       _patrolCount: 1,
       _patrols: [{ t: 0, atkCd: 0 }],
 
+      buffHand: [],
+      abilityHand: [],
+      activeBuffs: [],
+      legendaryBuffs: [],
+      nextCardInstanceId: 1,
+      cardStateVersion: 0,
+      burnedCards: [],
+      pendingAbilityCardId: null,
+
       cityGfx: null,
       zoneGfx: null,
       zoneGlow: null,
       label: null
     };
+    return CardSystemApi && CardSystemApi.ensurePlayerCardState ? CardSystemApi.ensurePlayerCardState(player) : player;
   }
 
   function getLevelBonusMul(p) {
@@ -2615,6 +2968,10 @@
   const CARD_RARITY_LABELS = {
     common: "Обычная", uncommon: "Необычная", rare: "Редкая",
     epic: "Эпическая", legendary: "Легендарная", mythic: "Абсолютно Легендарная"
+  };
+  const CARD_RARITY_PINS = {
+    common: "C", uncommon: "U", rare: "R",
+    epic: "E", legendary: "L", mythic: "M"
   };
   const UNIT_ATK_RANGE_MAX_MUL = 3.0;
 
@@ -2814,6 +3171,337 @@
         p[key] = next;
       }
     }
+  }
+
+  const LEGACY_CARD_MULTIPLIER_FIELDS = [
+    "unitHpMul", "unitDmgMul", "unitAtkRateMul", "unitSpeedMul", "unitAtkRangeMul",
+    "growthMul", "influenceSpeedMul", "turretHpMul", "turretDmgMul", "turretRangeMul", "unitCostMul"
+  ];
+
+  function ensurePlayerCardState(p) {
+    return CardSystemApi && CardSystemApi.ensurePlayerCardState ? CardSystemApi.ensurePlayerCardState(p) : p;
+  }
+
+  function getCardDefById(cardId) {
+    return CardSystemApi && CardSystemApi.getCardDef ? CardSystemApi.getCardDef(cardId) : null;
+  }
+
+  function getAbilityDefById(abilityId) {
+    return CardSystemApi && CardSystemApi.getAbilityDef ? CardSystemApi.getAbilityDef(abilityId) : null;
+  }
+
+  function cloneCardStateValue(value) {
+    return value == null ? value : JSON.parse(JSON.stringify(value));
+  }
+
+  function getCardStatePayloadForPlayer(pid) {
+    const p = state.players.get(pid);
+    if (!p) return null;
+    ensurePlayerCardState(p);
+    return {
+      pid,
+      buffHand: cloneCardStateValue(p.buffHand),
+      abilityHand: cloneCardStateValue(p.abilityHand),
+      activeBuffs: cloneCardStateValue(p.activeBuffs),
+      legendaryBuffs: cloneCardStateValue(p.legendaryBuffs),
+      nextCardInstanceId: p.nextCardInstanceId || 1,
+      cardStateVersion: p.cardStateVersion || 0
+    };
+  }
+
+  function emitCardStateForPlayer(pid) {
+    if (!state._multiIsHost || !state._socket || !state._roomId) return;
+    const payload = getCardStatePayloadForPlayer(pid);
+    if (payload) state._socket.emit("cardState", payload);
+  }
+
+  function markPlayerCardStateDirty(p, shouldBroadcast) {
+    if (!p) return;
+    ensurePlayerCardState(p);
+    p._cardDerivedDirty = true;
+    if (shouldBroadcast !== false) emitCardStateForPlayer(p.id);
+  }
+
+  function applyIncomingCardState(payload) {
+    if (!payload || payload.pid == null) return;
+    const p = state.players.get(payload.pid);
+    if (!p) {
+      state._pendingCardStatePayloads = state._pendingCardStatePayloads || new Map();
+      state._pendingCardStatePayloads.set(payload.pid, cloneCardStateValue(payload));
+      return;
+    }
+    ensurePlayerCardState(p);
+    if (payload.buffHand) p.buffHand = cloneCardStateValue(payload.buffHand);
+    if (payload.abilityHand) p.abilityHand = cloneCardStateValue(payload.abilityHand);
+    if (payload.activeBuffs) p.activeBuffs = cloneCardStateValue(payload.activeBuffs);
+    if (payload.legendaryBuffs) p.legendaryBuffs = cloneCardStateValue(payload.legendaryBuffs);
+    if (payload.nextCardInstanceId != null) p.nextCardInstanceId = payload.nextCardInstanceId;
+    if (payload.cardStateVersion != null) p.cardStateVersion = payload.cardStateVersion;
+    p._cardDerivedDirty = true;
+  }
+
+  function flushPendingCardStates() {
+    const pending = state._pendingCardStatePayloads;
+    if (!pending || pending.size === 0) return;
+    for (const [pid, payload] of pending.entries()) {
+      if (state.players.has(pid)) {
+        applyIncomingCardState(payload);
+        pending.delete(pid);
+      }
+    }
+  }
+
+  function getAllAppliedCardEntries(p) {
+    ensurePlayerCardState(p);
+    return [...(p.activeBuffs || []), ...(p.legendaryBuffs || [])];
+  }
+
+  function recomputePlayerCardDerivedStats(p) {
+    if (!p) return;
+    ensurePlayerCardState(p);
+    const prevPatrolCount = p._patrolCount || 1;
+    const prevRange = p.unitAtkRangeMul || 1;
+    const prevUnitHp = p.unitHpMul || 1;
+
+    for (const key of LEGACY_CARD_MULTIPLIER_FIELDS) {
+      p[key] = key === "unitCostMul" ? 1 : 1;
+    }
+    p.mineYieldBonus = 0;
+    p.turretTargetBonus = 0;
+    p.shieldRegenBonus = 0;
+    p.attackEffects = {};
+    p.attackEffect = null;
+    p._patrolCount = 1;
+
+    for (const entry of getAllAppliedCardEntries(p)) {
+      const def = getCardDefById(entry.cardId);
+      if (!def) continue;
+      if (def.mineYieldBonus) p.mineYieldBonus += def.mineYieldBonus;
+      if (def.turretTargetBonus) p.turretTargetBonus += def.turretTargetBonus;
+      if (def.shieldRegenBonus) p.shieldRegenBonus += def.shieldRegenBonus;
+      if (def.patrolBonus) p._patrolCount = Math.min(4, p._patrolCount + def.patrolBonus);
+      if (def.attackEffect) {
+        p.attackEffects[def.attackEffect] = Math.min(3, (p.attackEffects[def.attackEffect] || 0) + 1);
+      }
+      for (const field of LEGACY_CARD_MULTIPLIER_FIELDS) {
+        if (typeof def[field] !== "number") continue;
+        if (field === "unitAtkRangeMul") p[field] = Math.min(UNIT_ATK_RANGE_MAX_MUL, (p[field] || 1) * def[field]);
+        else p[field] = (p[field] || 1) * def[field];
+      }
+    }
+
+    const attackEffectEntries = Object.entries(p.attackEffects);
+    p.attackEffect = attackEffectEntries.length > 0 ? attackEffectEntries[attackEffectEntries.length - 1][0] : null;
+
+    p._patrols = p._patrols || [];
+    while (p._patrols.length < p._patrolCount) p._patrols.push({ t: p._patrols.length / Math.max(1, p._patrolCount), atkCd: 0 });
+    while (p._patrols.length > p._patrolCount) p._patrols.pop();
+
+    p._cardDerivedDirty = false;
+
+    if (prevPatrolCount !== p._patrolCount || prevRange !== p.unitAtkRangeMul || prevUnitHp !== p.unitHpMul) {
+      syncUnitsForPlayerCardStats(p.id);
+    }
+  }
+
+  function syncUnitsForPlayerCardStats(ownerId) {
+    const p = state.players.get(ownerId);
+    if (!p) return;
+    const hpMul = (p.unitHpMul != null ? p.unitHpMul : 1) * getLevelBonusMul(p);
+    for (const u of state.units.values()) {
+      if (u.owner !== ownerId) continue;
+      if (u.baseMaxHp == null) u.baseMaxHp = UNIT_TYPES[u.unitType]?.hp || u.maxHp || u.hp || 1;
+      if (u.baseDamage == null) u.baseDamage = UNIT_TYPES[u.unitType]?.damage || u.dmg || 1;
+      if (u.baseAttackRate == null) u.baseAttackRate = UNIT_TYPES[u.unitType]?.attackRate || 1;
+      if (u.baseAttackRange == null) u.baseAttackRange = UNIT_TYPES[u.unitType]?.attackRange || u.attackRange || 40;
+      if (u.baseSpeed == null) u.baseSpeed = UNIT_TYPES[u.unitType]?.speed || u.speed || 9;
+      const prevMax = Math.max(1, u.maxHp || u.baseMaxHp);
+      const nextMax = Math.max(1, Math.round(u.baseMaxHp * hpMul));
+      if (prevMax !== nextMax) {
+        const ratio = prevMax > 0 ? (u.hp || prevMax) / prevMax : 1;
+        u.maxHp = nextMax;
+        u.hp = Math.max(0, Math.min(nextMax, ratio * nextMax));
+      } else {
+        u.maxHp = nextMax;
+      }
+      u.dmg = u.baseDamage;
+      u.attackRange = u.baseAttackRange;
+      u.speed = u.baseSpeed;
+    }
+  }
+
+  function stepPlayerCardStates() {
+    if (!CardSystemApi) return;
+    flushPendingCardStates();
+    for (const p of state.players.values()) {
+      ensurePlayerCardState(p);
+      if (p._lastAppliedCardVersion !== p.cardStateVersion) {
+        p._cardDerivedDirty = true;
+        p._lastAppliedCardVersion = p.cardStateVersion;
+      }
+      const expired = CardSystemApi.expireTimedBuffs ? CardSystemApi.expireTimedBuffs(p, state.t) : false;
+      if (expired) markPlayerCardStateDirty(p);
+      if (p._cardDerivedDirty) recomputePlayerCardDerivedStats(p);
+    }
+  }
+
+  function drawRandomCardForPlayer(p, sourceLabel) {
+    if (!CardSystemApi || !p) return null;
+    ensurePlayerCardState(p);
+    const result = CardSystemApi.drawRandomCardForPlayer(p, { now: state.t, level: p.level || 1, rng: Math.random });
+    if (!result || !result.ok) return null;
+    markPlayerCardStateDirty(p);
+    if (p.id === state.myPlayerId) {
+      state._lastCardDrawInfo = {
+        cardId: result.instance.cardId,
+        source: sourceLabel || "level",
+        at: state.t
+      };
+    }
+    return result;
+  }
+
+  function grantSpecificCardToPlayer(p, cardId, sourceLabel) {
+    if (!p || !cardId) return null;
+    ensurePlayerCardState(p);
+    const def = getCardDefById(cardId);
+    if (!def) return null;
+    const handKey = def.zone === "ability" ? "abilityHand" : "buffHand";
+    const handLimit = def.zone === "ability"
+      ? (CardSystemApi ? CardSystemApi.ABILITY_HAND_LIMIT : 10)
+      : (CardSystemApi ? CardSystemApi.BUFF_HAND_LIMIT : 30);
+    const hand = p[handKey];
+    if (!Array.isArray(hand)) return null;
+    if (hand.length >= handLimit) {
+      const burned = hand.shift();
+      p.burnedCards = Array.isArray(p.burnedCards) ? p.burnedCards : [];
+      p.burnedCards.push({ instanceId: burned.instanceId, cardId: burned.cardId, burnedAt: state.t });
+      while (p.burnedCards.length > 12) p.burnedCards.shift();
+    }
+    const instance = {
+      instanceId: "card_" + p.id + "_" + (p.nextCardInstanceId || 1),
+      cardId: def.id,
+      zone: def.zone,
+      kind: def.kind,
+      addedAt: state.t,
+      originLevel: null,
+      source: sourceLabel || "debug"
+    };
+    p.nextCardInstanceId = (p.nextCardInstanceId || 1) + 1;
+    hand.push(instance);
+    p.cardStateVersion = (p.cardStateVersion || 0) + 1;
+    markPlayerCardStateDirty(p);
+    return instance;
+  }
+
+  function activateBuffCardForPlayer(pid, instanceId, shouldBroadcast) {
+    if (!CardSystemApi) return { ok: false, reason: "no_card_system" };
+    const p = state.players.get(pid);
+    if (!p) return { ok: false, reason: "no_player" };
+    ensurePlayerCardState(p);
+    const result = CardSystemApi.activateBuffCard(p, instanceId, state.t);
+    if (!result || !result.ok) return result;
+    const def = getCardDefById(result.entry.cardId);
+    if (def && def.populationBonus) {
+      p.popFloat = (p.popFloat || p.pop || 0) + def.populationBonus;
+      p.pop = Math.floor(p.popFloat);
+    }
+    markPlayerCardStateDirty(p, shouldBroadcast);
+    recomputePlayerCardDerivedStats(p);
+    return result;
+  }
+
+  function getNearestEnemyPlayer(pid) {
+    const p = state.players.get(pid);
+    if (!p) return null;
+    let nearest = null;
+    let nearestD = Infinity;
+    for (const other of state.players.values()) {
+      if (other.id === pid || other.eliminated) continue;
+      const d = Math.hypot(other.x - p.x, other.y - p.y);
+      if (d < nearestD) {
+        nearestD = d;
+        nearest = other;
+      }
+    }
+    return nearest;
+  }
+
+  function buildBotAbilityAction(pid, cardDef) {
+    const target = getNearestEnemyPlayer(pid);
+    const abilityDef = getAbilityDefById(cardDef.abilityId);
+    if (!abilityDef) return null;
+    const action = { pid, abilityId: abilityDef.id };
+    if (abilityDef.targeting === "city") {
+      if (!target) return null;
+      action.targetCityId = target.id;
+      return action;
+    }
+    if (abilityDef.targeting === "point") {
+      action.x = target ? target.x : (state.players.get(pid)?.x || 0);
+      action.y = target ? target.y : (state.players.get(pid)?.y || 0);
+      return action;
+    }
+    if (abilityDef.targeting === "angle") {
+      const source = state.players.get(pid);
+      const tx = target ? target.x : (source?.x || 0) + 100;
+      const ty = target ? target.y : (source?.y || 0);
+      action.x = tx;
+      action.y = ty;
+      action.angle = source ? Math.atan2(ty - source.y, tx - source.x) : 0;
+      return action;
+    }
+    return action;
+  }
+
+  function castAbilityCardForPlayer(action) {
+    if (!CardSystemApi || !action || action.pid == null || !action.instanceId) return { ok: false, reason: "bad_action" };
+    const p = state.players.get(action.pid);
+    if (!p) return { ok: false, reason: "no_player" };
+    ensurePlayerCardState(p);
+    const result = CardSystemApi.consumeAbilityCard(p, action.instanceId);
+    if (!result || !result.ok) return result;
+    const cardDef = getCardDefById(result.entry.cardId);
+    if (!cardDef || cardDef.kind !== "ability") return { ok: false, reason: "wrong_type" };
+    const abilityAction = {
+      pid: action.pid,
+      abilityId: cardDef.abilityId,
+      x: action.x,
+      y: action.y,
+      angle: action.angle,
+      targetCityId: action.targetCityId
+    };
+    markPlayerCardStateDirty(p, action.shouldBroadcast);
+    executeAbilityAction(abilityAction);
+    return { ok: true, cardDef, action: abilityAction };
+  }
+
+  function autoPlayBotCardHands(p) {
+    if (!p || !state.botPlayerIds || !state.botPlayerIds.has(p.id)) return;
+    ensurePlayerCardState(p);
+    while (p.buffHand.length > 0) {
+      const nextBuff = p.buffHand[0];
+      if (!nextBuff) break;
+      const activated = activateBuffCardForPlayer(p.id, nextBuff.instanceId);
+      if (!activated || !activated.ok) break;
+    }
+    while (p.abilityHand.length > 0) {
+      const nextAbility = p.abilityHand[0];
+      const cardDef = nextAbility ? getCardDefById(nextAbility.cardId) : null;
+      const action = cardDef ? buildBotAbilityAction(p.id, cardDef) : null;
+      if (!action) break;
+      const casted = castAbilityCardForPlayer({
+        pid: p.id,
+        instanceId: nextAbility.instanceId,
+        x: action.x,
+        y: action.y,
+        angle: action.angle,
+        targetCityId: action.targetCityId,
+        shouldBroadcast: false
+      });
+      if (!casted || !casted.ok) break;
+    }
+    emitCardStateForPlayer(p.id);
   }
 
   // ------------------------------------------------------------
@@ -3722,7 +4410,8 @@
       cy /= squad.length;
 
       const owner = state.players.get(squad[0].owner);
-      const col = owner ? owner.color : 0x888888;
+      const isPirateSquad = squad[0].owner === PIRATE_OWNER_ID;
+      const col = owner ? owner.color : (isPirateSquad ? 0xd4875d : 0x888888);
 
       const maxAtkR = Math.max(...squad.map(u => getUnitAtkRange(u)));
       const maxEngR = Math.max(...squad.map(u => getUnitEngagementRange(u)));
@@ -3832,6 +4521,18 @@
       strengthTxt.anchor.set(0.5, 1);
       strengthTxt.position.set(cx, barY - 2);
       squadLabelsLayer.addChild(strengthTxt);
+      if (isPirateSquad) {
+        const pirateFlagTxt = new PIXI.Text("🏴‍☠️", {
+          fontFamily: "Segoe UI Emoji, Apple Color Emoji, Noto Color Emoji, Arial",
+          fontSize: 16,
+          fill: 0xffffff,
+          stroke: 0x000000,
+          strokeThickness: 4
+        });
+        pirateFlagTxt.anchor.set(0.5, 1);
+        pirateFlagTxt.position.set(cx, barY - 34);
+        squadLabelsLayer.addChild(pirateFlagTxt);
+      }
       const detailTxt = new PIXI.Text("Урон/с: " + Math.round(dps) + ", ХП: " + Math.round(hp) + bindStr, {
         fontFamily: "ui-sans-serif, Arial",
         fontSize: 10,
@@ -4515,6 +5216,63 @@
     }
   }
 
+  function appendQueuedPathPoint(points, markers, point, type) {
+    if (!point) return;
+    const prev = points[points.length - 1];
+    if (!prev || Math.hypot(prev.x - point.x, prev.y - point.y) > 1) {
+      points.push({ x: point.x, y: point.y });
+    }
+    markers.push({ x: point.x, y: point.y, type: type || "move" });
+  }
+
+  function getQueuedOrderAnchorPoint(order) {
+    if (!order) return null;
+    if (Array.isArray(order.waypoints) && order.waypoints.length > 0) {
+      const last = order.waypoints[order.waypoints.length - 1];
+      return last ? { x: last.x, y: last.y } : null;
+    }
+    if (order.type === "capture" && order.mineId != null) {
+      const mine = state.mines.get(order.mineId);
+      if (mine) return { x: mine.x, y: mine.y };
+    }
+    if (order.type === "attackUnit" && order.targetUnitId != null) {
+      const target = state.units.get(order.targetUnitId);
+      if (target && target.hp > 0) return { x: target.x, y: target.y };
+    }
+    if (order.type === "siege" && order.targetCityId != null) {
+      const city = state.players.get(order.targetCityId);
+      if (city && !city.eliminated) return { x: city.x, y: city.y };
+    }
+    if (order.type === "attackPirateBase" || order.targetPirateBase) {
+      const pirateBase = typeof getNearestAlivePirateBase === "function" ? getNearestAlivePirateBase(0, 0) : null;
+      if (pirateBase) return { x: pirateBase.x, y: pirateBase.y };
+      if (state.pirateBase && state.pirateBase.hp > 0) return { x: state.pirateBase.x, y: state.pirateBase.y };
+    }
+    return null;
+  }
+
+  function getDisplayedOrderPath(leader, squadState) {
+    const points = [{ x: leader.x, y: leader.y }];
+    const markers = [];
+    const activeOrder = squadState?.order || null;
+    const activeWaypoints = leader.waypoints || activeOrder?.waypoints || [];
+    const activeIndex = leader.waypointIndex ?? 0;
+    for (let i = activeIndex; i < activeWaypoints.length; i++) {
+      appendQueuedPathPoint(points, markers, activeWaypoints[i], activeOrder?.type || "move");
+    }
+    if (!activeWaypoints.length) {
+      const activeAnchor = getQueuedOrderAnchorPoint(activeOrder);
+      if (activeAnchor) appendQueuedPathPoint(points, markers, activeAnchor, activeOrder?.type || "move");
+    }
+    const queue = Array.isArray(activeOrder?.commandQueue) ? activeOrder.commandQueue : [];
+    for (const queuedOrder of queue) {
+      const queuedAnchor = getQueuedOrderAnchorPoint(queuedOrder);
+      if (!queuedAnchor) continue;
+      appendQueuedPathPoint(points, markers, queuedAnchor, queuedOrder.type || "move");
+    }
+    return { points, markers };
+  }
+
   function updateMovingPathPreview() {
     const allSquads = getSquads();
     const t = state.t;
@@ -4546,9 +5304,13 @@
         } else if (leader.chaseTargetCityId != null) {
           const city = state.players.get(leader.chaseTargetCityId);
           if (city) targetPos = { x: city.x, y: city.y };
-          if (!targetPos && state.pirateBase && state.pirateBase.hp > 0) targetPos = { x: state.pirateBase.x, y: state.pirateBase.y };
-        } else if (leader._orderType === "attackPirateBase" && state.pirateBase && state.pirateBase.hp > 0) {
-          targetPos = { x: state.pirateBase.x, y: state.pirateBase.y };
+          if (!targetPos) {
+            const pirateBase = getNearestAlivePirateBase(leader.x, leader.y);
+            if (pirateBase) targetPos = { x: pirateBase.x, y: pirateBase.y };
+          }
+        } else if (leader._orderType === "attackPirateBase") {
+          const pirateBase = getNearestAlivePirateBase(leader.x, leader.y);
+          if (pirateBase) targetPos = { x: pirateBase.x, y: pirateBase.y };
         }
         if (!targetPos && leader.squadId != null) {
           const sq = state.squads.get(leader.squadId);
@@ -4559,8 +5321,9 @@
             } else if (sq.order.type === "siege" && sq.order.targetCityId != null) {
               const city = state.players.get(sq.order.targetCityId);
               if (city && !city.eliminated) targetPos = { x: city.x, y: city.y };
-            } else if (sq.order.type === "attackPirateBase" && state.pirateBase && state.pirateBase.hp > 0) {
-              targetPos = { x: state.pirateBase.x, y: state.pirateBase.y };
+            } else if (sq.order.type === "attackPirateBase") {
+              const pirateBase = getNearestAlivePirateBase(leader.x, leader.y);
+              if (pirateBase) targetPos = { x: pirateBase.x, y: pirateBase.y };
             }
           }
         }
@@ -4585,16 +5348,13 @@
         continue;
       }
 
-      const wp = leader.waypoints;
-      const idx = leader.waypointIndex ?? 0;
-      if (!wp || idx >= wp.length) continue;
+      const squadState = leader.squadId != null ? state.squads.get(leader.squadId) : null;
+      const { points, markers } = getDisplayedOrderPath(leader, squadState);
+      if (points.length < 2) continue;
 
       const isCapture = leader._captureTarget === true;
       const ownerP = state.players.get(leader.owner);
       const color = isCapture ? 0x33aaff : (ownerP ? ownerP.color : 0xffffff);
-
-      const points = [{ x: leader.x, y: leader.y }];
-      for (let i = idx; i < wp.length; i++) points.push(wp[i]);
 
       const g = new PIXI.Graphics();
       for (let seg = 0; seg < points.length - 1; seg++) {
@@ -4607,23 +5367,13 @@
       }
       drawAnimatedDash(g, points, 14, 6, 2.5, 0xffffff, 0.85, t);
 
-      const lastPt = points[points.length - 1];
-      g.lineStyle(0);
-      if (isCapture) {
-        g.lineStyle(3, 0x33aaff, 1);
-        g.beginFill(0x33aaff, 0.35);
-        g.drawCircle(lastPt.x, lastPt.y, 18);
+      for (let pi = 0; pi < markers.length; pi++) {
+        const pt = markers[pi];
+        const isCaptureMarker = pt.type === "capture";
+        g.lineStyle(isCaptureMarker ? 3 : 2, isCaptureMarker ? 0x33aaff : 0xffffff, isCaptureMarker ? 1 : 0.8);
+        g.beginFill(isCaptureMarker ? 0x33aaff : color, isCaptureMarker ? 0.35 : 0.5);
+        g.drawCircle(pt.x, pt.y, isCaptureMarker ? 18 : (pi === markers.length - 1 ? 14 : 6));
         g.endFill();
-      } else {
-        g.lineStyle(3, 0xffffff, 1);
-        g.beginFill(color, 0.5);
-        g.drawCircle(lastPt.x, lastPt.y, 14);
-        g.endFill();
-      }
-      for (let pi = 1; pi < points.length - 1; pi++) {
-        const pt = points[pi];
-        g.lineStyle(2, 0xffffff, 0.8);
-        g.drawCircle(pt.x, pt.y, 6);
       }
       pathPreviewLayer.addChild(g);
     }
@@ -4968,13 +5718,30 @@
     const cx = CFG.WORLD_W * 0.5, cy = CFG.WORLD_H * 0.5;
 
     const centerMine = createMine(cx, cy, null, true);
-    const pirateBaseOffset = 160;
-    state.pirateBase = {
-      x: cx + pirateBaseOffset, y: cy, hp: 4000, maxHp: 4000, lastDamagedBy: null,
-      gfx: null, _emojiGfx: null, spawnCd: 0, unitLimit: 12,
-      orbitCenter: { x: cx, y: cy }, orbitRadius: pirateBaseOffset + 40,
-      _respawnTimer: 0, _initialSpawned: false
-    };
+    const pirateBaseDistance = 270;
+    const pirateBaseAnglesDeg = [0, 135, 225];
+    setPirateBases(pirateBaseAnglesDeg.map((deg, idx) => {
+      const angle = degFromTopClockwiseToRad(deg);
+      return {
+        id: "pirate-base-" + (idx + 1),
+        x: cx + Math.cos(angle) * pirateBaseDistance,
+        y: cy + Math.sin(angle) * pirateBaseDistance,
+        hp: 4000,
+        maxHp: 4000,
+        lastDamagedBy: null,
+        gfx: null,
+        _emojiGfx: null,
+        spawnCd: 0,
+        unitLimit: 12,
+        atkCd: 0,
+        attackRange: Math.round(PIRATE_BASE_ATTACK_RANGE * 1.1),
+        orbitCenter: { x: cx, y: cy },
+        orbitRadius: pirateBaseDistance + 40,
+        patrolAngleDeg: deg,
+        _respawnTimer: 0,
+        _initialSpawned: false
+      };
+    }));
     centerMine.ownerId = PIRATE_OWNER_ID;
     centerMine.captureProgress = 1;
     centerMine._captureProtectedUntil = 0;
@@ -5564,98 +6331,112 @@
       if (mine.gfx) updateMineProgressBar(mine);
     }
 
-    if (state.pirateBase && state.pirateBase.hp > 0) {
+    const alivePirateBases = getAlivePirateBases();
+    if (alivePirateBases.length > 0) {
       const PIRATE_RESPAWN_CD = 180;
-      let pirateCount = 0;
-      for (const u of state.units.values()) if (u.owner === PIRATE_OWNER_ID && !(u._pirateHyperUntil && state.t < u._pirateHyperUntil)) pirateCount++;
+      for (const pb of alivePirateBases) {
+        const basePirateUnits = [...state.units.values()].filter((u) =>
+          u.owner === PIRATE_OWNER_ID &&
+          u._pirateBaseId === pb.id &&
+          !(u._pirateHyperUntil && state.t < u._pirateHyperUntil)
+        );
+        const pirateCount = basePirateUnits.length;
+        if (pb._respawnTimer == null) pb._respawnTimer = 0;
+        const needsInitialSpawn = !pb._initialSpawned && pirateCount === 0;
 
-      if (state.pirateBase._respawnTimer == null) state.pirateBase._respawnTimer = 0;
-
-      const needsInitialSpawn = !state.pirateBase._initialSpawned && pirateCount === 0;
-
-      if (pirateCount === 0) {
-        if (needsInitialSpawn) {
-          state.pirateBase._respawnTimer = 0;
-        } else if (state.pirateBase._respawnTimer <= 0) {
-          state.pirateBase._respawnTimer = PIRATE_RESPAWN_CD;
-        }
-
-        if (!needsInitialSpawn) state.pirateBase._respawnTimer -= dt;
-
-        if (needsInitialSpawn || state.pirateBase._respawnTimer <= 0) {
-          state.pirateBase._respawnTimer = 0;
-          state.pirateBase._initialSpawned = true;
-          const oc = state.pirateBase.orbitCenter || { x: state.pirateBase.x, y: state.pirateBase.y };
-          const oR = state.pirateBase.orbitRadius || 200;
-          const batchTag = `pirate-base-${Math.floor(state.t)}`;
-          for (let i = 0; i < PIRATE_FULL_SQUAD.length; i++) {
-            const t = PIRATE_FULL_SQUAD[i];
-            const a = (Math.PI * 2 * i) / PIRATE_FULL_SQUAD.length + Math.random() * 0.2;
-            const spawnU = spawnUnitAt(
-              oc.x + Math.cos(a) * oR * 0.3,
-              oc.y + Math.sin(a) * oR * 0.3,
-              PIRATE_OWNER_ID,
-              t,
-              [],
-              { sourceTag: batchTag, autoGroupUntil: state.t + 3, allowAutoJoinRecentSpawn: true }
-            );
-            if (spawnU) spawnU._piratePatrol = true;
-          }
-        }
-      } else {
-        state.pirateBase._respawnTimer = 0;
-        state.pirateBase._initialSpawned = true;
-      }
-      const oc = state.pirateBase.orbitCenter || { x: state.pirateBase.x, y: state.pirateBase.y };
-      const oR = state.pirateBase.orbitRadius || 200;
-      const patrolHalf = (CFG.MINE_CAPTURE_RADIUS || 140) * 2;
-      const baseUnderAttack = state.pirateBase._lastAttackedAt && (state.t - state.pirateBase._lastAttackedAt) < 5;
-      if (typeof SQUADLOGIC !== "undefined") {
-        const pirateSquads = [...state.squads.values()].filter((sq) => sq.ownerId === PIRATE_OWNER_ID && SQUADLOGIC.getSquadUnits(state, sq).length > 0);
-        for (const squadState of pirateSquads) {
-          const leader = state.units.get(squadState.leaderUnitId);
-          if (!leader) continue;
-          if ((leader._hyperArrivalFlash && state.t < leader._hyperArrivalFlash) || (leader._pirateHyperUntil && state.t < leader._pirateHyperUntil)) continue;
-          if (squadState.combat.mode === "approach" || squadState.combat.mode === "engaged") continue;
-
-          if (baseUnderAttack) {
-            const defX = state.pirateBase._attackerX ?? state.pirateBase.x;
-            const defY = state.pirateBase._attackerY ?? state.pirateBase.y;
-            SQUADLOGIC.issueMoveOrder(state, squadState.id, [{ x: defX, y: defY }], Math.atan2(defY - leader.y, defX - leader.x));
-            continue;
+        if (pirateCount === 0) {
+          if (needsInitialSpawn) {
+            pb._respawnTimer = 0;
+          } else if (pb._respawnTimer <= 0) {
+            pb._respawnTimer = PIRATE_RESPAWN_CD;
           }
 
-          if (squadState._piratePatrolIdx == null) squadState._piratePatrolIdx = squadState.id % 4;
-          const corners = [
-            { x: oc.x - patrolHalf, y: oc.y - patrolHalf },
-            { x: oc.x + patrolHalf, y: oc.y - patrolHalf },
-            { x: oc.x + patrolHalf, y: oc.y + patrolHalf },
-            { x: oc.x - patrolHalf, y: oc.y + patrolHalf }
-          ];
-          const target = corners[squadState._piratePatrolIdx % 4];
-          const dist = Math.hypot(leader.x - target.x, leader.y - target.y);
-          if (dist < 40) squadState._piratePatrolIdx = (squadState._piratePatrolIdx + 1) % 4;
-          const wp = corners[squadState._piratePatrolIdx % 4];
-          SQUADLOGIC.issueMoveOrder(state, squadState.id, [{ x: wp.x, y: wp.y }], Math.atan2(wp.y - leader.y, wp.x - leader.x));
+          if (!needsInitialSpawn) pb._respawnTimer -= dt;
+
+          if (needsInitialSpawn || pb._respawnTimer <= 0) {
+            pb._respawnTimer = 0;
+            pb._initialSpawned = true;
+            const oc = pb.orbitCenter || { x: pb.x, y: pb.y };
+            const oR = pb.orbitRadius || 200;
+            const batchTag = `${pb.id}-${Math.floor(state.t)}`;
+            for (let i = 0; i < PIRATE_FULL_SQUAD.length; i++) {
+              const t = PIRATE_FULL_SQUAD[i];
+              const a = (Math.PI * 2 * i) / PIRATE_FULL_SQUAD.length + Math.random() * 0.2;
+              const spawnU = spawnUnitAt(
+                oc.x + Math.cos(a) * oR * 0.3,
+                oc.y + Math.sin(a) * oR * 0.3,
+                PIRATE_OWNER_ID,
+                t,
+                [],
+                { sourceTag: batchTag, autoGroupUntil: state.t + 3, allowAutoJoinRecentSpawn: true }
+              );
+              if (spawnU) {
+                spawnU._piratePatrol = true;
+                spawnU._pirateBaseId = pb.id;
+              }
+            }
+          }
+        } else {
+          pb._respawnTimer = 0;
+          pb._initialSpawned = true;
         }
-      } else {
-        for (const u of state.units.values()) {
-          if (u.owner !== PIRATE_OWNER_ID) continue;
-          if ((u._hyperArrivalFlash && state.t < u._hyperArrivalFlash) || (u._pirateHyperUntil && state.t < u._pirateHyperUntil)) continue;
-          const cs = u._combatState;
-          if (cs === "acquire" || cs === "chase" || cs === "attack" || cs === "siege") continue;
-          if (!u._patrolAngle) u._patrolAngle = Math.atan2(u.y - oc.y, u.x - oc.x);
-          const angSpeed = (u.unitType === "cruiser") ? 0.15 : (u.unitType === "destroyer") ? 0.22 : 0.3;
-          u._patrolAngle += angSpeed * dt;
-          const pr = oR * (0.6 + (u.id % 5) * 0.08);
-          const cosA = Math.cos(u._patrolAngle), sinA = Math.sin(u._patrolAngle);
-          const tx = oc.x + cosA * pr;
-          const ty = oc.y + sinA * pr;
-          const lead = 35;
-          const wpX = tx - sinA * lead;
-          const wpY = ty + cosA * lead;
-          u.waypoints = [{ x: wpX, y: wpY }];
-          u.waypointIndex = 0;
+
+        const oc = pb.orbitCenter || { x: pb.x, y: pb.y };
+        const patrolRadius = (pb.orbitRadius || 200) * 0.78;
+        const baseUnderAttack = pb._lastAttackedAt && (state.t - pb._lastAttackedAt) < 5;
+
+        if (typeof SQUADLOGIC !== "undefined") {
+          const pirateSquads = [...state.squads.values()].filter((sq) => {
+            if (sq.ownerId !== PIRATE_OWNER_ID) return false;
+            const leader = state.units.get(sq.leaderUnitId);
+            return leader && leader._pirateBaseId === pb.id && SQUADLOGIC.getSquadUnits(state, sq).length > 0;
+          });
+          for (const squadState of pirateSquads) {
+            const leader = state.units.get(squadState.leaderUnitId);
+            if (!leader) continue;
+            if ((leader._hyperArrivalFlash && state.t < leader._hyperArrivalFlash) || (leader._pirateHyperUntil && state.t < leader._pirateHyperUntil)) continue;
+            if (squadState.combat.mode === "approach" || squadState.combat.mode === "engaged") continue;
+
+            if (baseUnderAttack) {
+              const defX = pb._attackerX ?? pb.x;
+              const defY = pb._attackerY ?? pb.y;
+              SQUADLOGIC.issueMoveOrder(state, squadState.id, [{ x: defX, y: defY }], Math.atan2(defY - leader.y, defX - leader.x));
+              continue;
+            }
+
+            if (squadState._piratePatrolIdx == null) squadState._piratePatrolIdx = 0;
+            const patrolPoints = [0, 120, 240].map((deltaDeg) => {
+              const ang = degFromTopClockwiseToRad((pb.patrolAngleDeg || 0) + deltaDeg);
+              return {
+                x: oc.x + Math.cos(ang) * patrolRadius,
+                y: oc.y + Math.sin(ang) * patrolRadius
+              };
+            });
+            const target = patrolPoints[squadState._piratePatrolIdx % patrolPoints.length];
+            const dist = Math.hypot(leader.x - target.x, leader.y - target.y);
+            if (dist < 42) squadState._piratePatrolIdx = (squadState._piratePatrolIdx + 1) % patrolPoints.length;
+            const wp = patrolPoints[squadState._piratePatrolIdx % patrolPoints.length];
+            SQUADLOGIC.issueMoveOrder(state, squadState.id, [{ x: wp.x, y: wp.y }], Math.atan2(wp.y - leader.y, wp.x - leader.x));
+          }
+        } else {
+          for (const u of basePirateUnits) {
+            if ((u._hyperArrivalFlash && state.t < u._hyperArrivalFlash) || (u._pirateHyperUntil && state.t < u._pirateHyperUntil)) continue;
+            const cs = u._combatState;
+            if (cs === "acquire" || cs === "chase" || cs === "attack" || cs === "siege") continue;
+            const baseAngle = degFromTopClockwiseToRad(pb.patrolAngleDeg || 0);
+            if (u._patrolAngle == null) u._patrolAngle = baseAngle + (u.id % 7) * 0.22;
+            const angSpeed = (u.unitType === "cruiser") ? 0.15 : (u.unitType === "destroyer") ? 0.22 : 0.3;
+            u._patrolAngle += angSpeed * dt;
+            const pr = patrolRadius * (0.72 + (u.id % 5) * 0.05);
+            const cosA = Math.cos(u._patrolAngle), sinA = Math.sin(u._patrolAngle);
+            const tx = oc.x + cosA * pr;
+            const ty = oc.y + sinA * pr;
+            const lead = 35;
+            const wpX = tx - sinA * lead;
+            const wpY = ty + cosA * lead;
+            u.waypoints = [{ x: wpX, y: wpY }];
+            u.waypointIndex = 0;
+          }
         }
       }
     }
@@ -5810,7 +6591,7 @@
       laneCount: 2,
       laneOffset: 10,
       pulseSpeed: 0.21,
-      packetSpeed: 0.22,
+      packetSpeed: 0.088,
       arcBias: 20,
       arcMul: 0.12,
       packetStyle: "prism"
@@ -5821,7 +6602,7 @@
       laneCount: 1,
       laneOffset: 0,
       pulseSpeed: 0.22,
-      packetSpeed: 0.20,
+      packetSpeed: 0.08,
       arcBias: 14,
       arcMul: 0.09,
       packetStyle: "relay"
@@ -6340,113 +7121,15 @@
     }
   }
 
-  // ── Nebula placement (static, not moving); none in or touching initial influence zones ──
+  // ── Nebula placement: background-only visual layer, no gameplay zones ──
   function placeNebulae(rndFn) {
-    const rnd = rndFn || (() => Math.random());
     state.nebulae = [];
+    stateNebulaClouds = [];
+    stateNebulaFogWisps = [];
     invalidateNebulaBodyGraphics();
-    const variantOffset = Math.floor(rnd() * NEBULA_VISUAL_VARIANTS.length);
-    const baseInflR = CFG.INFLUENCE_BASE_R || 240;
-    function nebulaTouchesAnyInitialZone(cx, cy, r) {
-      for (const p of state.players.values()) {
-        if (p.eliminated) continue;
-        const zoneR = p.influenceR ?? baseInflR;
-        if (Math.hypot(cx - p.x, cy - p.y) <= r + zoneR) return true;
-      }
-      return false;
-    }
-    const NEBULA_HUE_PALETTE = [0x2a1a5e, 0x1a4a6e, 0x1a5e3a, 0x6e2a1a, 0x6e5e1a];
-    function pickNebulaHue() {
-      return NEBULA_HUE_PALETTE[Math.floor(rnd() * NEBULA_HUE_PALETTE.length)];
-    }
-    if (stateNebulaClouds && stateNebulaClouds.length) {
-      for (const c of stateNebulaClouds) {
-        if (nebulaTouchesAnyInitialZone(c.cx, c.cy, c.r)) continue;
-        const neb = {
-          x: c.cx,
-          y: c.cy,
-          radius: c.r,
-          _baseX: c.cx,
-          _baseY: c.cy,
-          _baseRadius: c.r,
-          _floatPhaseX: rnd() * Math.PI * 2,
-          _floatPhaseY: rnd() * Math.PI * 2,
-          _floatPhaseX2: rnd() * Math.PI * 2,
-          _floatPhaseY2: rnd() * Math.PI * 2,
-          _floatAmpX: 3 + rnd() * 6,
-          _floatAmpY: 3 + rnd() * 6,
-          _floatAmpX2: 1 + rnd() * 3,
-          _floatAmpY2: 1 + rnd() * 3,
-          _floatFreqX: 0.012 + rnd() * 0.010,
-          _floatFreqY: 0.011 + rnd() * 0.010,
-          _floatFreqX2: 0.007 + rnd() * 0.006,
-          _floatFreqY2: 0.006 + rnd() * 0.006,
-          _breathPhase: rnd() * Math.PI * 2,
-          _breathPhase2: rnd() * Math.PI * 2,
-          _breathAmp: 0.012 + rnd() * 0.016,
-          _breathAmp2: 0.004 + rnd() * 0.008,
-          _breathFreq: 0.010 + rnd() * 0.008,
-          _breathFreq2: 0.006 + rnd() * 0.005,
-          discharges: [],
-          _hue: pickNebulaHue(),
-          _visualVariantIndex: (variantOffset + state.nebulae.length) % NEBULA_VISUAL_VARIANTS.length
-        };
-        initNebulaVisual(neb);
-        state.nebulae.push(neb);
-      }
-    } else {
-      const cx = CFG.WORLD_W * 0.5, cy = CFG.WORLD_H * 0.5;
-      const cand = [{ x: cx, y: cy, radius: CFG.NEBULA_CENTER_RADIUS }];
-      for (let i = 0; i < CFG.NEBULA_EXTRA_COUNT; i++) {
-        const a = ((i + 0.5) / CFG.NEBULA_EXTRA_COUNT) * Math.PI * 2;
-        const d = Math.min(CFG.WORLD_W, CFG.WORLD_H) * (0.18 + rnd() * 0.12);
-        const r = CFG.NEBULA_EXTRA_R_MIN + rnd() * (CFG.NEBULA_EXTRA_R_MAX - CFG.NEBULA_EXTRA_R_MIN);
-        cand.push({ x: clamp(cx + Math.cos(a) * d, r + 20, CFG.WORLD_W - r - 20), y: clamp(cy + Math.sin(a) * d, r + 20, CFG.WORLD_H - r - 20), radius: r });
-      }
-      for (const c of cand) {
-        if (nebulaTouchesAnyInitialZone(c.x, c.y, c.r)) continue;
-        const neb = {
-          x: c.x,
-          y: c.y,
-          radius: c.r,
-          _baseX: c.x,
-          _baseY: c.y,
-          _baseRadius: c.r,
-          _floatPhaseX: rnd() * Math.PI * 2,
-          _floatPhaseY: rnd() * Math.PI * 2,
-          _floatPhaseX2: rnd() * Math.PI * 2,
-          _floatPhaseY2: rnd() * Math.PI * 2,
-          _floatAmpX: 3 + rnd() * 6,
-          _floatAmpY: 3 + rnd() * 6,
-          _floatAmpX2: 1 + rnd() * 3,
-          _floatAmpY2: 1 + rnd() * 3,
-          _floatFreqX: 0.012 + rnd() * 0.010,
-          _floatFreqY: 0.011 + rnd() * 0.010,
-          _floatFreqX2: 0.007 + rnd() * 0.006,
-          _floatFreqY2: 0.006 + rnd() * 0.006,
-          _breathPhase: rnd() * Math.PI * 2,
-          _breathPhase2: rnd() * Math.PI * 2,
-          _breathAmp: 0.012 + rnd() * 0.016,
-          _breathAmp2: 0.004 + rnd() * 0.008,
-          _breathFreq: 0.010 + rnd() * 0.008,
-          _breathFreq2: 0.006 + rnd() * 0.005,
-          discharges: [],
-          _hue: pickNebulaHue(),
-          _visualVariantIndex: (variantOffset + state.nebulae.length) % NEBULA_VISUAL_VARIANTS.length
-        };
-        initNebulaVisual(neb);
-        state.nebulae.push(neb);
-      }
-    }
   }
 
   function isInNebula(x, y) {
-    if (!state.nebulae || !state.nebulae.length) return false;
-    for (const neb of state.nebulae) {
-      const zone = getAnimatedNebulaZone(neb);
-      const d2 = (x - zone.x) ** 2 + (y - zone.y) ** 2;
-      if (d2 <= zone.radius * zone.radius) return true;
-    }
     return false;
   }
 
@@ -6522,6 +7205,7 @@
     destroyChildren(nebulaLayer);
     destroyChildren(nebulaFxLayer);
     destroyChildren(zonesLayer);
+    clearTransientWorldFxLayers();
     destroyChildren(turretLayer);
     destroyChildren(resLayer);
     destroyChildren(unitsLayer);
@@ -6561,6 +7245,14 @@
     state._gameOver = false;
     state._pendingFullSnap = null;
     state._pendingSnap = null;
+    for (const bh of state._blackHoles || []) destroyBlackHoleVisual(bh);
+    state._blackHoles = [];
+    for (const strike of state._orbitalStrikes || []) destroyOrbitalStrikeVisual(strike);
+    state._orbitalStrikes = [];
+    for (const strike of state._thermoNukes || []) destroyThermoNukeVisual(strike);
+    state._thermoNukes = [];
+    for (const raid of state._pirateRaids || []) destroyPirateRaidVisual(raid);
+    state._pirateRaids = [];
     state._randomBlackHoleNextAt = 300;
     state._randomMeteorNextAt = 240;
     state._randomMeteorScheduled = [];
@@ -6661,13 +7353,7 @@
         if (mine.gfx) updateMineProgressBar(mine);
       }
 
-      if (state.pirateBase) {
-        if (state.pirateBase.gfx && state.pirateBase.gfx.parent) state.pirateBase.gfx.parent.removeChild(state.pirateBase.gfx);
-        if (state.pirateBase._emojiGfx && state.pirateBase._emojiGfx.parent) state.pirateBase._emojiGfx.parent.removeChild(state.pirateBase._emojiGfx);
-        state.pirateBase.gfx = null;
-        state.pirateBase._emojiGfx = null;
-        state.pirateBase = null;
-      }
+      clearPirateBases();
 
       const spawnStressCorvettes = (ownerId, origin, targetCity, attackTarget, mergeIntoOneSquad) => {
         const count = 400;
@@ -6774,6 +7460,7 @@
     destroyChildren(nebulaLayer);
     destroyChildren(nebulaFxLayer);
     destroyChildren(zonesLayer);
+    clearTransientWorldFxLayers();
     destroyChildren(turretLayer);
     destroyChildren(resLayer);
     destroyChildren(unitsLayer);
@@ -6812,6 +7499,14 @@
     state._gameOver = false;
     state._pendingFullSnap = null;
     state._pendingSnap = null;
+    for (const bh of state._blackHoles || []) destroyBlackHoleVisual(bh);
+    state._blackHoles = [];
+    for (const strike of state._orbitalStrikes || []) destroyOrbitalStrikeVisual(strike);
+    state._orbitalStrikes = [];
+    for (const strike of state._thermoNukes || []) destroyThermoNukeVisual(strike);
+    state._thermoNukes = [];
+    for (const raid of state._pirateRaids || []) destroyPirateRaidVisual(raid);
+    state._pirateRaids = [];
     state._randomBlackHoleNextAt = 300;
     state._randomMeteorNextAt = 240;
     state._randomMeteorScheduled = [];
@@ -7106,6 +7801,7 @@
       x: sx, y: sy, vx: 0, vy: 0,
       hp: type.hp, maxHp: type.hp, dmg: type.damage, atkCd: 0,
       attackRange: type.attackRange, maxTargets: type.maxTargets, speed: type.speed,
+      baseMaxHp: type.hp, baseDamage: type.damage, baseAttackRate: type.attackRate, baseAttackRange: type.attackRange, baseSpeed: type.speed,
       orbitTarget: type.orbitTarget, popPenalty: type.popPenaltyPerUnit,
       regenPerSec: 0, gfx: null,
       waypoints: Array.isArray(waypoints) ? waypoints.map(w => ({ x: w.x, y: w.y })) : [{ x: sx + 50, y: sy }],
@@ -7168,7 +7864,6 @@
 
     const lb = getLevelBonusMul(p);
     const hpMul = (p.unitHpMul != null ? p.unitHpMul : 1) * lb;
-    const dmgMul = (p.unitDmgMul != null ? p.unitDmgMul : 1) * lb;
     const atkRateMul = (p.unitAtkRateMul != null ? p.unitAtkRateMul : 1) * lb;
 
     const REGEN_ROLL_CHANCE = 0.012;
@@ -7192,11 +7887,16 @@
         vx, vy,
         hp: Math.round(type.hp * hpMul),
         maxHp: Math.round(type.hp * hpMul),
-        dmg: Math.max(1, Math.round(type.damage * dmgMul)),
+        dmg: type.damage,
         atkCd: rand(0, 1 / (type.attackRate * atkRateMul)),
         attackRange: type.attackRange,
         maxTargets: type.maxTargets,
         speed: type.speed,
+        baseMaxHp: type.hp,
+        baseDamage: type.damage,
+        baseAttackRate: type.attackRate,
+        baseAttackRange: type.attackRange,
+        baseSpeed: type.speed,
         orbitTarget: type.orbitTarget,
         popPenalty: type.popPenaltyPerUnit,
         regenPerSec,
@@ -7407,7 +8107,7 @@
   }
 
   // ------------------------------------------------------------
-  // Combat (all ranged, multi-target, nebula bonuses)
+  // Combat (all ranged, multi-target)
   // ------------------------------------------------------------
   function getUnitHitRadius(u) {
     const type = UNIT_TYPES[u.unitType] || UNIT_TYPES.fighter;
@@ -7438,9 +8138,9 @@
   function getUnitAtkRange(u) {
     const p = state.players.get(u.owner);
     const baseMul = p && p.unitAtkRangeMul != null ? p.unitAtkRangeMul : 1;
-    const nebMul = isInNebula(u.x, u.y) ? (1 + CFG.NEBULA_ATK_RANGE_BONUS) : 1;
     const lvlMul = getRangeLevelMul(p);
-    return (u.attackRange || 40) * Math.min(UNIT_ATK_RANGE_MAX_MUL, baseMul) * nebMul * lvlMul;
+    const baseRange = u.baseAttackRange || u.attackRange || 40;
+    return baseRange * Math.min(UNIT_ATK_RANGE_MAX_MUL, baseMul) * lvlMul;
   }
 
   const ENGAGEMENT_GROWTH_COEFF = 0.9;
@@ -7453,21 +8153,25 @@
   function getUnitBaseSpeed(u) {
     const classOrder = ["fighter", "destroyer", "cruiser", "battleship", "hyperDestroyer"];
     const classIdx = classOrder.indexOf(u.unitType || "fighter");
-    return (u.speed || UNIT_TYPES[u.unitType || "fighter"]?.speed || 9) * 1.1 * Math.max(0.5, 1 - classIdx * 0.06);
+    const baseSpeed = u.baseSpeed || u.speed || UNIT_TYPES[u.unitType || "fighter"]?.speed || 9;
+    return baseSpeed * 1.1 * Math.max(0.5, 1 - classIdx * 0.06);
   }
 
   function getUnitDmg(u) {
-    const nebMul = isInNebula(u.x, u.y) ? (1 + CFG.NEBULA_DMG_BONUS) : 1;
-    return Math.max(1, Math.round((u.dmg || 1) * nebMul));
+    const p = state.players.get(u.owner);
+    const baseDmg = u.baseDamage || u.dmg || 1;
+    const dmgMul = (p && p.unitDmgMul != null ? p.unitDmgMul : 1) * getLevelBonusMul(p);
+    return Math.max(1, Math.round(baseDmg * dmgMul));
   }
 
   function getUnitAtkRate(u) {
     const type = UNIT_TYPES[u.unitType] || UNIT_TYPES.fighter;
     const p = state.players.get(u.owner);
     const rateMul = (p && p.unitAtkRateMul != null ? p.unitAtkRateMul : 1);
-    const nebMul = isInNebula(u.x, u.y) ? (1 + CFG.NEBULA_ATK_RATE_BONUS) : 1;
-    let rate = type.attackRate * rateMul * nebMul * getLevelBonusMul(p);
+    const baseAttackRate = u.baseAttackRate || type.attackRate;
+    let rate = baseAttackRate * rateMul * getLevelBonusMul(p);
     if (u._cryoSlowUntil && state.t < u._cryoSlowUntil) rate *= (1 - (u._cryoSlowAmount ?? CFG.CRYO_SLOW ?? 0.4));
+    if (u._atkReductionUntil && state.t < u._atkReductionUntil) rate *= (1 - (u._atkReductionAmount ?? 0.25));
     return rate;
   }
 
@@ -7481,6 +8185,10 @@
         if (u.hp <= 0) { u.lastDamagedBy = u._fireDotOwner; continue; }
       }
       if (u._cryoSlowUntil && state.t > u._cryoSlowUntil) u._cryoSlowUntil = 0;
+      if (u._atkReductionUntil && state.t > u._atkReductionUntil) {
+        u._atkReductionUntil = 0;
+        u._atkReductionAmount = 0;
+      }
       if (u.hp > 0 && (u.regenPerSec || 0) > 0 && u.hp < (u.maxHp || 999999)) {
         let regen = u.regenPerSec * dt;
         if (u._cryoSlowUntil && state.t < u._cryoSlowUntil) regen *= 0.5;
@@ -7525,8 +8233,7 @@
         for (let ti = 0; ti < firePlan.targets.length; ti++) {
           const tgt = firePlan.targets[ti];
           hitTargets.add(tgt.id);
-          const nebDmgTaken = isInNebula(tgt.x, tgt.y) ? (1 + CFG.NEBULA_DMG_TAKEN_BONUS) : 1;
-          const dmg = Math.max(1, Math.round(getUnitDmg(u) * nebDmgTaken));
+          const dmg = Math.max(1, Math.round(getUnitDmg(u)));
           const hpA = facing + hpAngles[ti % hpAngles.length];
           const fromX = firePlan.targets.length > 1 ? u.x + Math.cos(hpA) * hitR : u.x;
           const fromY = firePlan.targets.length > 1 ? u.y + Math.sin(hpA) * hitR : u.y;
@@ -7560,10 +8267,9 @@
         });
       }
 
-      if (hitTargets.size === 0 && u.owner !== PIRATE_OWNER_ID && state.pirateBase && state.pirateBase.hp > 0) {
-        const pb = state.pirateBase;
-        const d2base = (u.x - pb.x) ** 2 + (u.y - pb.y) ** 2;
-        if (d2base <= atkRange2) {
+      if (hitTargets.size === 0 && u.owner !== PIRATE_OWNER_ID) {
+        const pb = getNearestAlivePirateBase(u.x, u.y, Math.sqrt(atkRange2));
+        if (pb) {
           u.atkCd = 1 / getUnitAtkRate(u);
           const dmg = getUnitDmg(u);
           if (typeof playLaserSound === "function") playLaserSound(u.x, u.y, pb.x, pb.y);
@@ -7573,7 +8279,7 @@
             color: p ? p.color : 0xaa44ff,
             ownerId: u.owner, dmg,
             duration: 0.6, progress: 0,
-            targetId: "pirateBase", targetType: "pirateBase",
+            targetId: pb.id, targetType: "pirateBase",
             attackEffect: p ? p.attackEffect : null,
             attackEffects: p ? p.attackEffects : null
           });
@@ -7639,9 +8345,92 @@
     }
   }
 
+  function getPirateBaseAttackRange(pb) {
+    return Math.max(80, pb && pb.attackRange != null ? pb.attackRange : PIRATE_BASE_ATTACK_RANGE);
+  }
+
+  function getPirateBaseShotDamage(target) {
+    const unitCfg = UNIT_TYPES[target && target.unitType] || UNIT_TYPES.fighter;
+    const maxHp = Math.max(1, target && (target.maxHp || target.baseMaxHp || target.hp) || unitCfg.hp || 1);
+    return Math.max(1, Math.round(PIRATE_BASE_ATTACK_FLAT_DMG + maxHp * PIRATE_BASE_ATTACK_MAX_HP_PCT));
+  }
+
+  function handlePirateBaseDestroyed(pb) {
+    if (!pb) return;
+    const killerId = pb.lastDamagedBy;
+    const killer = killerId != null ? state.players.get(killerId) : null;
+    if (killer) {
+      for (let L = 0; L < 10; L++) {
+        killer.level = (killer.level || 1) + 1;
+        killer.pendingCardPicks = (killer.pendingCardPicks || 0) + 1;
+        killer._levelBonusMul = 1 + (killer.level || 1) * 0.01;
+        killer.xpNext = xpNeed(killer.level, killer);
+      }
+      state.floatingDamage.push({ x: killer.x, y: killer.y - 50, text: "+10 ур.!", color: 0xffdd00, ttl: 3 });
+    }
+    for (const m of state.mines.values()) {
+      if (m.isRich) { m.ownerId = null; m.captureProgress = 0; m._capturingOwner = null; m._captureProtectedUntil = 0; updateMineVisual(m); break; }
+    }
+    removePirateBaseVisual(pb);
+    const remaining = getPirateBases().filter((entry) => entry && entry.id !== pb.id);
+    setPirateBases(remaining);
+  }
+
+  function stepPirateBaseDefense(dt) {
+    for (const pb of getAlivePirateBases()) {
+      pb.atkCd = Math.max(0, (pb.atkCd || 0) - dt);
+      if (pb.atkCd > 0) continue;
+
+      const range = getPirateBaseAttackRange(pb);
+      const range2 = range * range;
+      const nearby = queryHash(pb.x, pb.y, range);
+      const candidates = [];
+      for (let i = 0; i < nearby.length; i++) {
+        const u = nearby[i];
+        if (!u || u.hp <= 0 || u.owner === PIRATE_OWNER_ID) continue;
+        const d = (u.x - pb.x) ** 2 + (u.y - pb.y) ** 2;
+        if (d <= range2) candidates.push({ target: u, d });
+      }
+      if (!candidates.length) continue;
+
+      candidates.sort((a, b) => a.d - b.d);
+      const shotCount = Math.min(PIRATE_BASE_ATTACK_TARGETS, candidates.length);
+      const sideOffsets = shotCount >= 2 ? [-1, 1] : [0];
+      pb.atkCd = PIRATE_BASE_ATTACK_COOLDOWN;
+      pb._lastShotAt = state.t;
+
+      for (let i = 0; i < shotCount; i++) {
+        const target = candidates[i].target;
+        const aim = Math.atan2(target.y - pb.y, target.x - pb.x);
+        const side = sideOffsets[i] || 0;
+        const muzzleForward = 28;
+        const muzzleSide = 16 * side;
+        const fromX = pb.x + Math.cos(aim) * muzzleForward - Math.sin(aim) * muzzleSide;
+        const fromY = pb.y + Math.sin(aim) * muzzleForward + Math.cos(aim) * muzzleSide;
+        const dmg = getPirateBaseShotDamage(target);
+        if (typeof playLaserSound === "function") playLaserSound(fromX, fromY, target.x, target.y);
+        state.bullets.push({
+          type: "laser",
+          fromX,
+          fromY,
+          toX: target.x,
+          toY: target.y,
+          color: PIRATE_BASE_ATTACK_COLOR,
+          ownerId: PIRATE_OWNER_ID,
+          dmg,
+          duration: 0.42,
+          progress: 0,
+          targetId: target.id,
+          targetType: "unit"
+        });
+      }
+    }
+  }
+
   function stepCityDefense(dt) {
     // Planet core no longer auto-fires. Defensive ranged combat now belongs to orbiting turrets.
     for (const p of state.players.values()) p.cityAtkCd = 0;
+    stepPirateBaseDefense(dt);
   }
 
   function isUnitInPlayerZone(u, p) {
@@ -7669,7 +8458,8 @@
           const t = state.turrets.get(b.targetId);
           if (!t || t.hp <= 0) { state.bullets.splice(i, 1); continue; }
         } else if (b.targetType === "pirateBase") {
-          if (!state.pirateBase || state.pirateBase.hp <= 0) { state.bullets.splice(i, 1); continue; }
+          const pb = getPirateBaseById(b.targetId);
+          if (!pb || pb.hp <= 0) { state.bullets.splice(i, 1); continue; }
         }
         b.progress = (b.progress || 0) + dt / (b.duration || 0.2);
         if (b.progress >= 1) {
@@ -7750,34 +8540,15 @@
               if (t.hp <= 0) { spawnXPOrb(t.x, t.y, 8); t._diedAt = state.t; }
             }
           } else if (b.targetType === "pirateBase") {
-            if (state.pirateBase && state.pirateBase.hp > 0) {
-              state.pirateBase.hp = Math.max(0, state.pirateBase.hp - b.dmg);
-              state.pirateBase.lastDamagedBy = b.ownerId;
-              state.pirateBase._lastAttackedAt = state.t;
-              state.pirateBase._attackerX = b.fromX ?? state.pirateBase.x;
-              state.pirateBase._attackerY = b.fromY ?? state.pirateBase.y;
-              state.floatingDamage.push({ x: state.pirateBase.x, y: state.pirateBase.y - 30, text: "-" + b.dmg, color: b.color ?? 0xaa44ff, ttl: 0.9 });
-              if (state.pirateBase.hp <= 0) {
-                const killerId = state.pirateBase.lastDamagedBy;
-                const killer = killerId != null ? state.players.get(killerId) : null;
-                if (killer) {
-                  for (let L = 0; L < 10; L++) {
-                    killer.level = (killer.level || 1) + 1;
-                    killer.pendingCardPicks = (killer.pendingCardPicks || 0) + 1;
-                    killer._levelBonusMul = 1 + (killer.level || 1) * 0.01;
-                    killer.xpNext = xpNeed(killer.level, killer);
-                  }
-                  state.floatingDamage.push({ x: killer.x, y: killer.y - 50, text: "+10 ур.!", color: 0xffdd00, ttl: 3 });
-                }
-                for (const m of state.mines.values()) {
-                  if (m.isRich) { m.ownerId = null; m.captureProgress = 0; m._capturingOwner = null; m._captureProtectedUntil = 0; updateMineVisual(m); break; }
-                }
-                if (state.pirateBase.gfx && state.pirateBase.gfx.parent) state.pirateBase.gfx.parent.removeChild(state.pirateBase.gfx);
-                if (state.pirateBase._emojiGfx && state.pirateBase._emojiGfx.parent) state.pirateBase._emojiGfx.parent.removeChild(state.pirateBase._emojiGfx);
-                state.pirateBase.gfx = null;
-                state.pirateBase._emojiGfx = null;
-                state.pirateBase = null;
-              }
+            const pb = getPirateBaseById(b.targetId);
+            if (pb && pb.hp > 0) {
+              pb.hp = Math.max(0, pb.hp - b.dmg);
+              pb.lastDamagedBy = b.ownerId;
+              pb._lastAttackedAt = state.t;
+              pb._attackerX = b.fromX ?? pb.x;
+              pb._attackerY = b.fromY ?? pb.y;
+              state.floatingDamage.push({ x: pb.x, y: pb.y - 30, text: "-" + b.dmg, color: b.color ?? 0xaa44ff, ttl: 0.9 });
+              if (pb.hp <= 0) handlePirateBaseDestroyed(pb);
             }
           } else if (b.targetType === "city") {
             const p = state.players.get(b.targetId);
@@ -8084,8 +8855,9 @@
       desired.ty = movement.ty;
       desired.moveMode = movement.moveMode || "formation_move";
     }
-    if (state.pirateBase && state.pirateBase.hp > 0 && u.owner !== PIRATE_OWNER_ID) {
-      const pb = state.pirateBase;
+    if (u.owner !== PIRATE_OWNER_ID) {
+      const pb = getNearestAlivePirateBase(u.x, u.y);
+      if (!pb) return;
       const pbDist = Math.hypot(u.x - pb.x, u.y - pb.y);
       const atkR = getUnitAtkRange(u);
       if (pbDist < atkR * 1.5 && desired.moveMode !== "stop") {
@@ -8771,17 +9543,11 @@
       p.popFloat = (p.popFloat || p.pop) + 10;
       p._levelBonusMul = 1 + p.level * 0.01;
       p.xpNext = xpNeed(p.level, p);
-      p.pendingCardPicks = (p.pendingCardPicks || 0) + 1;
+      const draw = drawRandomCardForPlayer(p, "levelUp");
+      if (draw && state.botPlayerIds && state.botPlayerIds.has(p.id)) autoPlayBotCardHands(p);
     }
     if (p.id === state.myPlayerId && p.level > prevLevel) levelUpSound();
-    if (p.id !== state.myPlayerId && (p.pendingCardPicks || 0) > 0 && state.botPlayerIds && state.botPlayerIds.has(p.id)) {
-      while (p.pendingCardPicks > 0) {
-        const cards = getRandomCards(3, p);
-        const pick = cards[Math.floor(Math.random() * cards.length)];
-        applyCard(p, pick);
-        p.pendingCardPicks--;
-      }
-    }
+    p.pendingCardPicks = 0;
   }
 
   // ------------------------------------------------------------
@@ -9591,7 +10357,7 @@
   else document.querySelector(".speed-btn[data-speed='1']")?.classList.add("active");
 
   const lvlUpBtn = document.getElementById("lvlUpBtn");
-  if (lvlUpBtn) lvlUpBtn.addEventListener("click", openCardModal);
+  if (lvlUpBtn) lvlUpBtn.addEventListener("click", focusCardHud);
 
   // ------------------------------------------------------------
   // Spawn resources scheduler
@@ -9629,23 +10395,811 @@
   // ------------------------------------------------------------
   function updateLvlUpButton() {
     const me = state.players.get(state.myPlayerId);
-    const btn = document.getElementById("lvlUpBtn");
-    const countEl = document.getElementById("lvlUpCount");
     const progressEl = document.getElementById("lvlUpProgress");
     const levelTextEl = document.getElementById("lvlUpLevelText");
     const xpTextEl = document.getElementById("lvlUpXpText");
-    if (!btn || !me) return;
-    const n = me.pendingCardPicks || 0;
+    const handTextEl = document.getElementById("lvlUpHandText");
+    if (!me) return;
+    ensurePlayerCardState(me);
+    const n = (me.buffHand?.length || 0) + (me.abilityHand?.length || 0);
     const xpNext = me.xpNext || 1;
     const pct = Math.min(1, (me.xp || 0) / xpNext);
     if (progressEl) progressEl.style.width = (pct * 100) + "%";
-    if (countEl) countEl.textContent = n;
     if (levelTextEl) levelTextEl.textContent = "Ур. " + (me.level || 1);
+    if (handTextEl) handTextEl.textContent = "Рука: " + n;
     const gainMod = me.xpGainMul != null && me.xpGainMul !== 1 ? " " + (me.xpGainMul > 1 ? "+" : "") + (Math.round((me.xpGainMul - 1) * 100)) + "%" : "";
     if (xpTextEl) xpTextEl.textContent = "(" + Math.floor(me.xp || 0) + gainMod + ")";
-    btn.classList.toggle("lvlup-btn-gray", n === 0);
-    btn.classList.toggle("lvlup-btn-ready", n > 0);
-    btn.style.visibility = "visible";
+  }
+
+  function focusCardHud() {
+    const hud = document.getElementById("cardHud");
+    if (!hud) return;
+    hud.style.display = "flex";
+    hud.style.transform = "translateY(-2px)";
+    setTimeout(() => { hud.style.transform = ""; }, 180);
+  }
+
+  function isRemoteGameplayClient() {
+    return !!(state._multiSlots && state._socket && !state._multiIsHost);
+  }
+
+  function getCardRarityLabel(card) {
+    return CARD_RARITY_LABELS[card.rarity] || card.rarity || "карта";
+  }
+
+  function getCardRarityPin(rarity) {
+    return CARD_RARITY_PINS[rarity] || "?";
+  }
+
+  function findPlayerHandCardInstance(player, instanceId) {
+    if (!player || !instanceId) return null;
+    ensurePlayerCardState(player);
+    const buff = Array.isArray(player.buffHand) ? player.buffHand.find((entry) => entry.instanceId === instanceId) : null;
+    if (buff) return buff;
+    return Array.isArray(player.abilityHand) ? player.abilityHand.find((entry) => entry.instanceId === instanceId) : null;
+  }
+
+  function ensureCardPlayFlashOverlay() {
+    let overlay = document.getElementById("cardPlayFlashOverlay");
+    if (overlay) return overlay;
+    const gameWrap = document.getElementById("gameWrap");
+    overlay = document.createElement("div");
+    overlay.id = "cardPlayFlashOverlay";
+    overlay.className = "card-play-flash-overlay";
+    (gameWrap || document.body).appendChild(overlay);
+    return overlay;
+  }
+
+  function triggerCardPlayFlashByRarity(rarity) {
+    const overlay = ensureCardPlayFlashOverlay();
+    if (!overlay) return;
+    const rarityKey = rarity || "common";
+    overlay.className = "card-play-flash-overlay rarity-" + rarityKey;
+    if (overlay._hideTimer) window.clearTimeout(overlay._hideTimer);
+    void overlay.offsetWidth;
+    overlay.classList.add("active");
+    overlay._hideTimer = window.setTimeout(() => {
+      overlay.classList.remove("active");
+    }, 1000);
+  }
+
+  function appendHandCardTrace(container, className, styleMap) {
+    if (!container) return;
+    const trace = document.createElement("span");
+    trace.className = "hand-card-trace " + className;
+    for (const [key, value] of Object.entries(styleMap || {})) {
+      trace.style.setProperty(key, value);
+    }
+    const runner = document.createElement("span");
+    runner.className = "hand-card-runner";
+    trace.appendChild(runner);
+    container.appendChild(trace);
+  }
+
+  function createHandCardFx(cardDef) {
+    const fx = document.createElement("div");
+    fx.className = "hand-card-fx";
+
+    const circuit = document.createElement("div");
+    circuit.className = "hand-card-circuit";
+    appendHandCardTrace(circuit, "trace-h", { left: "10px", top: "12px", width: "118px", "--runner-duration": "1.55s" });
+    appendHandCardTrace(circuit, "trace-v", { left: "128px", top: "12px", height: "28px", "--runner-duration": "1.35s" });
+    appendHandCardTrace(circuit, "trace-h", { left: "56px", top: "40px", width: "72px", "--runner-duration": "1.7s" });
+    appendHandCardTrace(circuit, "trace-v", { left: "56px", top: "40px", height: "40px", "--runner-duration": "1.4s" });
+    appendHandCardTrace(circuit, "trace-h", { left: "22px", top: "80px", width: "106px", "--runner-duration": "1.85s" });
+    appendHandCardTrace(circuit, "trace-v", { left: "112px", top: "80px", height: "34px", "--runner-duration": "1.5s" });
+    appendHandCardTrace(circuit, "trace-h", { left: "44px", top: "114px", width: "84px", "--runner-duration": "1.65s" });
+    fx.appendChild(circuit);
+
+    const lamps = document.createElement("div");
+    lamps.className = "hand-card-right-lamps";
+    for (let i = 0; i < 5; i++) {
+      const lamp = document.createElement("span");
+      lamp.className = "hand-card-right-lamp";
+      lamp.style.setProperty("--lamp-index", String(i));
+      lamps.appendChild(lamp);
+    }
+    fx.appendChild(lamps);
+    return fx;
+  }
+
+  function getCardDurationText(card, entry) {
+    if (entry && entry.permanent) return "Постоянный";
+    if (card.permanent) return "Постоянный";
+    if (entry && entry.expiresAt != null) return "Осталось " + Math.max(0, Math.ceil(entry.expiresAt - state.t)) + "с";
+    if (card.durationSec) return card.durationSec + "с";
+    return "";
+  }
+
+  function activateHandCardInstance(instance, activationContext) {
+    const me = state.players.get(state.myPlayerId);
+    if (!me || !instance) return;
+    const cardDef = getCardDefById(instance.cardId);
+    if (!cardDef) return;
+    if (cardDef.kind === "buff") {
+      triggerCardPlayFlashByRarity(cardDef.rarity);
+      if (isRemoteGameplayClient()) {
+        state._socket.emit("playerAction", { type: "activateBuffCard", pid: state.myPlayerId, instanceId: instance.instanceId });
+      } else {
+        activateBuffCardForPlayer(state.myPlayerId, instance.instanceId);
+      }
+      return;
+    }
+    state._pendingAbilityCardInstanceId = instance.instanceId;
+    me.pendingAbilityCardId = instance.instanceId;
+    if (!cardDef.targeting || cardDef.targeting === "instant") {
+      triggerCardPlayFlashByRarity(cardDef.rarity);
+      if (isRemoteGameplayClient()) {
+        state._socket.emit("playerAction", { type: "castAbilityCard", pid: state.myPlayerId, instanceId: instance.instanceId });
+      } else {
+        castAbilityCardForPlayer({ pid: state.myPlayerId, instanceId: instance.instanceId });
+      }
+      return;
+    }
+    startAbilityTargeting(cardDef.abilityId);
+    focusCardHud();
+  }
+
+  function confirmPendingAbilityCardCast(extraPayload) {
+    const instanceId = state._pendingAbilityCardInstanceId;
+    if (!instanceId) return false;
+    const me = state.players.get(state.myPlayerId);
+    const instance = findPlayerHandCardInstance(me, instanceId);
+    const cardDef = instance ? getCardDefById(instance.cardId) : null;
+    const payload = Object.assign({
+      type: "castAbilityCard",
+      pid: state.myPlayerId,
+      instanceId
+    }, extraPayload || {});
+    if (cardDef) triggerCardPlayFlashByRarity(cardDef.rarity);
+    if (isRemoteGameplayClient()) state._socket.emit("playerAction", payload);
+    else castAbilityCardForPlayer(payload);
+    state._pendingAbilityCardInstanceId = null;
+    if (me) me.pendingAbilityCardId = null;
+    cancelAbilityTargeting();
+    return true;
+  }
+
+  function isGameplayDropTarget(clientX, clientY) {
+    const target = document.elementFromPoint(clientX, clientY);
+    if (!target) return false;
+    if (target.closest("#hud, #topRightPanel, #bottomRightPanel, #cardHud, #gameChatWrap, #enemyComparePanel, #minimapWrap, #victoryOverlay, #abilityOverlay, #cardModal, #mainMenu, #nicknameScreen, #lobbyScreen, #multiConnectScreen")) {
+      return false;
+    }
+    return !!target.closest("canvas, #gameWrap");
+  }
+
+  function getNowMs() {
+    return typeof performance !== "undefined" ? performance.now() : Date.now();
+  }
+
+  function beginCardHudFreeze(ms) {
+    state._cardHudFreezeUntilMs = getNowMs() + Math.max(0, ms || 0);
+  }
+
+  function isCardHudFrozen() {
+    return !!(state._cardHudFreezeUntilMs && getNowMs() < state._cardHudFreezeUntilMs);
+  }
+
+  function clearHoveredHandCard(targetCard) {
+    if (targetCard) targetCard.classList.remove("is-hovered");
+    const card = state._hoveredHandCardEl;
+    if (card) card.classList.remove("is-hovered");
+    const zoneBody = card && typeof card.closest === "function" ? card.closest(".card-zone-body") : null;
+    if (zoneBody) zoneBody.classList.remove("hover-lock");
+    if (state._hoveredHandCardCleanup) state._hoveredHandCardCleanup();
+    state._hoveredHandCardEl = null;
+    state._hoveredHandCardCleanup = null;
+  }
+
+  function getStableHandCardHoverRect(cardEl) {
+    const rect = cardEl.getBoundingClientRect();
+    return {
+      left: rect.left - 18,
+      right: rect.right + 18,
+      top: rect.top - 18,
+      bottom: rect.bottom + 170
+    };
+  }
+
+  function pointInStableHandCardRect(cardEl, x, y) {
+    const rect = getStableHandCardHoverRect(cardEl);
+    return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+  }
+
+  function setHoveredHandCard(cardEl) {
+    if (!cardEl) return;
+    if (state._hoveredHandCardEl === cardEl) return;
+    clearHoveredHandCard();
+    state._hoveredHandCardEl = cardEl;
+    cardEl.classList.add("is-hovered");
+    const zoneBody = cardEl.closest(".card-zone-body");
+    if (zoneBody) zoneBody.classList.add("hover-lock");
+
+    const onWindowPointerMove = (event) => {
+      if (!state._hoveredHandCardEl || state._hoveredHandCardEl !== cardEl) return;
+      if (state._draggingCardInstanceId === cardEl.dataset.instanceId) {
+        clearHoveredHandCard(cardEl);
+        return;
+      }
+      if (!pointInStableHandCardRect(cardEl, event.clientX, event.clientY)) clearHoveredHandCard(cardEl);
+    };
+    const onWindowPointerDown = () => clearHoveredHandCard(cardEl);
+    window.addEventListener("pointermove", onWindowPointerMove);
+    window.addEventListener("pointerdown", onWindowPointerDown, true);
+    state._hoveredHandCardCleanup = () => {
+      window.removeEventListener("pointermove", onWindowPointerMove);
+      window.removeEventListener("pointerdown", onWindowPointerDown, true);
+    };
+  }
+
+  function bindHandCardHoverState(cardEl) {
+    if (!cardEl || cardEl._hoverStateBound) return;
+    cardEl._hoverStateBound = true;
+    cardEl.addEventListener("pointerenter", () => {
+      if (state._draggingCardInstanceId) return;
+      setHoveredHandCard(cardEl);
+    });
+    cardEl.addEventListener("pointerleave", (event) => {
+      if (state._draggingCardInstanceId === cardEl.dataset.instanceId) return;
+      const x = event.clientX != null ? event.clientX : -99999;
+      const y = event.clientY != null ? event.clientY : -99999;
+      requestAnimationFrame(() => {
+        if (state._hoveredHandCardEl !== cardEl) return;
+        if (!pointInStableHandCardRect(cardEl, x, y)) clearHoveredHandCard(cardEl);
+      });
+    });
+  }
+
+  function animateFloatingCardGhost(ghost, targetLeft, targetTop, finalTransform, finalOpacity, done) {
+    if (!ghost) {
+      if (done) done();
+      return;
+    }
+    ghost.style.transition = "left 180ms cubic-bezier(0.2, 0.8, 0.2, 1), top 180ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 180ms ease, transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1)";
+    requestAnimationFrame(() => {
+      ghost.style.left = Math.round(targetLeft) + "px";
+      ghost.style.top = Math.round(targetTop) + "px";
+      if (finalTransform) ghost.style.transform = finalTransform;
+      if (finalOpacity != null) ghost.style.opacity = String(finalOpacity);
+    });
+    window.setTimeout(() => {
+      if (ghost.parentNode) ghost.parentNode.removeChild(ghost);
+      if (done) done();
+    }, 190);
+  }
+
+  function animateCardGhostReturn(ghost, sourceRect, done) {
+    animateFloatingCardGhost(ghost, sourceRect.left, sourceRect.top, "rotate(0deg) scale(1)", 1, done);
+  }
+
+  function animateCardGhostCommit(ghost, done) {
+    const currentLeft = parseFloat(ghost.style.left || "0") || 0;
+    const currentTop = parseFloat(ghost.style.top || "0") || 0;
+    animateFloatingCardGhost(ghost, currentLeft, currentTop - 30, "rotate(-8deg) scale(0.92)", 0, done);
+  }
+
+  function animateHandCardActivation(cardEl, done) {
+    if (!cardEl) {
+      if (done) done();
+      return;
+    }
+    clearHoveredHandCard(cardEl);
+    cardEl.classList.add("activating-card");
+    beginCardHudFreeze(180);
+    const rect = cardEl.getBoundingClientRect();
+    const ghost = cardEl.cloneNode(true);
+    ghost.classList.remove("is-hovered", "pending-target", "drag-source", "activating-card");
+    ghost.classList.add("drag-card-ghost");
+    ghost.style.width = rect.width + "px";
+    ghost.style.left = rect.left + "px";
+    ghost.style.top = rect.top + "px";
+    document.body.appendChild(ghost);
+    animateCardGhostCommit(ghost, () => {
+      cardEl.classList.remove("activating-card");
+      if (done) done();
+    });
+  }
+
+  function captureHandCardSnapshot(container) {
+    const snapshot = new Map();
+    if (!container) return snapshot;
+    const cards = container.querySelectorAll(".hand-card");
+    for (let i = 0; i < cards.length; i++) {
+      const card = cards[i];
+      snapshot.set(card.dataset.instanceId, {
+        rect: card.getBoundingClientRect(),
+        card
+      });
+    }
+    return snapshot;
+  }
+
+  function animateRemovedHandCards(prevSnapshot, container) {
+    if (!prevSnapshot || !prevSnapshot.size || !container) return;
+    const nextIds = new Set(Array.from(container.querySelectorAll(".hand-card")).map((card) => card.dataset.instanceId));
+    for (const [instanceId, snap] of prevSnapshot.entries()) {
+      if (nextIds.has(instanceId) || !snap || !snap.card) continue;
+      const ghost = snap.card.cloneNode(true);
+      ghost.classList.remove("is-hovered", "pending-target", "drag-source", "activating-card");
+      ghost.classList.add("drag-card-ghost");
+      ghost.style.width = snap.rect.width + "px";
+      ghost.style.left = snap.rect.left + "px";
+      ghost.style.top = snap.rect.top + "px";
+      document.body.appendChild(ghost);
+      animateCardGhostCommit(ghost);
+    }
+  }
+
+  function animateHandCardLayoutTransition(container, prevSnapshot) {
+    if (!container || !prevSnapshot || !prevSnapshot.size) return;
+    const cards = container.querySelectorAll(".hand-card");
+    for (let i = 0; i < cards.length; i++) {
+      const card = cards[i];
+      const snap = prevSnapshot.get(card.dataset.instanceId);
+      if (!snap || !snap.rect) continue;
+      const nextRect = card.getBoundingClientRect();
+      const dx = snap.rect.left - nextRect.left;
+      const dy = snap.rect.top - nextRect.top;
+      if (Math.abs(dx) < 1 && Math.abs(dy) < 1) continue;
+      if (typeof card.animate === "function") {
+        card.animate(
+          [
+            { translate: `${dx}px ${dy}px` },
+            { translate: "0px 0px" }
+          ],
+          {
+            duration: 180,
+            easing: "cubic-bezier(0.2, 0.8, 0.2, 1)"
+          }
+        );
+      }
+    }
+  }
+
+  function bindCardDragActivation(cardEl, instance, isPendingTarget) {
+    if (!cardEl || !instance || isPendingTarget) return;
+    cardEl.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0) return;
+      if (event.target.closest("button")) return;
+      event.preventDefault();
+      clearHoveredHandCard(cardEl);
+      const startX = event.clientX;
+      const startY = event.clientY;
+      const rect = cardEl.getBoundingClientRect();
+      const cardDef = getCardDefById(instance.cardId);
+      const keepsCardInHandOnActivate = !!(cardDef && cardDef.kind === "ability" && cardDef.targeting && cardDef.targeting !== "instant");
+      let dragging = false;
+      let ghost = null;
+
+      const onMove = (moveEvent) => {
+        const dx = moveEvent.clientX - startX;
+        const dy = moveEvent.clientY - startY;
+        if (!dragging && (Math.abs(dx) > 4 || Math.abs(dy) > 4)) {
+          dragging = true;
+          state._draggingCardInstanceId = instance.instanceId;
+          cardEl.classList.add("drag-source");
+          ghost = cardEl.cloneNode(true);
+          ghost.classList.remove("drag-source", "pending-target");
+          ghost.classList.add("drag-card-ghost");
+          ghost.style.width = rect.width + "px";
+          ghost.style.left = (startX - rect.width / 2) + "px";
+          ghost.style.top = (startY - 42) + "px";
+          document.body.appendChild(ghost);
+        }
+        if (!dragging) return;
+        const canDrop = isGameplayDropTarget(moveEvent.clientX, moveEvent.clientY);
+        if (ghost) {
+          ghost.style.left = (moveEvent.clientX - rect.width / 2) + "px";
+          ghost.style.top = (moveEvent.clientY - 42) + "px";
+          ghost.classList.toggle("drag-commit", canDrop);
+        }
+      };
+
+      const finish = (activate) => {
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+        window.removeEventListener("pointercancel", onCancel);
+        state._draggingCardInstanceId = null;
+        const sourceRect = cardEl.getBoundingClientRect();
+        if (!activate) {
+          cardEl.classList.remove("drag-source");
+          if (ghost) animateCardGhostReturn(ghost, sourceRect);
+          ghost = null;
+          return;
+        }
+        if (keepsCardInHandOnActivate) {
+          cardEl.classList.remove("drag-source");
+          if (ghost) {
+            animateCardGhostReturn(ghost, sourceRect, () => activateHandCardInstance(instance, { fromDrag: true }));
+            ghost = null;
+          } else {
+            activateHandCardInstance(instance, { fromDrag: true });
+          }
+          return;
+        }
+        cardEl.classList.add("activating-card");
+        beginCardHudFreeze(180);
+        if (ghost) {
+          animateCardGhostCommit(ghost, () => {
+            cardEl.classList.remove("drag-source", "activating-card");
+            activateHandCardInstance(instance, { fromDrag: true });
+          });
+          ghost = null;
+        } else {
+          cardEl.classList.remove("drag-source", "activating-card");
+          activateHandCardInstance(instance, { fromDrag: true });
+        }
+      };
+
+      const onUp = (upEvent) => {
+        finish(dragging && isGameplayDropTarget(upEvent.clientX, upEvent.clientY));
+      };
+
+      const onCancel = () => finish(false);
+
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp, { once: true });
+      window.addEventListener("pointercancel", onCancel, { once: true });
+    });
+  }
+
+  function createHandCardElement(instance, cardDef, isPendingTarget) {
+    const rarityKey = cardDef.rarity || "common";
+    const card = document.createElement("div");
+    card.className = "hand-card rarity-" + rarityKey + (isPendingTarget ? " pending-target" : "");
+    card.dataset.instanceId = instance.instanceId;
+    card.dataset.rarity = rarityKey;
+
+    const rarity = document.createElement("div");
+    rarity.className = "card-rarity-chip card-rarity-badge " + rarityKey;
+    rarity.textContent = getCardRarityPin(rarityKey);
+    rarity.title = getCardRarityLabel(cardDef);
+
+    const fx = createHandCardFx(cardDef);
+
+    const header = document.createElement("div");
+    header.className = "hand-card-header";
+
+    const icon = document.createElement("div");
+    icon.className = "hand-card-icon";
+    icon.textContent = cardDef.icon || getCardEmoji(cardDef);
+
+    const title = document.createElement("div");
+    title.className = "hand-card-title";
+    title.textContent = cardDef.name || "Карта";
+
+    header.appendChild(icon);
+    header.appendChild(title);
+
+    const desc = document.createElement("div");
+    desc.className = "hand-card-desc";
+    desc.textContent = cardDef.desc || "";
+
+    const meta = document.createElement("div");
+    meta.className = "hand-card-meta";
+    meta.textContent = isPendingTarget ? "ПКМ: отмена наведения" : getCardDurationText(cardDef, null);
+
+    const actions = document.createElement("div");
+    actions.className = "hand-card-actions";
+    const activateBtn = document.createElement("button");
+    activateBtn.type = "button";
+    activateBtn.className = "pill";
+    activateBtn.textContent = cardDef.kind === "ability"
+      ? (isPendingTarget ? "Ждёт цель" : "Активировать")
+      : "Активировать";
+    activateBtn.disabled = !!isPendingTarget;
+    activateBtn.addEventListener("click", () => {
+      const keepsCardInHandOnActivate = !!(cardDef.kind === "ability" && cardDef.targeting && cardDef.targeting !== "instant");
+      if (keepsCardInHandOnActivate) {
+        activateHandCardInstance(instance);
+        return;
+      }
+      animateHandCardActivation(card, () => activateHandCardInstance(instance));
+    });
+    actions.appendChild(activateBtn);
+
+    card.appendChild(fx);
+    card.appendChild(rarity);
+    card.appendChild(header);
+    card.appendChild(desc);
+    card.appendChild(meta);
+    card.appendChild(actions);
+    card.dataset.tooltip = (cardDef.name || "Карта") + "\n" + (cardDef.desc || "") + (isPendingTarget ? "\nПКМ: отмена наведения" : "\nПотяни вверх или нажми «Активировать»");
+    bindHandCardHoverState(card);
+    bindCardDragActivation(card, instance, isPendingTarget);
+    return card;
+  }
+
+  function fitTextToBox(el, maxFontPx, minFontPx, stepPx, lineHeight) {
+    if (!el || el.clientHeight <= 0) return;
+    const maxPx = maxFontPx != null ? maxFontPx : 14;
+    const minPx = minFontPx != null ? minFontPx : 10.5;
+    const step = Math.max(0.1, stepPx != null ? stepPx : 0.5);
+    const lh = lineHeight != null ? lineHeight : 1.35;
+    el.style.fontSize = maxPx + "px";
+    el.style.lineHeight = String(lh);
+    const maxPasses = Math.max(1, Math.ceil((maxPx - minPx) / step) + 1);
+    for (let i = 0; i < maxPasses && el.scrollHeight > el.clientHeight + 1; i++) {
+      const nextPx = Math.max(minPx, maxPx - step * (i + 1));
+      el.style.fontSize = nextPx + "px";
+      if (nextPx <= minPx) break;
+    }
+  }
+
+  function fitHandCardDescriptions(container) {
+    if (!container) return;
+    const fitKey = `${container.dataset.stackLayoutKey || ""}:${container.childElementCount}`;
+    if (container.dataset.textFitKey === fitKey) return;
+    const descriptions = container.querySelectorAll(".hand-card-desc");
+    for (const descEl of descriptions) fitTextToBox(descEl, 14, 10.5, 0.5, 1.35);
+    container.dataset.textFitKey = fitKey;
+  }
+
+  function layoutHandCards(container) {
+    if (!container) return;
+    const cards = Array.from(container.querySelectorAll(".hand-card"));
+    if (!cards.length) {
+      container.dataset.stackLayoutKey = "";
+      return;
+    }
+
+    const sampleCard = cards[0];
+    const cardWidth = Math.max(1, Math.round(sampleCard.getBoundingClientRect().width || sampleCard.offsetWidth || 128));
+    const availableWidth = Math.max(cardWidth, Math.floor(container.clientWidth || container.getBoundingClientRect().width || cardWidth));
+    const layoutKey = `${cards.length}:${availableWidth}:${cardWidth}`;
+    if (container.dataset.stackLayoutKey === layoutKey) return;
+    container.dataset.stackLayoutKey = layoutKey;
+
+    const isAbilityHand = container.id === "abilityHandCards";
+    const defaultStep = Math.round(cardWidth * (isAbilityHand ? 0.35 : 0.5));
+    const minStep = isAbilityHand ? 2 : 4;
+    let step = defaultStep;
+    if (cards.length > 1) {
+      const fittedStep = Math.floor((availableWidth - cardWidth) / (cards.length - 1));
+      step = Math.min(defaultStep, Math.max(minStep, fittedStep));
+    }
+
+    const stackedMargin = `${step - cardWidth}px`;
+    for (let i = 0; i < cards.length; i++) {
+      const card = cards[i];
+      card.style.marginLeft = i === 0 ? "0px" : stackedMargin;
+      card.style.setProperty("--hand-stack-index", String(i + 1));
+    }
+  }
+
+  function getPlayerStatusBarEntries(me) {
+    const entries = [];
+    const timed = (until) => (until != null ? Math.max(0, Math.ceil(until - state.t)) : 0);
+
+    for (const entry of [...(me.activeBuffs || []), ...(me.legendaryBuffs || [])]) {
+      const cardDef = getCardDefById(entry.cardId);
+      if (!cardDef) continue;
+      entries.push({
+        id: "card:" + entry.instanceId,
+        icon: cardDef.icon || getCardEmoji(cardDef),
+        title: cardDef.name || "Эффект",
+        desc: cardDef.desc || "",
+        permanent: !!entry.permanent,
+        expiresAt: entry.expiresAt ?? null
+      });
+    }
+
+    const ownBattleMarchUntil = state._battleMarchUntil && state._battleMarchUntil[me.id];
+    if (ownBattleMarchUntil > state.t) {
+      entries.push({
+        id: "ability:gloriousBattleMarch",
+        icon: "🎺",
+        title: "Боевой марш",
+        desc: "+30% скорости всем кораблям.",
+        expiresAt: ownBattleMarchUntil
+      });
+    }
+
+    const ownFleetBoostUntil = state._fleetBoostUntil && state._fleetBoostUntil[me.id];
+    if (ownFleetBoostUntil > state.t) {
+      entries.push({
+        id: "ability:fleetBoost",
+        icon: "⚡",
+        title: "Ускорение флота",
+        desc: "+50% скорости всем юнитам.",
+        expiresAt: ownFleetBoostUntil
+      });
+    }
+
+    const ownVoidShieldUntil = state._voidShieldUntil && state._voidShieldUntil[me.id];
+    if (ownVoidShieldUntil > state.t) {
+      entries.push({
+        id: "ability:voidShield",
+        icon: "✨",
+        title: "Щит пустоты",
+        desc: "Временная неуязвимость своих юнитов.",
+        expiresAt: ownVoidShieldUntil
+      });
+    }
+
+    const ownDroneUnits = [...state.units.values()].filter((u) => u.owner === me.id && u._droneExpires && u._droneExpires > state.t);
+    if (ownDroneUnits.length > 0) {
+      const maxExpire = ownDroneUnits.reduce((max, u) => Math.max(max, u._droneExpires || 0), 0);
+      entries.push({
+        id: "ability:droneSwarm",
+        icon: "🐝",
+        title: "Рой дронов",
+        desc: "Активны временные дроны: " + ownDroneUnits.length,
+        expiresAt: maxExpire
+      });
+    }
+
+    for (const storm of state._abilityStorms || []) {
+      if (storm.ownerId !== me.id) continue;
+      entries.push({
+        id: "storm:" + (storm.spawnedAt || 0) + ":" + storm.x + ":" + storm.y,
+        icon: "🌩️",
+        title: "Ионная туманность",
+        desc: "Активная зона урона и замедления.",
+        expiresAt: (storm.spawnedAt || state.t) + (storm.duration || 0)
+      });
+    }
+
+    for (const hole of state._blackHoles || []) {
+      if (hole.ownerId !== me.id) continue;
+      entries.push({
+        id: "hole:" + (hole.spawnedAt || 0) + ":" + hole.x + ":" + hole.y,
+        icon: "🕳️",
+        title: "Чёрная дыра",
+        desc: "Активная зона притяжения и урона.",
+        expiresAt: (hole.spawnedAt || state.t) + (hole.duration || 0)
+      });
+    }
+
+    const abilityZoneMeta = {
+      rift: { icon: "🌀", title: "Разлом", desc: "АоЕ урон и замедление." },
+      anchor: { icon: "⚓", title: "Грав. якорь", desc: "Иммобилизация врагов в зоне." },
+      timeSlow: { icon: "⏳", title: "Сингулярность", desc: "Сильное замедление врагов в зоне." },
+      nano: { icon: "🦠", title: "Нанорой", desc: "DoT и ослабление атаки врагов." }
+    };
+    for (const zone of state._abilityZoneEffects || []) {
+      if (zone.ownerId !== me.id) continue;
+      const meta = abilityZoneMeta[zone.type];
+      if (!meta) continue;
+      entries.push({
+        id: "zone:" + zone.type + ":" + (zone.spawnedAt || 0) + ":" + zone.x + ":" + zone.y,
+        icon: meta.icon,
+        title: meta.title,
+        desc: meta.desc,
+        expiresAt: (zone.spawnedAt || state.t) + (zone.duration || 0)
+      });
+    }
+
+    for (const mine of state.mines.values()) {
+      if (mine.ownerId !== me.id || mine._originalOwner == null || !mine._raidReturnAt || mine._raidReturnAt <= state.t) continue;
+      entries.push({
+        id: "raidMine:" + mine.id,
+        icon: "⛏️",
+        title: "Перехват шахты",
+        desc: "Временный контроль чужой шахты.",
+        expiresAt: mine._raidReturnAt
+      });
+    }
+
+    entries.sort((a, b) => {
+      const aPerm = a.permanent ? 1 : 0;
+      const bPerm = b.permanent ? 1 : 0;
+      if (aPerm !== bPerm) return aPerm - bPerm;
+      return timed(a.expiresAt) - timed(b.expiresAt);
+    });
+    return entries;
+  }
+
+  function createStatusChip(entry) {
+    const chip = document.createElement("div");
+    chip.className = "active-buff-chip" + (entry.permanent ? " permanent" : "");
+    const durationText = entry.permanent ? "Постоянный" : Math.max(0, Math.ceil((entry.expiresAt || state.t) - state.t)) + "с";
+    chip.dataset.tooltip = (entry.title || "Эффект") + "\n" + (entry.desc || "") + "\n" + durationText;
+
+    const icon = document.createElement("span");
+    icon.className = "active-buff-chip-icon";
+    icon.textContent = entry.icon || "✨";
+    chip.appendChild(icon);
+
+    const timer = document.createElement("span");
+    timer.className = "active-buff-chip-timer";
+    timer.textContent = entry.permanent ? "∞" : durationText;
+    chip.appendChild(timer);
+    return chip;
+  }
+
+  function getCardHudRenderKey(me) {
+    return JSON.stringify({
+      buffHand: (me.buffHand || []).map((entry) => entry.instanceId + ":" + entry.cardId),
+      abilityHand: (me.abilityHand || []).map((entry) => entry.instanceId + ":" + entry.cardId),
+      pendingAbility: state._pendingAbilityCardInstanceId || null
+    });
+  }
+
+  function getCardHudStatusKey(activeEntries) {
+    return JSON.stringify(activeEntries.map((entry) => (
+      entry.id + ":" + (entry.permanent ? "perm" : Math.max(0, Math.ceil((entry.expiresAt || state.t) - state.t)))
+    )));
+  }
+
+  function renderTopActiveBuffBar(topActiveBuffBar, activeEntries) {
+    if (!topActiveBuffBar) return;
+    topActiveBuffBar.innerHTML = "";
+    topActiveBuffBar.style.display = activeEntries.length > 0 ? "flex" : "none";
+    for (const entry of activeEntries) {
+      const el = createStatusChip(entry);
+      if (el) topActiveBuffBar.appendChild(el);
+    }
+  }
+
+  function renderCardHud() {
+    const hud = document.getElementById("cardHud");
+    const buffHandCards = document.getElementById("buffHandCards");
+    const abilityHandCards = document.getElementById("abilityHandCards");
+    const topActiveBuffBar = document.getElementById("topActiveBuffBar");
+    const buffHandCount = document.getElementById("buffHandCount");
+    const abilityHandCount = document.getElementById("abilityHandCount");
+    const me = state.players.get(state.myPlayerId);
+    if (!hud || !buffHandCards || !abilityHandCards || !topActiveBuffBar || !me) return;
+    ensurePlayerCardState(me);
+    hud.style.display = "flex";
+    if (state._draggingCardInstanceId) return;
+    if (isCardHudFrozen()) return;
+
+    const renderKey = getCardHudRenderKey(me);
+    const activeEntries = getPlayerStatusBarEntries(me);
+    const activeKey = getCardHudStatusKey(activeEntries);
+    if (state._cardHudRenderKey === renderKey) {
+      layoutHandCards(buffHandCards);
+      layoutHandCards(abilityHandCards);
+      fitHandCardDescriptions(buffHandCards);
+      fitHandCardDescriptions(abilityHandCards);
+      if (state._cardHudActiveKey !== activeKey) {
+        state._cardHudActiveKey = activeKey;
+        renderTopActiveBuffBar(topActiveBuffBar, activeEntries);
+      }
+      return;
+    }
+    clearHoveredHandCard();
+    state._cardHudRenderKey = renderKey;
+
+    const prevBuffSnapshot = captureHandCardSnapshot(buffHandCards);
+    const prevAbilitySnapshot = captureHandCardSnapshot(abilityHandCards);
+
+    buffHandCards.dataset.stackLayoutKey = "";
+    abilityHandCards.dataset.stackLayoutKey = "";
+    buffHandCards.dataset.textFitKey = "";
+    abilityHandCards.dataset.textFitKey = "";
+    buffHandCards.innerHTML = "";
+    abilityHandCards.innerHTML = "";
+
+    if (buffHandCount) buffHandCount.textContent = `${me.buffHand.length}/${CardSystemApi ? CardSystemApi.BUFF_HAND_LIMIT : 30}`;
+    if (abilityHandCount) abilityHandCount.textContent = `${me.abilityHand.length}/${CardSystemApi ? CardSystemApi.ABILITY_HAND_LIMIT : 10}`;
+
+    for (const entry of me.buffHand) {
+      const def = getCardDefById(entry.cardId);
+      if (!def) continue;
+      buffHandCards.appendChild(createHandCardElement(entry, def, false));
+    }
+
+    for (const entry of me.abilityHand) {
+      const def = getCardDefById(entry.cardId);
+      if (!def) continue;
+      abilityHandCards.appendChild(createHandCardElement(entry, def, state._pendingAbilityCardInstanceId === entry.instanceId));
+    }
+
+    layoutHandCards(buffHandCards);
+    layoutHandCards(abilityHandCards);
+    fitHandCardDescriptions(buffHandCards);
+    fitHandCardDescriptions(abilityHandCards);
+    animateRemovedHandCards(prevBuffSnapshot, buffHandCards);
+    animateRemovedHandCards(prevAbilitySnapshot, abilityHandCards);
+    animateHandCardLayoutTransition(buffHandCards, prevBuffSnapshot);
+    animateHandCardLayoutTransition(abilityHandCards, prevAbilitySnapshot);
+
+    state._cardHudActiveKey = activeKey;
+    renderTopActiveBuffBar(topActiveBuffBar, activeEntries);
   }
 
   function getCardEmoji(card) {
@@ -9749,6 +11303,8 @@
   }
 
   function openCardModal() {
+    focusCardHud();
+    return;
     const me = state.players.get(state.myPlayerId);
     if (!me || (me.pendingCardPicks || 0) <= 0) return;
     const modal = document.getElementById("cardModal");
@@ -9862,6 +11418,7 @@
     if (!me) return;
 
     updateLvlUpButton();
+    renderCardHud();
 
     const mineRates = getPlayerMineRates(me.id);
     const base = CFG.GROWTH_BASE_PER_MIN + Math.floor(me.pop / 100) * CFG.GROWTH_PER_100;
@@ -9957,6 +11514,12 @@
     const legendaryEl = document.getElementById("hudLegendary");
     if (legendaryEl) {
       const effects = [];
+      if (me.legendaryBuffs && me.legendaryBuffs.length > 0) {
+        for (const entry of me.legendaryBuffs) {
+          const def = getCardDefById(entry.cardId);
+          if (def) effects.push(def.name);
+        }
+      }
       if (me.attackEffects) {
         const effectNames = { chain: "⚡Цепная", cryo: "❄️Крио", fire: "🔥Огонь" };
         for (const [eff, lv] of Object.entries(me.attackEffects)) {
@@ -10325,10 +11888,14 @@
 
   function drawNebulae() {
     if (!state.nebulae || !state.nebulae.length) {
+      nebulaLayer.visible = false;
+      nebulaFxLayer.visible = false;
       invalidateNebulaBodyGraphics();
       if (state._nebulaDischargeGfx && !state._nebulaDischargeGfx.destroyed) state._nebulaDischargeGfx.clear();
       return;
     }
+    nebulaLayer.visible = true;
+    nebulaFxLayer.visible = true;
     const detail = getNebulaVisualDetail();
     const bodyLod = LOD.getLevel(cam.zoom || 0.22);
     if (!state._nebulaBodyGfx || state._nebulaBodyGfx.destroyed || state._nebulaBodyLod !== bodyLod) {
@@ -10463,9 +12030,10 @@
   // ------------------------------------------------------------
   // Abilities
   // ------------------------------------------------------------
-  const ABILITY_DEFS = [
+  const ABILITY_DEFS = (CardSystemApi && CardSystemApi.ABILITY_DEFS) ? CardSystemApi.ABILITY_DEFS : [
     { id: "ionNebula", name: "Ионная туманность", desc: "Гроза в зоне 15с: урон + замедление", cooldown: 120, icon: "🌩️", targeting: "point" },
-    { id: "meteor", name: "Сверхбыстрый метеор", desc: "Метеор сквозь карту, 25% по планете", cooldown: 120, icon: "☄️", targeting: "angle" },
+    { id: "meteor", name: "Сверхбыстрый метеор", desc: "Линия удара: первая цель на траектории, затем крупный AoE в точке контакта", cooldown: 120, icon: "☄️", targeting: "angle" },
+    { id: "meteorSwarm", name: "Метеоритный Дождь", desc: "Сначала точка, затем угол: 5 cyan scrap-burner метеоров через карту", cooldown: 140, icon: "☄️", targeting: "angle" },
     { id: "timeJump", name: "Временной скачок", desc: "Отмотка на 1 мин назад (разово)", cooldown: 0, oneTime: true, icon: "⏪" },
     { id: "blackHole", name: "Чёрная дыра", desc: "Засасывает и повреждает юнитов " + CFG.BLACKHOLE_DURATION + "с", cooldown: CFG.BLACKHOLE_COOLDOWN, icon: "🕳️", targeting: "point" },
     { id: "activeShield", name: "Активный Щит", desc: "Щит +25% от макс. HP всем кораблям", cooldown: 90, icon: "🛡️" },
@@ -10473,23 +12041,23 @@
     { id: "gloriousBattleMarch", name: "Боевой Марш", desc: "+30% скорости всем кораблям 30с", cooldown: 60, icon: "🎺" },
     { id: "raiderCapture", name: "Рейдерский захват", desc: "Ворует 10% Энергии врага", cooldown: 120, icon: "⚔️", targeting: "city" },
     { id: "loan", name: "Заём", desc: "+5000€. Через 3 мин вычтет 7500€", cooldown: 300, icon: "💰" },
-    { id: "spatialRift", name: "Разлом", desc: "АоЕ урон + замедление 10с", cooldown: 100, icon: "🌀", targeting: "point" },
-    { id: "gravAnchor", name: "Грав. Якорь", desc: "Иммобилизация врагов в радиусе 5с", cooldown: 90, icon: "⚓", targeting: "point" },
+    { id: "spatialRift", name: "Разлом", desc: "Сначала точка, затем угол: разлом наносит 5 + 50% max HP при пересечении и стирает все в цепочке радиусов при схлопывании", cooldown: 100, icon: "🌀", targeting: "angle" },
+    { id: "gravAnchor", name: "Грав. Якорь", desc: "Иммобилизация врагов в огромной зоне 20с", cooldown: 90, icon: "⚓", targeting: "point" },
     { id: "shieldOvercharge", name: "Перегрузка Щитов", desc: "Полное восстановление щита города", cooldown: 120, icon: "🔋" },
     { id: "droneSwarm", name: "Рой Дронов", desc: "8 временных истребителей (30с)", cooldown: 90, icon: "🐝" },
     { id: "fakeSignature", name: "Ложная Сигнатура", desc: "Призрачный флот отвлекает врага 15с", cooldown: 80, icon: "👻", targeting: "point" },
     { id: "fleetBoost", name: "Ускорение Флота", desc: "+50% скорости всем юнитам 20с", cooldown: 70, icon: "⚡" },
     { id: "resourceSurge", name: "Ресурсный Всплеск", desc: "+3000 eCredits мгновенно", cooldown: 180, icon: "💎" },
     { id: "timeSingularity", name: "Сингулярность", desc: "Замедление врагов -60% в зоне 8с", cooldown: 110, icon: "⏳", targeting: "point" },
-    { id: "orbitalStrike", name: "Орбитальный Удар", desc: "Линейный удар через карту", cooldown: 130, icon: "💥", targeting: "angle" },
+    { id: "orbitalStrike", name: "Орбитальный Удар", desc: "3 каскадных залпа из ядра по зоне: средний центр и малые вспомогательные удары", cooldown: 130, icon: "💥", targeting: "point" },
     { id: "voidShield", name: "Щит Пустоты", desc: "Неуязвимость всех юнитов 3с", cooldown: 150, icon: "✨" },
-    { id: "nanoSwarm", name: "Нанорой", desc: "DoT + -25% атаки врагов в зоне 10с", cooldown: 100, icon: "🦠", targeting: "point" },
+    { id: "nanoSwarm", name: "Нанорой", desc: "10 урона + 2.5% от макс HP/с, -25% атаки врагов в зоне 20с", cooldown: 100, icon: "🦠", targeting: "point" },
     { id: "hyperJump", name: "Гиперскачок", desc: "Телепорт своих юнитов в точку", cooldown: 90, icon: "🚀", targeting: "point" },
     { id: "sabotage", name: "Диверсия", desc: "Уничтожает 20% eCredits ближайшего врага", cooldown: 120, icon: "💣" },
     { id: "emergencyRepair", name: "Аварийный Ремонт", desc: "Полное исцеление всех юнитов", cooldown: 180, icon: "🔧" },
     { id: "gravWave", name: "Грав. Волна", desc: "Отталкивает всех врагов от точки", cooldown: 80, icon: "🌊", targeting: "point" },
     { id: "resourceRaid", name: "Перехват Шахты", desc: "Захватывает вражескую шахту на 30с", cooldown: 150, icon: "⛏️", targeting: "point" },
-    { id: "thermoNuke", name: "Термоядерный Импульс", desc: "Огромный АоЕ урон, -50% и по своим!", cooldown: 200, icon: "☢️", targeting: "point" }
+    { id: "thermoNuke", name: "Термоядерный Импульс", desc: "Сверхтяжелая ракета летит к точке и уничтожает все корабли в огромном радиусе, полностью сбивая щит ядра.", cooldown: 200, icon: "☢️", targeting: "point" }
   ];
 
   state._abilityCooldowns = {};
@@ -10504,10 +12072,69 @@
   state._abilityStorms = [];
   state._meteorTargeting = null; // {phase:'point'|'angle', x, y, angle}
   state._activeMeteors = [];
+  state._orbitalStrikes = [];
+  state._thermoNukes = [];
+  state._pirateRaids = [];
   state._battleMarchUntil = state._battleMarchUntil || {};
   state._raiderCaptureTargeting = null;
   const PIRATE_OWNER_ID = -1;
+  const PIRATE_BASE_ATTACK_RANGE = 260;
+  const PIRATE_BASE_ATTACK_TARGETS = 2;
+  const PIRATE_BASE_ATTACK_COOLDOWN = 1.15;
+  const PIRATE_BASE_ATTACK_FLAT_DMG = 10;
+  const PIRATE_BASE_ATTACK_MAX_HP_PCT = 0.03;
+  const PIRATE_BASE_ATTACK_COLOR = 0xff8a5c;
   const SURVIVAL_ENEMY_OWNER_ID = 999;
+
+  function getPirateBases() {
+    return Array.isArray(state.pirateBases) ? state.pirateBases : [];
+  }
+
+  function setPirateBases(bases) {
+    state.pirateBases = Array.isArray(bases) ? bases : [];
+    state.pirateBase = state.pirateBases[0] || null;
+  }
+
+  function getAlivePirateBases() {
+    return getPirateBases().filter((pb) => pb && pb.hp > 0);
+  }
+
+  function getPirateBaseById(baseId) {
+    if (baseId == null) return null;
+    return getPirateBases().find((pb) => pb && pb.id === baseId) || null;
+  }
+
+  function getNearestAlivePirateBase(x, y, maxRange) {
+    let best = null;
+    let bestD = maxRange != null ? maxRange * maxRange : Infinity;
+    for (const pb of getAlivePirateBases()) {
+      const d = (pb.x - x) ** 2 + (pb.y - y) ** 2;
+      if (d <= bestD) {
+        bestD = d;
+        best = pb;
+      }
+    }
+    return best;
+  }
+
+  function removePirateBaseVisual(pb) {
+    if (!pb) return;
+    if (pb.gfx && pb.gfx.parent) pb.gfx.parent.removeChild(pb.gfx);
+    if (pb._emojiGfx && pb._emojiGfx.parent) pb._emojiGfx.parent.removeChild(pb._emojiGfx);
+    if (pb._timerTxt && pb._timerTxt.parent) pb._timerTxt.parent.removeChild(pb._timerTxt);
+    pb.gfx = null;
+    pb._emojiGfx = null;
+    pb._timerTxt = null;
+  }
+
+  function clearPirateBases() {
+    for (const pb of getPirateBases()) removePirateBaseVisual(pb);
+    setPirateBases([]);
+  }
+
+  function degFromTopClockwiseToRad(deg) {
+    return ((deg || 0) - 90) * Math.PI / 180;
+  }
 
   function pushAbilityAnnouncement(pid, abilityId) {
     const p = state.players.get(pid);
@@ -10546,6 +12173,31 @@
     const myCds = state._abilityCooldownsByPlayer[state.myPlayerId] || state._abilityCooldowns || {};
     const myUsed = state._abilityUsedByPlayer[state.myPlayerId] || [];
     const timeJumpAvailableAt = state._timeJumpAvailableAt ?? 0;
+
+    function activateAbilityFromPicker(def) {
+      const instantAbilities = {
+        timeJump: () => useTimeJump(),
+        loan: () => { useLoan(state.myPlayerId); },
+        activeShield: () => { useActiveShield(state.myPlayerId); },
+        gloriousBattleMarch: () => { useGloriousBattleMarch(state.myPlayerId); },
+        shieldOvercharge: () => { useShieldOvercharge(state.myPlayerId); },
+        droneSwarm: () => { useDroneSwarm(state.myPlayerId); },
+        fleetBoost: () => { useFleetBoost(state.myPlayerId); },
+        resourceSurge: () => { useResourceSurge(state.myPlayerId); },
+        voidShield: () => { useVoidShield(state.myPlayerId); },
+        sabotage: () => { useSabotage(state.myPlayerId); },
+        emergencyRepair: () => { useEmergencyRepair(state.myPlayerId); }
+      };
+      if (instantAbilities[def.id]) {
+        instantAbilities[def.id]();
+        if (def.cooldown) setAbilityCooldown(state.myPlayerId, def.id, def.cooldown);
+        pushAbilityAnnouncement(state.myPlayerId, def.id);
+        hideAbilityPicker();
+        return;
+      }
+      startAbilityTargeting(def.id);
+    }
+
     for (const def of ABILITY_DEFS) {
       const used = def.oneTime && myUsed.includes(def.id);
       const onCooldownStart = def.id === "timeJump" && state.t < timeJumpAvailableAt;
@@ -10554,8 +12206,8 @@
       const card = document.createElement("div");
       card.style.cssText = `
         width:130px;height:190px;background:linear-gradient(180deg,#12143a 0%,#1a1d55 100%);
-        border:2px solid ${ready ? "#44aaff" : "#555"};border-radius:12px;cursor:${ready ? "pointer" : "not-allowed"};
-        display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;
+        border:2px solid ${ready ? "#44aaff" : "#555"};border-radius:12px;cursor:${ready ? "pointer" : "default"};
+        display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:8px;
         padding:12px 8px;transition:transform 0.15s,box-shadow 0.15s;
         ${ready ? "box-shadow:0 0 16px #2266ff44;" : "opacity:0.5;"}
       `;
@@ -10564,36 +12216,12 @@
         card.onmouseleave = () => { card.style.transform = ""; card.style.boxShadow = "0 0 16px #2266ff44"; };
       }
       card.innerHTML = `
-        <div style="font-size:36px;">${def.icon}</div>
-        <div style="color:#ddeeff;font-size:13px;font-weight:700;text-align:center;">${def.name}</div>
-        <div style="color:#8899bb;font-size:11px;text-align:center;line-height:1.3;">${def.desc}</div>
-        ${!ready ? `<div style="color:#ff6644;font-size:12px;font-weight:600;">${def.id === "timeJump" && state.t < timeJumpAvailableAt ? "через " + Math.ceil(timeJumpAvailableAt - state.t) + "с" : Math.ceil(cd) + "с"}</div>` : ""}
+        <div style="font-size:36px;line-height:1;margin-top:2px;">${def.icon}</div>
+        <div style="color:#ddeeff;font-size:13px;font-weight:700;text-align:center;min-height:34px;display:flex;align-items:center;justify-content:center;">${def.name}</div>
+        <div style="color:#8899bb;font-size:11px;text-align:center;line-height:1.3;flex:1;display:flex;align-items:flex-start;justify-content:center;">${def.desc}</div>
+        <div style="min-height:18px;color:#ff6644;font-size:12px;font-weight:600;text-align:center;">${!ready ? (def.id === "timeJump" && state.t < timeJumpAvailableAt ? "через " + Math.ceil(timeJumpAvailableAt - state.t) + "с" : Math.ceil(cd) + "с") : "&nbsp;"}</div>
       `;
-      if (ready) {
-        card.addEventListener("click", () => {
-          const instantAbilities = {
-            timeJump: () => useTimeJump(),
-            loan: () => { useLoan(state.myPlayerId); },
-            activeShield: () => { useActiveShield(state.myPlayerId); },
-            gloriousBattleMarch: () => { useGloriousBattleMarch(state.myPlayerId); },
-            shieldOvercharge: () => { useShieldOvercharge(state.myPlayerId); },
-            droneSwarm: () => { useDroneSwarm(state.myPlayerId); },
-            fleetBoost: () => { useFleetBoost(state.myPlayerId); },
-            resourceSurge: () => { useResourceSurge(state.myPlayerId); },
-            voidShield: () => { useVoidShield(state.myPlayerId); },
-            sabotage: () => { useSabotage(state.myPlayerId); },
-            emergencyRepair: () => { useEmergencyRepair(state.myPlayerId); }
-          };
-          if (instantAbilities[def.id]) {
-            instantAbilities[def.id]();
-            if (def.cooldown) setAbilityCooldown(state.myPlayerId, def.id, def.cooldown);
-            pushAbilityAnnouncement(state.myPlayerId, def.id);
-            hideAbilityPicker();
-            return;
-          }
-          startAbilityTargeting(def.id);
-        });
-      }
+      if (ready) card.addEventListener("click", () => activateAbilityFromPicker(def));
       abilityCards.appendChild(card);
     }
     abilityOverlay.style.display = "flex";
@@ -10610,15 +12238,22 @@
     if (abilityId === "meteor") {
       state._meteorTargeting = { phase: "point", x: 0, y: 0, angle: 0 };
     }
-    if (abilityId === "pirateRaid") {
+    if (abilityId === METEOR_SWARM_ABILITY_ID) {
+      state._meteorTargeting = { phase: "point", x: 0, y: 0, angle: 0 };
+    }
+    if (abilityId === "spatialRift") {
       state._meteorTargeting = { phase: "point", x: 0, y: 0, angle: 0 };
     }
     app.canvas.style.cursor = "crosshair";
   }
 
   function cancelAbilityTargeting() {
+    clearAbilityPreview();
     state._abilityTargeting = null;
     state._meteorTargeting = null;
+    state._pendingAbilityCardInstanceId = null;
+    const me = state.players.get(state.myPlayerId);
+    if (me) me.pendingAbilityCardId = null;
     app.canvas.style.cursor = "";
   }
 
@@ -10649,6 +12284,25 @@
     if (!state._abilityCooldownsByPlayer[pid]) state._abilityCooldownsByPlayer[pid] = {};
     state._abilityCooldownsByPlayer[pid][abilityId] = seconds;
   }
+
+  function spawnSpatialRiftLocal(wx, wy, angle, pid) {
+    const api = getSpatialRiftAbilityApi();
+    const effect = api && typeof api.buildEffect === "function"
+      ? api.buildEffect(wx, wy, angle || 0, pid)
+      : {
+          type: "rift",
+          x: wx,
+          y: wy,
+          angle: angle || 0,
+          duration: 23.4,
+          collapseAtSec: 18.15,
+          radius: 180,
+          length: 760,
+          ownerId: pid
+        };
+    state._abilityZoneEffects.push({ ...effect, ownerId: pid, spawnedAt: state.t, gfx: null });
+  }
+
   function useIonNebula(wx, wy) {
     const def = ABILITY_DEFS.find(d => d.id === "ionNebula");
     if (state._multiSlots && !state._multiIsHost && state._socket) {
@@ -10662,8 +12316,453 @@
   }
 
   const METEOR_RADIUS = 11;
-  const METEOR_AOE_RADIUS = 30;
-  const METEOR_SPEED_PX_PER_S = Math.hypot(CFG.WORLD_W, CFG.WORLD_H) / 22;
+  const METEOR_AOE_RADIUS = 120;
+  const METEOR_PREVIEW_RADIUS = Math.round(METEOR_AOE_RADIUS * 1.25);
+  const METEOR_SPEED_PX_PER_S = Math.hypot(CFG.WORLD_W, CFG.WORLD_H) / 11;
+  const METEOR_IMPACT_DURATION = 1.85;
+  const METEOR_SWARM_ABILITY_ID = "meteorSwarm";
+  const METEOR_SWARM_BASE_SPEED_PX_PER_S = Math.hypot(CFG.WORLD_W, CFG.WORLD_H) / 19;
+  const METEOR_STYLE_OBSIDIAN_CRIMSON = {
+    void: 0x14060a,
+    ash: 0x251015,
+    corridor: 0x390912,
+    crimson: 0x861629,
+    crimsonHot: 0xb31e35,
+    ember: 0xff7a24,
+    emberHot: 0xffa34a,
+    emberWhite: 0xffe2b5
+  };
+
+  function meteorHash01(seed) {
+    const x = Math.sin(seed * 12.9898) * 43758.5453123;
+    return x - Math.floor(x);
+  }
+
+  function getMeteorSwarmAbilityApi() {
+    return (typeof MeteorSwarmAbility !== "undefined" && MeteorSwarmAbility) ? MeteorSwarmAbility : null;
+  }
+
+  function getSpatialRiftAbilityApi() {
+    return (typeof SpatialRiftAbility !== "undefined" && SpatialRiftAbility) ? SpatialRiftAbility : null;
+  }
+
+  function getSpatialRiftRendererApi() {
+    return (typeof SpatialRiftRenderer !== "undefined" && SpatialRiftRenderer) ? SpatialRiftRenderer : null;
+  }
+
+  function getThermoNukeAbilityApi() {
+    return (typeof ThermoNukeAbility !== "undefined" && ThermoNukeAbility) ? ThermoNukeAbility : null;
+  }
+
+  function getThermoNukeRendererApi() {
+    return (typeof ThermoNukeRenderer !== "undefined" && ThermoNukeRenderer) ? ThermoNukeRenderer : null;
+  }
+
+  function getGravAnchorAbilityApi() {
+    return (typeof GravAnchorAbility !== "undefined" && GravAnchorAbility) ? GravAnchorAbility : null;
+  }
+
+  function getGravAnchorRendererApi() {
+    return (typeof GravAnchorRenderer !== "undefined" && GravAnchorRenderer) ? GravAnchorRenderer : null;
+  }
+
+  function getNanoSwarmAbilityApi() {
+    return (typeof NanoSwarmAbility !== "undefined" && NanoSwarmAbility) ? NanoSwarmAbility : null;
+  }
+
+  function getNanoSwarmRendererApi() {
+    return (typeof NanoSwarmRenderer !== "undefined" && NanoSwarmRenderer) ? NanoSwarmRenderer : null;
+  }
+
+  function getPirateRaidAbilityApi() {
+    return (typeof PirateRaidAbility !== "undefined" && PirateRaidAbility) ? PirateRaidAbility : null;
+  }
+
+  function getPirateRaidRendererApi() {
+    return (typeof PirateRaidRenderer !== "undefined" && PirateRaidRenderer) ? PirateRaidRenderer : null;
+  }
+
+  function isMeteorSwarmStyleKey(styleKey) {
+    const api = getMeteorSwarmAbilityApi();
+    return !!(api && styleKey && styleKey === api.STYLE_KEY);
+  }
+
+  function getMeteorVisualDetail() {
+    const hasLod = typeof LOD !== "undefined" && LOD && typeof LOD.getLevel === "function" && LOD.LEVELS;
+    const level = hasLod
+      ? LOD.getLevel(cam.zoom || 0.22)
+      : null;
+    if (hasLod && level === LOD.LEVELS.FAR) {
+      return {
+        corridorFillAlpha: 0.05,
+        corridorEdgeAlpha: 0.22,
+        centerLineAlpha: 0.14,
+        arrowSpacing: 0,
+        trailSamples: 4,
+        emberCount: 3,
+        sparkCount: 2,
+        shardCuts: 2,
+        debrisCount: 5,
+        ringCount: 2,
+        trailMul: 0.24
+      };
+    }
+    if (hasLod && level === LOD.LEVELS.MID) {
+      return {
+        corridorFillAlpha: 0.075,
+        corridorEdgeAlpha: 0.32,
+        centerLineAlpha: 0.19,
+        arrowSpacing: 130,
+        trailSamples: 6,
+        emberCount: 5,
+        sparkCount: 4,
+        shardCuts: 3,
+        debrisCount: 9,
+        ringCount: 3,
+        trailMul: 0.29
+      };
+    }
+    return {
+      corridorFillAlpha: 0.1,
+      corridorEdgeAlpha: 0.44,
+      centerLineAlpha: 0.26,
+      arrowSpacing: 110,
+      trailSamples: 8,
+      emberCount: 7,
+      sparkCount: 6,
+      shardCuts: 4,
+      debrisCount: 14,
+      ringCount: 4,
+      trailMul: 0.34
+    };
+  }
+
+  function getMeteorAngle(m) {
+    return m && m.angle != null ? m.angle : Math.atan2(m?.vy || 0, m?.vx || 1);
+  }
+
+  function getMeteorSeed(x, y, angle) {
+    const sx = Math.round((x || 0) * 10);
+    const sy = Math.round((y || 0) * 10);
+    const sa = Math.round((angle || 0) * 1000);
+    return ((sx * 73856093) ^ (sy * 19349663) ^ (sa * 83492791)) >>> 0;
+  }
+
+  function queueMeteorImpactEffect(m) {
+    if (!m) return;
+    if (!state._meteorImpactEffects) state._meteorImpactEffects = [];
+    state._meteorImpactEffects.push({
+      x: m.x,
+      y: m.y,
+      t0: state.t,
+      duration: m.impactDuration || METEOR_IMPACT_DURATION,
+      radius: m.aoeR || METEOR_AOE_RADIUS,
+      angle: getMeteorAngle(m),
+      seed: m.seed != null ? m.seed : getMeteorSeed(m.x, m.y, getMeteorAngle(m)),
+      styleKey: m.styleKey || null,
+      visualScale: m.visualScale || 1
+    });
+  }
+
+  function getMeteorTurretHitRadius() {
+    return 18;
+  }
+
+  function getMeteorPlanetImpactRadius(p) {
+    if (!p) return 0;
+    return (p.shieldHp || 0) > 0 ? shieldRadius(p) : getPlanetRadius(p) + 4;
+  }
+
+  function getMeteorAoeDamage(target) {
+    const maxHp = Math.max(1, target?.maxHp || target?.hp || 1);
+    return Math.max(1, Math.round(maxHp * 0.5 + 100));
+  }
+
+  function getMeteorSegmentCircleHit(ax, ay, bx, by, cx, cy, radius) {
+    const r = Math.max(0.001, radius || 0);
+    const startDx = ax - cx;
+    const startDy = ay - cy;
+    if (startDx * startDx + startDy * startDy <= r * r) {
+      return { t: 0, x: ax, y: ay };
+    }
+    const dx = bx - ax;
+    const dy = by - ay;
+    const a = dx * dx + dy * dy;
+    if (a <= 1e-6) return null;
+    const b = 2 * (startDx * dx + startDy * dy);
+    const c = startDx * startDx + startDy * startDy - r * r;
+    const disc = b * b - 4 * a * c;
+    if (disc < 0) return null;
+    const sqrtDisc = Math.sqrt(disc);
+    const t0 = (-b - sqrtDisc) / (2 * a);
+    const t1 = (-b + sqrtDisc) / (2 * a);
+    let t = null;
+    if (t0 >= 0 && t0 <= 1) t = t0;
+    else if (t1 >= 0 && t1 <= 1) t = t1;
+    if (t == null) return null;
+    return {
+      t,
+      x: ax + dx * t,
+      y: ay + dy * t
+    };
+  }
+
+  function findMeteorFirstImpactOnSegment(m, ax, ay, bx, by) {
+    const meteorR = Math.max(2, m?.radius || METEOR_RADIUS);
+    let best = null;
+
+    const tryCandidate = (type, target, cx, cy, radius) => {
+      const hit = getMeteorSegmentCircleHit(ax, ay, bx, by, cx, cy, radius + meteorR * 0.75);
+      if (!hit) return;
+      if (!best || hit.t < best.t) {
+        best = { type, target, x: hit.x, y: hit.y, t: hit.t };
+      }
+    };
+
+    for (const u of state.units.values()) {
+      if (!u || u.hp <= 0) continue;
+      tryCandidate("unit", u, u.x, u.y, getUnitHitRadius(u));
+    }
+    for (const p of state.players.values()) {
+      if (!p || p.eliminated) continue;
+      tryCandidate("planet", p, p.x, p.y, getMeteorPlanetImpactRadius(p));
+    }
+    return best;
+  }
+
+  function applyMeteorAoE(m, impactX, impactY) {
+    const aoeR = m.aoeR || METEOR_AOE_RADIUS;
+    const aoeR2 = aoeR * aoeR;
+    for (const u of [...state.units.values()]) {
+      if (!u || u.hp <= 0) continue;
+      const dx = u.x - impactX;
+      const dy = u.y - impactY;
+      if (dx * dx + dy * dy > aoeR2) continue;
+      const dmg = getMeteorAoeDamage(u);
+      applyUnitDamage(u, dmg, m.ownerId);
+      state.floatingDamage.push({ x: u.x, y: u.y - 15, text: "☄️ -" + dmg, color: 0xff7a24, ttl: 0.8 });
+      if (u.hp <= 0) killUnit(u, "meteorAoE", m.ownerId);
+    }
+    for (const t of state.turrets.values()) {
+      if (!t || t.hp <= 0) continue;
+      const dx = t.x - impactX;
+      const dy = t.y - impactY;
+      if (dx * dx + dy * dy > aoeR2) continue;
+      const dmg = getMeteorAoeDamage(t);
+      t.hp = Math.max(0, t.hp - dmg);
+      state.floatingDamage.push({ x: t.x, y: t.y - 12, text: "☄️ -" + dmg, color: 0xff7a24, ttl: 0.8 });
+      if (t.hp <= 0) {
+        t._diedAt = state.t;
+        spawnXPOrb(t.x, t.y, 8);
+      }
+    }
+  }
+
+  function detonateMeteor(m, impact) {
+    if (!m || !impact) return;
+    m.x = impact.x;
+    m.y = impact.y;
+    if (!m._impactFx) {
+      m._impactFx = true;
+      queueMeteorImpactEffect(m);
+    }
+
+    if (impact.type === "unit") {
+      const u = impact.target;
+      if (u && u.hp > 0) {
+        u.hp = 0;
+        u.lastDamagedBy = m.ownerId;
+        state.floatingDamage.push({ x: u.x, y: u.y - 15, text: "☄️ X", color: 0xffa34a, ttl: 0.9 });
+        killUnit(u, "meteorDirect", m.ownerId);
+      }
+    } else if (impact.type === "planet") {
+      const p = impact.target;
+      if (p && !p.eliminated) {
+        if ((p.shieldHp || 0) > 0) {
+          const dmg = Math.max(1, Math.round((p.shieldMaxHp || p.shieldHp || 1) * 0.25));
+          p.shieldHp = Math.max(0, p.shieldHp - dmg);
+          if (p.shieldHp === 0) p.shieldRegenCd = SHIELD_REGEN_DELAY;
+          pushShieldHitEffect(p.x, p.y, shieldRadius(p), impact.x, impact.y, 0xff6b8d);
+          state.floatingDamage.push({ x: impact.x, y: impact.y - 10, text: "☄️🛡 -" + dmg, color: 0xff6b8d, ttl: 1.1 });
+        } else {
+          const popDmg = Math.max(2, Math.round((p.pop || 1) * 0.25));
+          p.popFloat = Math.max(1, (p.popFloat || p.pop || 1) - popDmg);
+          p.pop = Math.floor(p.popFloat);
+          state.floatingDamage.push({ x: p.x, y: p.y - 36, text: "☄️ -" + popDmg, color: 0xff6b8d, ttl: 1.0 });
+        }
+      }
+    }
+
+    applyMeteorAoE(m, impact.x, impact.y);
+    m.alive = false;
+  }
+
+  function drawMeteorCorridor(g, cx, cy, angle, halfW, detail, timeSec) {
+    const diag = Math.hypot(CFG.WORLD_W, CFG.WORLD_H) + 400;
+    const cosA = Math.cos(angle);
+    const sinA = Math.sin(angle);
+    const sx = cx - cosA * diag;
+    const sy = cy - sinA * diag;
+    const ex = cx + cosA * diag;
+    const ey = cy + sinA * diag;
+    const nx = -sinA * halfW;
+    const ny = cosA * halfW;
+
+    g.beginFill(METEOR_STYLE_OBSIDIAN_CRIMSON.corridor, detail.corridorFillAlpha * 0.22);
+    g.moveTo(sx + nx, sy + ny);
+    g.lineTo(ex + nx, ey + ny);
+    g.lineTo(ex - nx, ey - ny);
+    g.lineTo(sx - nx, sy - ny);
+    g.closePath();
+    g.endFill();
+
+    g.lineStyle(1.8, METEOR_STYLE_OBSIDIAN_CRIMSON.crimsonHot, detail.corridorEdgeAlpha);
+    g.moveTo(sx + nx, sy + ny);
+    g.lineTo(ex + nx, ey + ny);
+    g.moveTo(sx - nx, sy - ny);
+    g.lineTo(ex - nx, ey - ny);
+
+    g.lineStyle(1.1, METEOR_STYLE_OBSIDIAN_CRIMSON.ash, detail.centerLineAlpha * 0.42);
+    g.moveTo(sx + nx * 0.2, sy + ny * 0.2);
+    g.lineTo(ex + nx * 0.2, ey + ny * 0.2);
+    g.moveTo(sx - nx * 0.2, sy - ny * 0.2);
+    g.lineTo(ex - nx * 0.2, ey - ny * 0.2);
+
+    g.lineStyle(1.15, METEOR_STYLE_OBSIDIAN_CRIMSON.ember, detail.centerLineAlpha);
+    g.moveTo(sx, sy);
+    g.lineTo(ex, ey);
+
+    if (detail.arrowSpacing > 0) {
+      const arrowSize = 12;
+      for (let d = 60; d < diag; d += detail.arrowSpacing) {
+        const ax = cx + cosA * d;
+        const ay = cy + sinA * d;
+        if (ax < -120 || ax > CFG.WORLD_W + 120 || ay < -120 || ay > CFG.WORLD_H + 120) continue;
+        const pulse = 0.24 + 0.16 * Math.sin(timeSec * 7 + d * 0.012);
+        g.lineStyle(2.1, METEOR_STYLE_OBSIDIAN_CRIMSON.emberHot, pulse);
+        g.moveTo(ax - cosA * arrowSize + nx * 0.42, ay - sinA * arrowSize + ny * 0.42);
+        g.lineTo(ax, ay);
+        g.lineTo(ax - cosA * arrowSize - nx * 0.42, ay - sinA * arrowSize - ny * 0.42);
+      }
+    }
+
+    return { sx, sy, ex, ey, nx, ny, cosA, sinA };
+  }
+
+  function drawObsidianMeteorProjectile(g, m, detail, timeSec) {
+    const angle = getMeteorAngle(m);
+    const cosA = Math.cos(angle);
+    const sinA = Math.sin(angle);
+    const nx = -sinA;
+    const ny = cosA;
+    const radius = (m.radius || METEOR_RADIUS) * (m.visualScale || 1.16);
+    const speed = Math.hypot(m.vx || 0, m.vy || 0) || METEOR_SPEED_PX_PER_S;
+    const trailLen = Math.min(280, Math.max(92, speed * detail.trailMul));
+    const pulse = 0.76 + 0.24 * Math.sin(timeSec * 13 + (m.seed || 0) * 0.0004);
+
+    for (let s = 0; s < detail.trailSamples; s++) {
+      const f = detail.trailSamples <= 1 ? 0 : s / (detail.trailSamples - 1);
+      const layerLen = trailLen * (0.42 + (1 - f) * 0.42);
+      const tailW = radius * (1.8 - f * 0.45);
+      const tipX = m.x + cosA * radius * 0.18;
+      const tipY = m.y + sinA * radius * 0.18;
+      const bx = m.x - cosA * layerLen;
+      const by = m.y - sinA * layerLen;
+      const mx1 = m.x - cosA * (layerLen * 0.42) + nx * tailW * 0.62;
+      const my1 = m.y - sinA * (layerLen * 0.42) + ny * tailW * 0.62;
+      const mx2 = m.x - cosA * (layerLen * 0.58) - nx * tailW * 0.62;
+      const my2 = m.y - sinA * (layerLen * 0.58) - ny * tailW * 0.62;
+      g.beginFill(s === 0 ? METEOR_STYLE_OBSIDIAN_CRIMSON.crimson : METEOR_STYLE_OBSIDIAN_CRIMSON.ash, (1 - f) * 0.12 * pulse);
+      g.moveTo(tipX, tipY);
+      g.lineTo(mx1, my1);
+      g.lineTo(bx, by);
+      g.lineTo(mx2, my2);
+      g.closePath();
+      g.endFill();
+    }
+
+    for (let i = 0; i < detail.sparkCount; i++) {
+      const seed = (m.seed || 1) + i * 17.13;
+      const back = trailLen * (0.16 + meteorHash01(seed + 2) * 0.58);
+      const side = (meteorHash01(seed + 4) - 0.5) * radius * 3.4;
+      const len = radius * (0.55 + meteorHash01(seed + 6) * 0.9);
+      const px = m.x - cosA * back + nx * side;
+      const py = m.y - sinA * back + ny * side;
+      const ex = px - cosA * len * 0.85;
+      const ey = py - sinA * len * 0.85;
+      g.lineStyle(1.1 + meteorHash01(seed + 8) * 1.1, METEOR_STYLE_OBSIDIAN_CRIMSON.emberHot, 0.24 + meteorHash01(seed + 10) * 0.28);
+      g.moveTo(px, py);
+      g.lineTo(ex, ey);
+    }
+
+    const bodyBackX = m.x - cosA * radius * 1.75;
+    const bodyBackY = m.y - sinA * radius * 1.75;
+    const bodyFrontX = m.x + cosA * radius * 0.96;
+    const bodyFrontY = m.y + sinA * radius * 0.96;
+    g.lineStyle(Math.max(3, radius * 2.35), METEOR_STYLE_OBSIDIAN_CRIMSON.void, 0.96);
+    g.moveTo(bodyBackX, bodyBackY);
+    g.lineTo(bodyFrontX, bodyFrontY);
+    g.lineStyle(Math.max(2, radius * 1.46), METEOR_STYLE_OBSIDIAN_CRIMSON.crimson, 0.92);
+    g.moveTo(bodyBackX + cosA * radius * 0.2, bodyBackY + sinA * radius * 0.2);
+    g.lineTo(bodyFrontX, bodyFrontY);
+    g.lineStyle(Math.max(1.5, radius * 0.74), METEOR_STYLE_OBSIDIAN_CRIMSON.ember, 0.96);
+    g.moveTo(m.x - cosA * radius * 0.34, m.y - sinA * radius * 0.34);
+    g.lineTo(bodyFrontX + cosA * radius * 0.18, bodyFrontY + sinA * radius * 0.18);
+
+    for (let i = 0; i < detail.shardCuts; i++) {
+      const frac = detail.shardCuts <= 1 ? 0.5 : i / (detail.shardCuts - 1);
+      const jitter = (meteorHash01((m.seed || 1) + i * 9.7) - 0.5) * radius * 0.28;
+      const cx = m.x - cosA * radius * (1.18 - frac * 1.38) + nx * jitter * 0.4;
+      const cy = m.y - sinA * radius * (1.18 - frac * 1.38) + ny * jitter * 0.4;
+      const half = radius * (0.34 + meteorHash01((m.seed || 1) + i * 11.2) * 0.36);
+      g.lineStyle(Math.max(1, radius * 0.14), frac > 0.56 ? METEOR_STYLE_OBSIDIAN_CRIMSON.emberHot : METEOR_STYLE_OBSIDIAN_CRIMSON.crimsonHot, 0.42 + frac * 0.18);
+      g.moveTo(cx - nx * half, cy - ny * half);
+      g.lineTo(cx + nx * half, cy + ny * half);
+    }
+
+    const headX = m.x + cosA * radius * 0.92;
+    const headY = m.y + sinA * radius * 0.92;
+    g.beginFill(METEOR_STYLE_OBSIDIAN_CRIMSON.emberHot, 0.92);
+    g.drawCircle(headX, headY, radius * 0.56);
+    g.endFill();
+    g.beginFill(METEOR_STYLE_OBSIDIAN_CRIMSON.emberWhite, 0.82);
+    g.drawCircle(headX + cosA * radius * 0.08, headY + sinA * radius * 0.08, radius * 0.26);
+    g.endFill();
+
+    for (let i = 0; i < detail.emberCount; i++) {
+      const seed = (m.seed || 1) + i * 23.7;
+      const back = radius * (0.35 + meteorHash01(seed + 1) * 2.2);
+      const side = (meteorHash01(seed + 2) - 0.5) * radius * 2.8;
+      const px = m.x - cosA * back + nx * side;
+      const py = m.y - sinA * back + ny * side;
+      const pr = radius * (0.08 + meteorHash01(seed + 3) * 0.16);
+      const col = meteorHash01(seed + 4) > 0.55 ? METEOR_STYLE_OBSIDIAN_CRIMSON.emberHot : METEOR_STYLE_OBSIDIAN_CRIMSON.crimsonHot;
+      g.beginFill(col, 0.24 + meteorHash01(seed + 5) * 0.26);
+      g.drawCircle(px, py, pr);
+      g.endFill();
+    }
+  }
+
+  function drawOrbitalProjectile(g, m, timeSec) {
+    const angle = getMeteorAngle(m);
+    const cosA = Math.cos(angle);
+    const sinA = Math.sin(angle);
+    const speed = Math.hypot(m.vx || 0, m.vy || 0) || 1;
+    const trailLen = Math.min(170, Math.max(70, speed * 0.2));
+    const pulse = 0.7 + 0.3 * Math.sin(timeSec * 15 + m.x * 0.01);
+    g.lineStyle(10, 0x6f1b1d, 0.16 * pulse);
+    g.moveTo(m.x, m.y);
+    g.lineTo(m.x - cosA * trailLen, m.y - sinA * trailLen);
+    g.lineStyle(5.2, 0xff7a24, 0.42 * pulse);
+    g.moveTo(m.x, m.y);
+    g.lineTo(m.x - cosA * trailLen * 0.6, m.y - sinA * trailLen * 0.6);
+    g.beginFill(0xffa34a, 0.94);
+    g.drawCircle(m.x, m.y, 6.5);
+    g.endFill();
+    g.beginFill(0xfff1d0, 0.78);
+    g.drawCircle(m.x, m.y, 2.5);
+    g.endFill();
+  }
 
   function _spawnMeteorLocal(targetX, targetY, angle, ownerId) {
     const cosA = Math.cos(angle), sinA = Math.sin(angle);
@@ -10682,9 +12781,53 @@
       angle,
       radius: METEOR_RADIUS,
       aoeR: METEOR_AOE_RADIUS,
-      ownerId: ownerId ?? state.myPlayerId,
-      alive: true, gfx: null, trajGfx: null
+      ownerId: ownerId === undefined ? state.myPlayerId : ownerId,
+      alive: true,
+      gfx: null,
+      trajGfx: null,
+      spawnedAt: state.t,
+      impactDuration: METEOR_IMPACT_DURATION,
+      styleKey: "signal-bloom",
+      visualScale: 1.0,
+      seed: getMeteorSeed(targetX, targetY, angle)
     });
+  }
+
+  function getMeteorSwarmPreview(targetX, targetY, ownerId, angle) {
+    const api = getMeteorSwarmAbilityApi();
+    if (!api || typeof api.buildCast !== "function") return null;
+    return api.buildCast(targetX, targetY, ownerId == null ? state.myPlayerId : ownerId, {
+      worldW: CFG.WORLD_W,
+      worldH: CFG.WORLD_H,
+      baseSpeed: METEOR_SWARM_BASE_SPEED_PX_PER_S,
+      baseAngle: angle
+    });
+  }
+
+  function _spawnMeteorSwarmLocal(targetX, targetY, angle, ownerId) {
+    const built = getMeteorSwarmPreview(targetX, targetY, ownerId, angle);
+    if (!built || !Array.isArray(built.shots) || built.shots.length === 0) return;
+    const resolvedOwnerId = ownerId === undefined ? state.myPlayerId : ownerId;
+    for (const shot of built.shots) {
+      state._activeMeteors.push({
+        x: shot.x,
+        y: shot.y,
+        vx: shot.vx,
+        vy: shot.vy,
+        angle: shot.angle,
+        radius: shot.radius,
+        aoeR: shot.aoeR,
+        ownerId: resolvedOwnerId,
+        alive: true,
+        gfx: null,
+        trajGfx: null,
+        spawnedAt: state.t,
+        impactDuration: shot.impactDuration || METEOR_IMPACT_DURATION,
+        styleKey: shot.styleKey,
+        visualScale: shot.visualScale,
+        seed: shot.seed
+      });
+    }
   }
 
   function useMeteor(targetX, targetY, angle) {
@@ -10697,6 +12840,325 @@
       pushAbilityAnnouncement(state.myPlayerId, "meteor");
     }
     cancelAbilityTargeting();
+  }
+
+  const ORBITAL_STRIKE_ZONE_RADIUS = Math.round(120 * 1.4);
+  const ORBITAL_STRIKE_PRIMARY_RADIUS = 62;
+  const ORBITAL_STRIKE_SUPPORT_RADIUS = 34;
+  const ORBITAL_STRIKE_DAMAGE_BASE = 25;
+  const ORBITAL_STRIKE_DAMAGE_MAX_HP_PCT = 0.15;
+  const ORBITAL_STRIKE_FLIGHT_DURATION_SEC = 6.0;
+  const ORBITAL_STRIKE_FLIGHT_VARIANCE_SEC = 0.55;
+  const ORBITAL_STRIKE_SHOT_INTERVAL_SEC = 0;
+  const ORBITAL_STRIKE_SALVO_GAP_SEC = 0.55;
+  const ORBITAL_STRIKE_IMPACT_FADE_SEC = 1.0;
+  const ORBITAL_STRIKE_SALVO_COUNT = 3;
+  const ORBITAL_STRIKE_SHOTS_PER_SALVO = 5;
+  const ORBITAL_STRIKE_TOTAL_DURATION_SEC =
+    ORBITAL_STRIKE_SALVO_GAP_SEC * Math.max(0, ORBITAL_STRIKE_SALVO_COUNT - 1) +
+    ORBITAL_STRIKE_FLIGHT_DURATION_SEC + ORBITAL_STRIKE_FLIGHT_VARIANCE_SEC +
+    ORBITAL_STRIKE_IMPACT_FADE_SEC +
+    0.26;
+
+  function getOrbitalStrikeDamage(target) {
+    const maxHp = Math.max(1, target?.maxHp || target?.shieldMaxHp || target?.hp || target?.pop || 1);
+    return Math.max(1, Math.round(ORBITAL_STRIKE_DAMAGE_BASE + maxHp * ORBITAL_STRIKE_DAMAGE_MAX_HP_PCT));
+  }
+
+  function getOrbitalStrikeOwnerCore(ownerId, fallbackX, fallbackY) {
+    const owner = state.players.get(ownerId);
+    if (owner && !owner.eliminated) return { x: owner.x, y: owner.y };
+    return { x: fallbackX, y: fallbackY };
+  }
+
+  function buildOrbitalSalvoTargets(zoneX, zoneY, seed, salvoIndex) {
+    const supportTargets = [];
+    const baseOrbitR = ORBITAL_STRIKE_ZONE_RADIUS * (0.46 + salvoIndex * 0.05);
+    for (let supportIndex = 0; supportIndex < ORBITAL_STRIKE_SHOTS_PER_SALVO - 1; supportIndex++) {
+      const supportSeed = seed + salvoIndex * 181 + supportIndex * 47 + 19;
+      const baseAngle = -1.32 + supportIndex * ((Math.PI * 2) / 4) + salvoIndex * 0.18;
+      const ang = baseAngle + (meteorHash01(supportSeed + 1) - 0.5) * 0.70;
+      const rr = baseOrbitR * (0.54 + meteorHash01(supportSeed + 2) * 0.30);
+      supportTargets.push({
+        primary: false,
+        tx: zoneX + Math.cos(ang) * rr,
+        ty: zoneY + Math.sin(ang) * rr * 0.72,
+        radius: ORBITAL_STRIKE_SUPPORT_RADIUS
+      });
+    }
+    return [
+      supportTargets[0],
+      supportTargets[1],
+      { primary: true, tx: zoneX, ty: zoneY, radius: ORBITAL_STRIKE_PRIMARY_RADIUS },
+      supportTargets[2],
+      supportTargets[3]
+    ];
+  }
+
+  function getOrbitalPreviewSalvo(ownerId, zoneX, zoneY) {
+    const seed = getMeteorSeed(zoneX, zoneY, ownerId || 0);
+    return {
+      seed,
+      targets: buildOrbitalSalvoTargets(zoneX, zoneY, seed, 0)
+    };
+  }
+
+  function drawOrbitalPreviewFallback(g, cx, cy, radius, shots, timeSec, active) {
+    const pulse = 0.5 + 0.5 * Math.sin(timeSec * (active ? 1.15 : 1.45));
+    const outerAlpha = active ? (0.34 + pulse * 0.10) : (0.54 + pulse * 0.18);
+    const midAlpha = active ? (0.20 + pulse * 0.07) : (0.28 + pulse * 0.10);
+    const innerAlpha = active ? (0.12 + pulse * 0.05) : (0.17 + pulse * 0.06);
+
+    g.circle(cx, cy, radius);
+    g.stroke({ color: 0xffe1ea, width: active ? 3.2 : 5.2, alpha: outerAlpha });
+    g.circle(cx, cy, radius * 0.82);
+    g.stroke({ color: 0xff8aa5, width: active ? 1.8 : 2.6, alpha: midAlpha });
+    g.circle(cx, cy, radius * 0.62);
+    g.stroke({ color: 0xff6b8d, width: active ? 1.0 : 1.4, alpha: innerAlpha });
+
+    const bracketR = radius * 0.84;
+    const bracketLen = radius * 0.10;
+    const bracketWidth = active ? 1.5 : 2.1;
+    const bracketAlpha = active ? 0.18 + pulse * 0.05 : 0.32 + pulse * 0.08;
+    const corners = [
+      [-1, -1],
+      [1, -1],
+      [1, 1],
+      [-1, 1]
+    ];
+    for (const [sx, sy] of corners) {
+      const px = cx + sx * bracketR;
+      const py = cy + sy * bracketR;
+      g.moveTo(px, py + sy * bracketLen);
+      g.lineTo(px, py);
+      g.lineTo(px + sx * bracketLen, py);
+      g.stroke({ color: 0xffe1ea, width: bracketWidth, alpha: bracketAlpha });
+    }
+
+    for (const shot of shots || []) {
+      const outerW = shot.primary ? (active ? 1.5 : 1.9) : (active ? 1.1 : 1.4);
+      const innerW = shot.primary ? (active ? 1.0 : 1.2) : (active ? 0.8 : 0.95);
+      const shotAlpha = active ? (0.18 + pulse * 0.05) : (0.42 + pulse * 0.08);
+      const shotColor = shot.primary ? 0xffe1ea : 0xff8aa5;
+      g.circle(shot.tx, shot.ty, shot.radius);
+      g.stroke({ color: shotColor, width: outerW, alpha: shotAlpha });
+      g.circle(shot.tx, shot.ty, shot.radius * 0.72);
+      g.stroke({ color: 0xffe1ea, width: innerW, alpha: shotAlpha * 0.7 });
+    }
+  }
+
+  function buildOrbitalStrikeShots(ownerId, zoneX, zoneY, seed) {
+    const core = getOrbitalStrikeOwnerCore(ownerId, zoneX - ORBITAL_STRIKE_ZONE_RADIUS * 2.2, zoneY + ORBITAL_STRIKE_ZONE_RADIUS * 1.6);
+    const shots = [];
+    for (let salvoIndex = 0; salvoIndex < ORBITAL_STRIKE_SALVO_COUNT; salvoIndex++) {
+      const salvoStart = salvoIndex * ORBITAL_STRIKE_SALVO_GAP_SEC;
+      const salvoTargets = buildOrbitalSalvoTargets(zoneX, zoneY, seed, salvoIndex);
+      for (let shotIndex = 0; shotIndex < ORBITAL_STRIKE_SHOTS_PER_SALVO; shotIndex++) {
+        const shotSeed = seed + salvoIndex * 101 + shotIndex * 17 + 13;
+        const target = salvoTargets[shotIndex];
+        const launchAt = salvoStart + shotIndex * ORBITAL_STRIKE_SHOT_INTERVAL_SEC;
+        const flightDuration = ORBITAL_STRIKE_FLIGHT_DURATION_SEC + (meteorHash01(shotSeed + 77) - 0.5) * ORBITAL_STRIKE_FLIGHT_VARIANCE_SEC * 2;
+        shots.push({
+          salvoIndex,
+          shotIndex,
+          seed: shotSeed,
+          primary: !!target.primary,
+          sx: core.x,
+          sy: core.y,
+          tx: target.tx,
+          ty: target.ty,
+          radius: target.radius,
+          launchAt,
+          arriveAt: launchAt + flightDuration,
+          impactAt: launchAt + flightDuration,
+          fadeDuration: ORBITAL_STRIKE_IMPACT_FADE_SEC,
+          resolved: false
+        });
+      }
+    }
+    return { coreX: core.x, coreY: core.y, shots };
+  }
+
+  function queueOrbitalStrikeLocal(zoneX, zoneY, ownerId) {
+    const seed = getMeteorSeed(zoneX, zoneY, ownerId || 0);
+    const built = buildOrbitalStrikeShots(ownerId, zoneX, zoneY, seed);
+    state._orbitalStrikes.push({
+      x: zoneX,
+      y: zoneY,
+      radius: ORBITAL_STRIKE_ZONE_RADIUS,
+      ownerId,
+      spawnedAt: state.t,
+      duration: ORBITAL_STRIKE_TOTAL_DURATION_SEC,
+      seed,
+      coreX: built.coreX,
+      coreY: built.coreY,
+      shots: built.shots,
+      gfx: null
+    });
+  }
+
+  function applyOrbitalStrikeImpact(strike, shot) {
+    if (!strike || !shot) return;
+    const hitR2 = shot.radius * shot.radius;
+    for (const u of state.units.values()) {
+      if (!u || u.hp <= 0 || u.owner === strike.ownerId) continue;
+      const dx = u.x - shot.tx;
+      const dy = u.y - shot.ty;
+      if (dx * dx + dy * dy > hitR2) continue;
+      const dmg = getOrbitalStrikeDamage(u);
+      applyUnitDamage(u, dmg, strike.ownerId);
+      state.floatingDamage.push({ x: u.x, y: u.y - 14, text: "💥 -" + dmg, color: 0xff6b8d, ttl: 0.8 });
+      if (u.hp <= 0) killUnit(u, "orbitalStrike", strike.ownerId);
+    }
+    for (const t of state.turrets.values()) {
+      if (!t || t.hp <= 0 || t.ownerId === strike.ownerId) continue;
+      const dx = t.x - shot.tx;
+      const dy = t.y - shot.ty;
+      if (dx * dx + dy * dy > hitR2) continue;
+      const dmg = getOrbitalStrikeDamage(t);
+      t.hp = Math.max(0, t.hp - dmg);
+      state.floatingDamage.push({ x: t.x, y: t.y - 12, text: "💥 -" + dmg, color: 0xff6b8d, ttl: 0.8 });
+      if (t.hp <= 0) {
+        t._diedAt = state.t;
+        spawnXPOrb(t.x, t.y, 8);
+      }
+    }
+    for (const p of state.players.values()) {
+      if (!p || p.eliminated || p.id === strike.ownerId) continue;
+      const dx = p.x - shot.tx;
+      const dy = p.y - shot.ty;
+      if (dx * dx + dy * dy > hitR2) continue;
+      const dmg = getOrbitalStrikeDamage(p);
+      if ((p.shieldHp || 0) > 0) {
+        p.shieldHp = Math.max(0, p.shieldHp - dmg);
+        if (p.shieldHp === 0) p.shieldRegenCd = SHIELD_REGEN_DELAY;
+        pushShieldHitEffect(p.x, p.y, shieldRadius(p), shot.tx, shot.ty, 0xff6b8d);
+        state.floatingDamage.push({ x: shot.tx, y: shot.ty - 10, text: "💥🛡 -" + dmg, color: 0xff6b8d, ttl: 1.0 });
+      } else {
+        const popDmg = Math.max(2, Math.round(dmg * 0.12));
+        p.popFloat = Math.max(1, (p.popFloat || p.pop || 1) - popDmg);
+        p.pop = Math.floor(p.popFloat);
+        state.floatingDamage.push({ x: p.x, y: p.y - 36, text: "💥 -" + popDmg, color: 0xff6b8d, ttl: 0.9 });
+      }
+    }
+  }
+
+  function stepOrbitalStrikes(dt) {
+    void dt;
+    for (let i = state._orbitalStrikes.length - 1; i >= 0; i--) {
+      const strike = state._orbitalStrikes[i];
+      const elapsed = state.t - strike.spawnedAt;
+      if (elapsed > (strike.duration || ORBITAL_STRIKE_TOTAL_DURATION_SEC)) {
+        destroyOrbitalStrikeVisual(strike);
+        state._orbitalStrikes.splice(i, 1);
+        continue;
+      }
+      for (const shot of strike.shots || []) {
+        if (shot.resolved || elapsed < shot.impactAt) continue;
+        shot.resolved = true;
+        applyOrbitalStrikeImpact(strike, shot);
+      }
+    }
+  }
+
+  function queueThermoNukeLocal(targetX, targetY, ownerId) {
+    const api = getThermoNukeAbilityApi();
+    const owner = state.players.get(ownerId);
+    const originX = owner && !owner.eliminated ? owner.x : targetX;
+    const originY = owner && !owner.eliminated ? owner.y : (targetY - 260);
+    const built = api && typeof api.buildCast === "function"
+      ? api.buildCast(targetX, targetY, ownerId, { originX, originY })
+      : {
+          ownerId,
+          x: originX,
+          y: originY,
+          originX,
+          originY,
+          startX: originX,
+          startY: originY,
+          targetX,
+          targetY,
+          dirX: 0,
+          dirY: -1,
+          vx: 0,
+          vy: 0,
+          distance: Math.hypot(targetX - originX, targetY - originY),
+          flightDuration: 10,
+          impactAt: 10,
+          impactFadeDuration: 2.6,
+          previewRadius: 500,
+          impactRadius: 500,
+          duration: 20.6,
+          resolved: false
+        };
+    state._thermoNukes.push({
+      ...built,
+      ownerId,
+      spawnedAt: state.t,
+      gfx: null,
+      trajGfx: null,
+      overlayGfx: null
+    });
+  }
+
+  function applyThermoNukeImpact(strike) {
+    if (!strike) return;
+    const victims = [];
+    const hitR2 = (strike.impactRadius || 500) * (strike.impactRadius || 500);
+    for (const u of state.units.values()) {
+      if (!u || u.hp <= 0) continue;
+      const dx = u.x - strike.targetX;
+      const dy = u.y - strike.targetY;
+      if (dx * dx + dy * dy <= hitR2) victims.push(u);
+    }
+    for (const u of victims) {
+      const killerOwner = u.owner === strike.ownerId ? null : strike.ownerId;
+      u._activeShieldHp = null;
+      u.hp = 0;
+      u.lastDamagedBy = killerOwner;
+      state.floatingDamage.push({
+        x: u.x,
+        y: u.y - 16,
+        text: "☢️ WIPE",
+        color: 0xdff3ff,
+        ttl: 0.9
+      });
+      killUnit(u, "thermoNuke", killerOwner);
+    }
+    for (const p of state.players.values()) {
+      if (!p || p.eliminated) continue;
+      const dx = p.x - strike.targetX;
+      const dy = p.y - strike.targetY;
+      if (dx * dx + dy * dy > hitR2) continue;
+      if ((p.shieldHp || 0) > 0) {
+        p.shieldHp = 0;
+        p.shieldRegenCd = SHIELD_REGEN_DELAY;
+        pushShieldHitEffect(p.x, p.y, shieldRadius(p), strike.targetX, strike.targetY, 0xf6fbff);
+        state.floatingDamage.push({
+          x: p.x,
+          y: p.y - 42,
+          text: "☢️ SHIELD DOWN",
+          color: 0xeaf6ff,
+          ttl: 1.0
+        });
+      }
+    }
+  }
+
+  function stepThermoNukes(dt) {
+    void dt;
+    for (let i = state._thermoNukes.length - 1; i >= 0; i--) {
+      const strike = state._thermoNukes[i];
+      const elapsed = state.t - strike.spawnedAt;
+      if (!strike.resolved && elapsed >= (strike.impactAt || strike.flightDuration || 10)) {
+        strike.resolved = true;
+        applyThermoNukeImpact(strike);
+      }
+      if (elapsed > (strike.duration || ((strike.flightDuration || 10) + (strike.impactFadeDuration || 2.6) + 8))) {
+        destroyThermoNukeVisual(strike);
+        state._thermoNukes.splice(i, 1);
+      }
+    }
   }
 
   const TIME_JUMP_REWIND_SEC = 60;
@@ -10806,23 +13268,133 @@
       radius: m.radius,
       aoeR: m.aoeR,
       ownerId: m.ownerId,
-      alive: m.alive !== false
+      alive: m.alive !== false,
+      impactDuration: m.impactDuration,
+      styleKey: m.styleKey,
+      visualScale: m.visualScale,
+      seed: m.seed
     };
   }
 
   function restoreMeteorSnapshot(m) {
     if (!m) return null;
-    return {
-      x: m.x, y: m.y,
-      vx: m.vx, vy: m.vy,
-      angle: m.angle,
-      radius: m.radius,
-      aoeR: m.aoeR,
-      ownerId: m.ownerId,
+    return Object.assign({}, m, {
       alive: m.alive !== false,
       gfx: null,
       trajGfx: null
+    });
+  }
+
+  function snapshotOrbitalStrike(strike) {
+    if (!strike) return null;
+    return {
+      x: strike.x,
+      y: strike.y,
+      radius: strike.radius,
+      ownerId: strike.ownerId,
+      spawnedAt: strike.spawnedAt,
+      duration: strike.duration,
+      seed: strike.seed,
+      coreX: strike.coreX,
+      coreY: strike.coreY,
+      shots: (strike.shots || []).map((shot) => ({
+        salvoIndex: shot.salvoIndex,
+        shotIndex: shot.shotIndex,
+        seed: shot.seed,
+        primary: !!shot.primary,
+        sx: shot.sx,
+        sy: shot.sy,
+        tx: shot.tx,
+        ty: shot.ty,
+        radius: shot.radius,
+        launchAt: shot.launchAt,
+        arriveAt: shot.arriveAt,
+        impactAt: shot.impactAt,
+        fadeDuration: shot.fadeDuration,
+        resolved: !!shot.resolved
+      }))
     };
+  }
+
+  function restoreOrbitalStrikeSnapshot(strike) {
+    if (!strike) return null;
+    return {
+      x: strike.x,
+      y: strike.y,
+      radius: strike.radius,
+      ownerId: strike.ownerId,
+      spawnedAt: strike.spawnedAt,
+      duration: strike.duration,
+      seed: strike.seed,
+      coreX: strike.coreX,
+      coreY: strike.coreY,
+      shots: (strike.shots || []).map((shot) => ({
+        salvoIndex: shot.salvoIndex,
+        shotIndex: shot.shotIndex,
+        seed: shot.seed,
+        primary: !!shot.primary,
+        sx: shot.sx,
+        sy: shot.sy,
+        tx: shot.tx,
+        ty: shot.ty,
+        radius: shot.radius,
+        launchAt: shot.launchAt,
+        arriveAt: shot.arriveAt,
+        impactAt: shot.impactAt,
+        fadeDuration: shot.fadeDuration,
+        resolved: !!shot.resolved
+      })),
+      gfx: null
+    };
+  }
+
+  function snapshotThermoNuke(strike) {
+    if (!strike) return null;
+    return {
+      ownerId: strike.ownerId,
+      spawnedAt: strike.spawnedAt,
+      duration: strike.duration,
+      seed: strike.seed,
+      x: strike.x,
+      y: strike.y,
+      originX: strike.originX,
+      originY: strike.originY,
+      startX: strike.startX,
+      startY: strike.startY,
+      targetX: strike.targetX,
+      targetY: strike.targetY,
+      dirX: strike.dirX,
+      dirY: strike.dirY,
+      vx: strike.vx,
+      vy: strike.vy,
+      distance: strike.distance,
+      flightDuration: strike.flightDuration,
+      impactAt: strike.impactAt,
+      impactFadeDuration: strike.impactFadeDuration,
+      previewRadius: strike.previewRadius,
+      impactRadius: strike.impactRadius,
+      styleKey: strike.styleKey,
+      resolved: !!strike.resolved
+    };
+  }
+
+  function restoreThermoNukeSnapshot(strike) {
+    if (!strike) return null;
+    return {
+      ...strike,
+      resolved: !!strike.resolved,
+      gfx: null,
+      trajGfx: null,
+      overlayGfx: null
+    };
+  }
+
+  function snapshotPirateRaidForTime(strike) {
+    return snapshotPirateRaid(strike);
+  }
+
+  function restorePirateRaidSnapshotForTime(strike) {
+    return restorePirateRaidSnapshot(strike);
   }
 
   function saveTimeSnapshot() {
@@ -10867,6 +13439,9 @@
       abilityStorms: (state._abilityStorms || []).map(snapshotStormLike),
       blackHoles: (state._blackHoles || []).map(snapshotBlackHole),
       meteors: (state._activeMeteors || []).map(snapshotMeteor),
+      orbitalStrikes: (state._orbitalStrikes || []).map(snapshotOrbitalStrike),
+      thermoNukes: (state._thermoNukes || []).map(snapshotThermoNuke),
+      pirateRaids: (state._pirateRaids || []).map(snapshotPirateRaidForTime),
       abilityZoneEffects: (state._abilityZoneEffects || []).map(cloneForSnapshot),
       nextStormAt: state._nextStormAt,
       randomBlackHoleNextAt: state._randomBlackHoleNextAt,
@@ -10905,6 +13480,10 @@
     for (const s of state._abilityStorms || []) destroyIonStormVisual(s);
     for (const bh of state._blackHoles || []) destroyBlackHoleVisual(bh);
     for (const m of state._activeMeteors || []) removeMeteorGfx(m);
+    for (const strike of state._orbitalStrikes || []) destroyOrbitalStrikeVisual(strike);
+    for (const strike of state._thermoNukes || []) destroyThermoNukeVisual(strike);
+    for (const raid of state._pirateRaids || []) destroyPirateRaidVisual(raid);
+    for (const zone of state._abilityZoneEffects || []) destroyAbilityZoneVisual(zone);
 
     state.players.clear();
     state.units.clear();
@@ -10955,6 +13534,9 @@
     state._abilityStorms = (snap.abilityStorms || []).map(restoreStormLikeSnapshot);
     state._blackHoles = (snap.blackHoles || []).map(restoreBlackHoleSnapshot);
     state._activeMeteors = (snap.meteors || []).map(restoreMeteorSnapshot);
+    state._orbitalStrikes = (snap.orbitalStrikes || []).map(restoreOrbitalStrikeSnapshot);
+    state._thermoNukes = (snap.thermoNukes || []).map(restoreThermoNukeSnapshot);
+    state._pirateRaids = (snap.pirateRaids || []).map(restorePirateRaidSnapshotForTime);
     state._abilityZoneEffects = (snap.abilityZoneEffects || []).map(cloneForSnapshot);
     state._meteorImpactEffects = [];
     state._nextStormAt = snap.nextStormAt != null ? snap.nextStormAt : STORM_STARTUP_DELAY;
@@ -11132,341 +13714,212 @@
     for (let i = state._activeMeteors.length - 1; i >= 0; i--) {
       const m = state._activeMeteors[i];
       if (!m.alive) { removeMeteorGfx(m); state._activeMeteors.splice(i, 1); continue; }
+      const prevX = m.x;
+      const prevY = m.y;
       m.x += m.vx * dt;
       m.y += m.vy * dt;
       // Off map
       if (m.x < -800 || m.x > CFG.WORLD_W + 800 || m.y < -800 || m.y > CFG.WORLD_H + 800) {
         m.alive = false; removeMeteorGfx(m); state._activeMeteors.splice(i, 1); continue;
       }
-      const aR = m.aoeR || METEOR_AOE_RADIUS;
-      const aR2 = aR * aR;
-      for (const u of state.units.values()) {
-        if (u.hp <= 0) continue;
-        if ((u.x - m.x) ** 2 + (u.y - m.y) ** 2 <= aR2) {
-          const maxHp = u.maxHp || 1;
-          const dmg = Math.max(1, Math.floor(maxHp * 0.75));
-          u.hp = Math.max(0, u.hp - dmg);
-          u.lastDamagedBy = m.ownerId;
-          state.floatingDamage.push({ x: u.x, y: u.y - 15, text: "💥 -" + dmg, color: 0xff4400, ttl: 0.7 });
-          if (!m._impactFx) {
-            m._impactFx = true;
-            if (!state._meteorImpactEffects) state._meteorImpactEffects = [];
-            state._meteorImpactEffects.push({ x: m.x, y: m.y, t0: state.t, duration: 0.5 });
-          }
-        }
-      }
-      for (const t of state.turrets.values()) {
-        if (t.hp <= 0) continue;
-        if ((t.x - m.x) ** 2 + (t.y - m.y) ** 2 <= aR2) {
-          if (!m._impactFx) {
-            m._impactFx = true;
-            if (!state._meteorImpactEffects) state._meteorImpactEffects = [];
-            state._meteorImpactEffects.push({ x: m.x, y: m.y, t0: state.t, duration: 0.5 });
-          }
-          state.floatingDamage.push({ x: t.x, y: t.y - 12, text: "💥", color: 0xff4400, ttl: 0.7 });
-          t.hp = 0;
-          t._diedAt = state.t;
-          spawnXPOrb(t.x, t.y, 8);
-        }
-      }
-      // Hit shield only (meteors pass through planets)
-      for (const p of state.players.values()) {
-        if (p.eliminated) continue;
-        if ((p.shieldHp || 0) <= 0) continue;
-        const sR = shieldRadius(p);
-        const dist = Math.hypot(m.x - p.x, m.y - p.y);
-        if (dist <= sR + aR) {
-          if (!m._impactFx) {
-            m._impactFx = true;
-            if (!state._meteorImpactEffects) state._meteorImpactEffects = [];
-            state._meteorImpactEffects.push({ x: m.x, y: m.y, t0: state.t, duration: 0.5 });
-          }
-          const dmg = Math.max(1, Math.round(p.shieldHp * 0.25));
-          p.shieldHp = Math.max(0, p.shieldHp - dmg);
-          if (p.shieldHp === 0) p.shieldRegenCd = SHIELD_REGEN_DELAY;
-          state.floatingDamage.push({ x: m.x, y: m.y - 10, text: "💥🛡 -" + dmg, color: 0xff4400, ttl: 1.2 });
-          m.alive = false; break;
-        }
-      }
+      const impact = findMeteorFirstImpactOnSegment(m, prevX, prevY, m.x, m.y);
+      if (impact) detonateMeteor(m, impact);
       if (!m.alive) { removeMeteorGfx(m); state._activeMeteors.splice(i, 1); }
     }
   }
 
   function removeMeteorGfx(m) {
+    if (isMeteorSwarmStyleKey(m?.styleKey) && typeof MeteorSwarmRenderer !== "undefined" && MeteorSwarmRenderer && typeof MeteorSwarmRenderer.destroyMeteor === "function") {
+      MeteorSwarmRenderer.destroyMeteor(m);
+      return;
+    }
+    if (typeof MeteorStrikeRenderer !== "undefined" && MeteorStrikeRenderer && typeof MeteorStrikeRenderer.destroyMeteor === "function") {
+      MeteorStrikeRenderer.destroyMeteor(m);
+      return;
+    }
     if (m.gfx) { m.gfx.parent?.removeChild(m.gfx); m.gfx.destroy(true); m.gfx = null; }
     if (m.trajGfx) { m.trajGfx.parent?.removeChild(m.trajGfx); m.trajGfx.destroy(true); m.trajGfx = null; }
   }
 
+  function destroyOrbitalStrikeVisual(strike) {
+    if (typeof MeteorStrikeRenderer !== "undefined" && MeteorStrikeRenderer && typeof MeteorStrikeRenderer.destroyOrbitalStrike === "function") {
+      MeteorStrikeRenderer.destroyOrbitalStrike(strike);
+      return;
+    }
+    if (strike?.gfx) {
+      strike.gfx.parent?.removeChild(strike.gfx);
+      strike.gfx.destroy(true);
+      strike.gfx = null;
+    }
+  }
+
+  function destroyThermoNukeVisual(strike) {
+    const renderer = getThermoNukeRendererApi();
+    if (renderer && typeof renderer.destroyStrike === "function") {
+      renderer.destroyStrike(strike);
+      return;
+    }
+    if (strike?.gfx) {
+      strike.gfx.parent?.removeChild(strike.gfx);
+      strike.gfx.destroy(true);
+      strike.gfx = null;
+    }
+    if (strike?.trajGfx) {
+      strike.trajGfx.parent?.removeChild(strike.trajGfx);
+      strike.trajGfx.destroy(true);
+      strike.trajGfx = null;
+    }
+    if (strike?.overlayGfx) {
+      strike.overlayGfx.parent?.removeChild(strike.overlayGfx);
+      strike.overlayGfx.destroy(true);
+      strike.overlayGfx = null;
+    }
+  }
+
+  function destroyPirateRaidVisual(raid) {
+    const renderer = getPirateRaidRendererApi();
+    if (renderer && typeof renderer.destroyRaid === "function") {
+      renderer.destroyRaid(raid);
+      return;
+    }
+    if (raid?.gfx) {
+      raid.gfx.parent?.removeChild(raid.gfx);
+      raid.gfx.destroy(true);
+      raid.gfx = null;
+    }
+  }
+
   function drawMeteors() {
-    const pulse = 0.7 + 0.3 * Math.sin(performance.now() / 80);
-    const diag = Math.hypot(CFG.WORLD_W, CFG.WORLD_H) + 400;
+    const timeSec = performance.now() / 1000;
     for (const m of state._activeMeteors) {
-      const ang = m.angle ?? Math.atan2(m.vy, m.vx);
-      const cosA = Math.cos(ang), sinA = Math.sin(ang);
-      const halfW = m.aoeR || METEOR_AOE_RADIUS;
-
-      // Trajectory corridor — full AOE width, 50% transparent
-      if (!m.trajGfx || m.trajGfx.destroyed) { m.trajGfx = new PIXI.Graphics(); world.addChild(m.trajGfx); }
-      m.trajGfx.clear();
-      const tStartX = m.x - cosA * diag, tStartY = m.y - sinA * diag;
-      const tEndX = m.x + cosA * diag, tEndY = m.y + sinA * diag;
-      // Corridor fill (4 corners of a rectangle along the trajectory)
-      const nx = -sinA * halfW, ny = cosA * halfW;
-      m.trajGfx.beginFill(0xff2200, 0.12);
-      m.trajGfx.moveTo(tStartX + nx, tStartY + ny);
-      m.trajGfx.lineTo(tEndX + nx, tEndY + ny);
-      m.trajGfx.lineTo(tEndX - nx, tEndY - ny);
-      m.trajGfx.lineTo(tStartX - nx, tStartY - ny);
-      m.trajGfx.closePath();
-      m.trajGfx.endFill();
-      // Edge lines
-      m.trajGfx.lineStyle(1.5, 0xff4400, 0.5);
-      m.trajGfx.moveTo(tStartX + nx, tStartY + ny);
-      m.trajGfx.lineTo(tEndX + nx, tEndY + ny);
-      m.trajGfx.moveTo(tStartX - nx, tStartY - ny);
-      m.trajGfx.lineTo(tEndX - nx, tEndY - ny);
-      // Center line
-      m.trajGfx.lineStyle(1, 0xff6600, 0.3);
-      m.trajGfx.moveTo(tStartX, tStartY); m.trajGfx.lineTo(tEndX, tEndY);
-      // Direction arrows along trajectory (every 120px ahead of meteor)
-      const arrowSpacing = 120;
-      const arrowSize = 10;
-      for (let d = 60; d < diag; d += arrowSpacing) {
-        const ax = m.x + cosA * d, ay = m.y + sinA * d;
-        if (ax < -100 || ax > CFG.WORLD_W + 100 || ay < -100 || ay > CFG.WORLD_H + 100) continue;
-        const apulse = 0.3 + 0.2 * Math.sin(performance.now() / 200 + d * 0.01);
-        m.trajGfx.lineStyle(2, 0xff6600, apulse);
-        m.trajGfx.moveTo(ax - cosA * arrowSize + nx * 0.6, ay - sinA * arrowSize + ny * 0.6);
-        m.trajGfx.lineTo(ax, ay);
-        m.trajGfx.lineTo(ax - cosA * arrowSize - nx * 0.6, ay - sinA * arrowSize - ny * 0.6);
+      if (isMeteorSwarmStyleKey(m.styleKey) && typeof MeteorSwarmRenderer !== "undefined" && MeteorSwarmRenderer && typeof MeteorSwarmRenderer.renderMeteor === "function") {
+        MeteorSwarmRenderer.renderMeteor(m, {
+          layer: abilityFxLayer,
+          worldW: CFG.WORLD_W,
+          worldH: CFG.WORLD_H,
+          timeSec,
+          zoom: cam.zoom || 0.22
+        });
+        continue;
       }
-
-      // Meteor body
-      if (!m.gfx || m.gfx.destroyed) { m.gfx = new PIXI.Graphics(); world.addChild(m.gfx); }
-      m.gfx.clear();
-      m.gfx.beginFill(0xff4400, 0.08 * pulse);
-      m.gfx.drawCircle(m.x, m.y, halfW);
-      m.gfx.endFill();
-      m.gfx.beginFill(0xff4400, 0.2 * pulse);
-      m.gfx.drawCircle(m.x, m.y, m.radius * 2.5);
-      m.gfx.endFill();
-      m.gfx.beginFill(0xff6600, 0.55 * pulse);
-      m.gfx.drawCircle(m.x, m.y, m.radius * 1.5);
-      m.gfx.endFill();
-      m.gfx.beginFill(0xffcc44, 0.9);
-      m.gfx.drawCircle(m.x, m.y, m.radius);
-      m.gfx.endFill();
-      m.gfx.beginFill(0xffffff, 0.8);
-      m.gfx.drawCircle(m.x, m.y, m.radius * 0.4);
-      m.gfx.endFill();
-      // Trail — long multi-segment glow
-      const spd = Math.hypot(m.vx, m.vy) || 1;
-      const trailLen = spd * 0.45;
-      const tdx = -(m.vx / spd), tdy = -(m.vy / spd);
-      const steps = 8;
-      for (let s = 0; s < steps; s++) {
-        const f = s / steps;
-        const lx = m.x + tdx * trailLen * f;
-        const ly = m.y + tdy * trailLen * f;
-        const alpha = (1 - f) * 0.08 * pulse;
-        const rad = m.radius * (1.5 + (1 - f) * 2);
-        m.gfx.beginFill(0xff2200, alpha);
-        m.gfx.drawCircle(lx, ly, rad);
-        m.gfx.endFill();
+      if (typeof MeteorStrikeRenderer !== "undefined" && MeteorStrikeRenderer && typeof MeteorStrikeRenderer.renderMeteor === "function") {
+        MeteorStrikeRenderer.renderMeteor(m, {
+          layer: abilityFxLayer,
+          worldW: CFG.WORLD_W,
+          worldH: CFG.WORLD_H,
+          timeSec,
+          zoom: cam.zoom || 0.22
+        });
+      } else {
+        if (!m.gfx || m.gfx.destroyed) { m.gfx = new PIXI.Graphics(); world.addChild(m.gfx); }
+        if (!m.trajGfx || m.trajGfx.destroyed) { m.trajGfx = new PIXI.Graphics(); world.addChild(m.trajGfx); }
       }
-      m.gfx.lineStyle(m.radius * 2.5, 0xff4400, 0.1);
-      m.gfx.moveTo(m.x, m.y); m.gfx.lineTo(m.x + tdx * trailLen * 0.5, m.y + tdy * trailLen * 0.5);
-      m.gfx.lineStyle(m.radius * 1.2, 0xff8844, 0.25);
-      m.gfx.moveTo(m.x, m.y); m.gfx.lineTo(m.x + tdx * trailLen * 0.35, m.y + tdy * trailLen * 0.35);
     }
   }
 
   function drawMeteorImpactEffects() {
     if (!state._meteorImpactEffects || !state._meteorImpactEffects.length) return;
-    const W = CFG.WORLD_W, H = CFG.WORLD_H;
     const margin = 100;
     for (let i = state._meteorImpactEffects.length - 1; i >= 0; i--) {
       const fx = state._meteorImpactEffects[i];
       const elapsed = state.t - fx.t0;
       if (elapsed >= fx.duration) {
-        if (fx.gfx && !fx.gfx.destroyed) { fx.gfx.parent?.removeChild(fx.gfx); fx.gfx.destroy(true); }
+        if (isMeteorSwarmStyleKey(fx.styleKey) && typeof MeteorSwarmRenderer !== "undefined" && MeteorSwarmRenderer && typeof MeteorSwarmRenderer.destroyImpact === "function") {
+          MeteorSwarmRenderer.destroyImpact(fx);
+        } else if (typeof MeteorStrikeRenderer !== "undefined" && MeteorStrikeRenderer && typeof MeteorStrikeRenderer.destroyImpact === "function") {
+          MeteorStrikeRenderer.destroyImpact(fx);
+        } else if (fx.gfx && !fx.gfx.destroyed) {
+          fx.gfx.parent?.removeChild(fx.gfx);
+          fx.gfx.destroy(true);
+        }
         state._meteorImpactEffects.splice(i, 1);
         continue;
       }
-      const f = elapsed / fx.duration;
-      const alpha = 1 - f;
-      const r = (METEOR_AOE_RADIUS || 30) * (0.5 + 0.5 * (1 - f));
-      if (fx.x < -margin || fx.x > W + margin || fx.y < -margin || fx.y > H + margin) continue;
-      if (!fx.gfx || fx.gfx.destroyed) { fx.gfx = new PIXI.Graphics(); world.addChild(fx.gfx); }
-      fx.gfx.clear();
-      fx.gfx.beginFill(0xff4400, alpha * 0.4);
-      fx.gfx.drawCircle(fx.x, fx.y, r);
-      fx.gfx.endFill();
-      fx.gfx.beginFill(0xff8800, alpha * 0.25);
-      fx.gfx.drawCircle(fx.x, fx.y, r * 0.6);
-      fx.gfx.endFill();
+      if (fx.x < -margin || fx.x > CFG.WORLD_W + margin || fx.y < -margin || fx.y > CFG.WORLD_H + margin) continue;
+      if (isMeteorSwarmStyleKey(fx.styleKey) && typeof MeteorSwarmRenderer !== "undefined" && MeteorSwarmRenderer && typeof MeteorSwarmRenderer.renderImpact === "function") {
+        MeteorSwarmRenderer.renderImpact(fx, {
+          layer: abilityFxLayer,
+          simTimeSec: state.t,
+          zoom: cam.zoom || 0.22
+        });
+        continue;
+      }
+      if (typeof MeteorStrikeRenderer !== "undefined" && MeteorStrikeRenderer && typeof MeteorStrikeRenderer.renderMeteorImpact === "function") {
+        MeteorStrikeRenderer.renderMeteorImpact(fx, {
+          layer: abilityFxLayer,
+          simTimeSec: state.t,
+          zoom: cam.zoom || 0.22
+        });
+      }
+    }
+  }
+
+  function drawOrbitalStrikes() {
+    if (!state._orbitalOverlayGfx || state._orbitalOverlayGfx.destroyed || state._orbitalOverlayGfx.parent !== abilityFxLayer) {
+      state._orbitalOverlayGfx = new PIXI.Graphics();
+      abilityFxLayer.addChild(state._orbitalOverlayGfx);
+    }
+    const overlay = state._orbitalOverlayGfx;
+    overlay.clear();
+    if (!state._orbitalStrikes || !state._orbitalStrikes.length) return;
+    const animTime = performance.now() / 1000;
+    for (const strike of state._orbitalStrikes) {
+      if (typeof MeteorStrikeRenderer !== "undefined" && MeteorStrikeRenderer && typeof MeteorStrikeRenderer.renderOrbitalStrike === "function") {
+        MeteorStrikeRenderer.renderOrbitalStrike(strike, {
+          layer: abilityFxLayer,
+          simTimeSec: state.t,
+          zoom: cam.zoom || 0.22
+        });
+      }
+      const visibleShots = (strike.shots || []).filter((shot) => {
+        if (!shot.resolved) return true;
+        const impactAge = state.t - (strike.spawnedAt + (shot.impactAt || 0));
+        return impactAge <= Math.max(0.001, shot.fadeDuration || ORBITAL_STRIKE_IMPACT_FADE_SEC);
+      });
+      drawOrbitalPreviewFallback(overlay, strike.x, strike.y, strike.radius, visibleShots, animTime, true);
+    }
+  }
+
+  function drawThermoNukes() {
+    if (!state._thermoNukes || !state._thermoNukes.length) return;
+    const renderer = getThermoNukeRendererApi();
+    if (!renderer || typeof renderer.renderStrike !== "function") return;
+    for (const strike of state._thermoNukes) {
+      renderer.renderStrike(strike, {
+        layer: abilityFxLayer,
+        simTimeSec: state.t,
+        zoom: cam.zoom || 0.22
+      });
+    }
+  }
+
+  function drawPirateRaids() {
+    if (!state._pirateRaids || !state._pirateRaids.length) return;
+    const renderer = getPirateRaidRendererApi();
+    if (!renderer || typeof renderer.renderRaid !== "function") return;
+    for (const raid of state._pirateRaids) {
+      renderer.renderRaid(raid, {
+        layer: abilityFxLayer,
+        simTimeSec: state.t,
+        zoom: cam.zoom || 0.22
+      });
     }
   }
 
   function stepRandomEvents(dt) {
+    void dt;
     if (!state._multiIsHost && state._multiSlots) return;
     const W = CFG.WORLD_W, H = CFG.WORLD_H;
     const margin = 200;
     if (state._randomBlackHoleNextAt == null) state._randomBlackHoleNextAt = state.t + 300;
-    if (state._randomMeteorNextAt == null) state._randomMeteorNextAt = state.t + 240;
     if (state.t >= (state._randomBlackHoleNextAt ?? 0)) {
       state._randomBlackHoleNextAt = state.t + 300;
       const x = margin + Math.random() * (W - 2 * margin);
       const y = margin + Math.random() * (H - 2 * margin);
       spawnBlackHole(x, y, null);
     }
-    if (!state._randomMeteorScheduled) state._randomMeteorScheduled = [];
-    if (state.t >= (state._randomMeteorNextAt ?? 0)) {
-      state._randomMeteorNextAt = state.t + 240;
-      const angles = [Math.random() * Math.PI * 2, Math.random() * Math.PI * 2, Math.random() * Math.PI * 2];
-      for (let i = 0; i < 3; i++) {
-        state._randomMeteorScheduled.push({ spawnAt: state.t + i * 2, angle: angles[i] });
-      }
-    }
-    for (let i = state._randomMeteorScheduled.length - 1; i >= 0; i--) {
-      const s = state._randomMeteorScheduled[i];
-      if (state.t < s.spawnAt) continue;
-      state._randomMeteorScheduled.splice(i, 1);
-      const edge = Math.floor(Math.random() * 4);
-      let sx, sy, tx, ty;
-      if (edge === 0) { sx = Math.random() * W; sy = -100; tx = W * 0.5 + (Math.random() - 0.5) * W * 0.6; ty = H * 0.5; }
-      else if (edge === 1) { sx = W + 100; sy = Math.random() * H; tx = W * 0.5; ty = H * 0.5 + (Math.random() - 0.5) * H * 0.6; }
-      else if (edge === 2) { sx = Math.random() * W; sy = H + 100; tx = W * 0.5 + (Math.random() - 0.5) * W * 0.6; ty = H * 0.5; }
-      else { sx = -100; sy = Math.random() * H; tx = W * 0.5; ty = H * 0.5 + (Math.random() - 0.5) * H * 0.6; }
-      const angle = Math.atan2(ty - sy, tx - sx) + (Math.random() - 0.5) * 0.4;
-      _spawnMeteorLocal(tx, ty, angle, null);
-    }
-  }
-
-  function stepBgComets(dt) {
-    if (!state._bgComets) state._bgComets = [];
-    if (state._bgCometNextAt === undefined) state._bgCometNextAt = 0;
-    if (state._bgCometNextAt > 0 && state.t >= state._bgCometNextAt && state._bgComets.length < 2) {
-      const W = CFG.WORLD_W, H = CFG.WORLD_H;
-      const startTop = Math.random() > 0.5;
-      const sx = startTop ? (-140 - Math.random() * 120) : (W + 140 + Math.random() * 120);
-      const sy = (startTop ? H * 0.16 : H * 0.74) + (Math.random() - 0.5) * H * 0.12;
-      const tx = startTop ? (W + 180) : -180;
-      const ty = startTop ? (H * 0.68 + (Math.random() - 0.5) * H * 0.14) : (H * 0.22 + (Math.random() - 0.5) * H * 0.14);
-      const dir = Math.atan2(ty - sy, tx - sx);
-      const speed = 340 + Math.random() * 110;
-      const baseVx = Math.cos(dir) * speed;
-      const baseVy = Math.sin(dir) * speed;
-      const tint = [0xe8f1ff, 0xd7e6ff, 0xc4d7ff, 0xbacfff][Math.floor(Math.random() * 4)];
-      for (let burst = 0; burst < 2; burst++) {
-        const separation = burst === 0 ? -18 : 18;
-        const px = -Math.sin(dir) * separation;
-        const py = Math.cos(dir) * separation;
-        const life = 4.4 + Math.random() * 1.3;
-        state._bgComets.push({
-          x: sx + px,
-          y: sy + py,
-          vx: baseVx * (0.98 + burst * 0.03),
-          vy: baseVy * (0.98 + burst * 0.03),
-          tailLen: 180 + Math.random() * 90,
-          life,
-          maxLife: life,
-          tint,
-          head: 3.8 + Math.random() * 1.8
-        });
-      }
-      state._bgCometNextAt = state.t + 165 + Math.random() * 30;
-    }
-    for (let i = state._bgComets.length - 1; i >= 0; i--) {
-      const c = state._bgComets[i];
-      c.x += c.vx * dt;
-      c.y += c.vy * dt;
-      c.life -= dt;
-      const margin = 400;
-      if (c.life <= 0 || c.x < -margin || c.x > CFG.WORLD_W + margin || c.y < -margin || c.y > CFG.WORLD_H + margin) {
-        state._bgComets.splice(i, 1);
-      }
-    }
-  }
-
-  // Backdrop-only FX: keep cold hues and alpha low so they never read as gameplay hazards.
-  function stepBgFlares(dt) {
-    if (!state._bgFlares) state._bgFlares = [];
-    if (state._bgFlareNextAt === undefined) state._bgFlareNextAt = 0;
-    if (state._bgFlareNextAt > 0 && state.t >= state._bgFlareNextAt && state._bgFlares.length < 2) {
-      const marginX = CFG.WORLD_W * 0.12;
-      const marginY = CFG.WORLD_H * 0.12;
-      const life = 7 + Math.random() * 6;
-      state._bgFlares.push({
-        x: marginX + Math.random() * (CFG.WORLD_W - marginX * 2),
-        y: marginY + Math.random() * (CFG.WORLD_H - marginY * 2),
-        r: 140 + Math.random() * 180,
-        life,
-        maxLife: life,
-        tint: [0x88b8ff, 0x9f8cff, 0xb6cfff][Math.floor(Math.random() * 3)]
-      });
-      state._bgFlareNextAt = state.t + 18 + Math.random() * 16;
-    }
-    for (let i = state._bgFlares.length - 1; i >= 0; i--) {
-      const flare = state._bgFlares[i];
-      flare.life -= dt;
-      if (flare.life <= 0) state._bgFlares.splice(i, 1);
-    }
-  }
-
-  function drawBgComets() {
-    if (!state._bgCometLayer || !state._bgComets || !state._bgComets.length) return;
-    const g = state._bgCometLayer;
-    g.clear();
-    for (const c of state._bgComets) {
-      const len = Math.hypot(c.vx, c.vy) || 1;
-      const nx = -c.vx / len;
-      const ny = -c.vy / len;
-      const tx = c.x + nx * c.tailLen;
-      const ty = c.y + ny * c.tailLen;
-      const lifeK = Math.max(0, c.life / Math.max(0.001, c.maxLife));
-      g.moveTo(c.x, c.y);
-      g.lineTo(tx, ty);
-      g.stroke({ color: c.tint || 0xaaccff, alpha: 0.10 * lifeK, width: 7.5 });
-      g.moveTo(c.x, c.y);
-      g.lineTo(tx, ty);
-      g.stroke({ color: 0xf6fbff, alpha: 0.08 * lifeK, width: 2.8 });
-      for (let s = 0; s <= 14; s++) {
-        const f = s / 14;
-        const px = c.x + (tx - c.x) * f;
-        const py = c.y + (ty - c.y) * f;
-        const alpha = (1 - f) * (1 - f) * 0.13 * lifeK;
-        const rad = 1.2 + (1 - f) * 5.4;
-        g.circle(px, py, rad);
-        g.fill({ color: c.tint || 0xaaccff, alpha });
-      }
-      g.circle(c.x, c.y, (c.head || 3.4) * 2.2);
-      g.fill({ color: c.tint || 0xaaccff, alpha: 0.10 * lifeK });
-      g.circle(c.x, c.y, c.head || 3.4);
-      g.fill({ color: 0xffffff, alpha: 0.72 * lifeK });
-      g.circle(c.x, c.y, Math.max(1.2, (c.head || 3.4) * 0.46));
-      g.fill({ color: 0xf4f8ff, alpha: 0.95 * lifeK });
-    }
-  }
-
-  function drawBgFlares() {
-    if (!state._bgFlareLayer) return;
-    const g = state._bgFlareLayer;
-    g.clear();
-    if (!state._bgFlares || !state._bgFlares.length) return;
-    for (const flare of state._bgFlares) {
-      const age = 1 - (flare.life / Math.max(0.001, flare.maxLife));
-      const appear = age < 0.22 ? age / 0.22 : 1;
-      const fade = flare.life < flare.maxLife * 0.34 ? flare.life / (flare.maxLife * 0.34) : 1;
-      const pulse = 0.6 + 0.4 * Math.sin(state.t * 0.8 + flare.r * 0.01);
-      const alpha = appear * fade * pulse;
-      g.circle(flare.x, flare.y, flare.r * 1.08);
-      g.fill({ color: flare.tint, alpha: 0.010 * alpha });
-      g.circle(flare.x, flare.y, flare.r * 0.68);
-      g.fill({ color: flare.tint, alpha: 0.016 * alpha });
-      g.circle(flare.x, flare.y, flare.r * 0.20);
-      g.fill({ color: 0xf7fbff, alpha: 0.040 * alpha });
-    }
+    state._randomMeteorNextAt = Infinity;
+    state._randomMeteorScheduled = [];
   }
 
   function stepAbilityStorms(dt) {
@@ -11524,6 +13977,7 @@
         u._droneExpires = state.t + 30;
         u.hp = Math.round(u.hp * 0.6);
         u.maxHp = u.hp;
+        u.baseMaxHp = Math.max(1, u.hp);
       }
     }
   }
@@ -11571,9 +14025,13 @@
     if (!def) return;
 
     if (abilityId === "spatialRift") {
-      state._abilityZoneEffects.push({ type: "rift", x: wx, y: wy, spawnedAt: state.t, duration: 10, radius: 180, ownerId: pid, dps: 8, slowPct: 0.4 });
+      spawnSpatialRiftLocal(wx, wy, 0, pid);
     } else if (abilityId === "gravAnchor") {
-      state._abilityZoneEffects.push({ type: "anchor", x: wx, y: wy, spawnedAt: state.t, duration: 5, radius: 150, ownerId: pid });
+      const api = getGravAnchorAbilityApi();
+      const effect = api && typeof api.buildEffect === "function"
+        ? api.buildEffect(wx, wy, pid)
+        : { type: "anchor", x: wx, y: wy, duration: 20, radius: 420, previewRadius: 420, ownerId: pid };
+      state._abilityZoneEffects.push({ ...effect, ownerId: pid, spawnedAt: state.t, gfx: null });
     } else if (abilityId === "fakeSignature") {
       state._fakeSignatures = state._fakeSignatures || [];
       for (let i = 0; i < 6; i++) {
@@ -11583,7 +14041,11 @@
     } else if (abilityId === "timeSingularity") {
       state._abilityZoneEffects.push({ type: "timeSlow", x: wx, y: wy, spawnedAt: state.t, duration: 8, radius: 200, ownerId: pid, slowPct: 0.6 });
     } else if (abilityId === "nanoSwarm") {
-      state._abilityZoneEffects.push({ type: "nano", x: wx, y: wy, spawnedAt: state.t, duration: 10, radius: 160, ownerId: pid, dps: 5, atkReduction: 0.25 });
+      const api = getNanoSwarmAbilityApi();
+      const effect = api && typeof api.buildEffect === "function"
+        ? api.buildEffect(wx, wy, pid)
+        : { type: "nano", x: wx, y: wy, duration: 20, radius: 240, previewRadius: 240, ownerId: pid, dps: 10, maxHpPctPerSec: 0.025, atkReduction: 0.25 };
+      state._abilityZoneEffects.push({ ...effect, ownerId: pid, spawnedAt: state.t, gfx: null });
     } else if (abilityId === "gravWave") {
       for (const u of state.units.values()) {
         if (u.owner === pid || u.hp <= 0) continue;
@@ -11604,6 +14066,10 @@
           break;
         }
       }
+    } else if (abilityId === METEOR_SWARM_ABILITY_ID) {
+      _spawnMeteorSwarmLocal(wx, wy, undefined, pid);
+    } else if (abilityId === "orbitalStrike") {
+      queueOrbitalStrikeLocal(wx, wy, pid);
     } else if (abilityId === "hyperJump") {
       if (state.selectedUnitIds.size === 0) return;
       for (const uid of state.selectedUnitIds) {
@@ -11615,25 +14081,7 @@
         u.waypointIndex = 0;
       }
     } else if (abilityId === "thermoNuke") {
-      const nukeR = 250;
-      for (const u of state.units.values()) {
-        if (u.hp <= 0) continue;
-        const d = Math.hypot(u.x - wx, u.y - wy);
-        if (d < nukeR) {
-          const dmgMul = u.owner === pid ? 0.5 : 1.0;
-          const dmg = Math.round(80 * (1 - d / nukeR) * dmgMul);
-          applyUnitDamage(u, dmg, pid);
-        }
-      }
-      for (const p of state.players.values()) {
-        if (p.eliminated) continue;
-        const d = Math.hypot(p.x - wx, p.y - wy);
-        if (d < nukeR) {
-          const popDmg = Math.round(30 * (1 - d / nukeR));
-          p.popFloat = Math.max(1, (p.popFloat || p.pop) - popDmg);
-          p.pop = Math.floor(p.popFloat);
-        }
-      }
+      queueThermoNukeLocal(wx, wy, pid);
     }
 
     setAbilityCooldown(pid, abilityId, def.cooldown);
@@ -11641,24 +14089,241 @@
     cancelAbilityTargeting();
   }
 
+  function destroyAbilityZoneVisual(zone) {
+    if (!zone) return;
+    if (zone.type === "rift") {
+      const renderer = getSpatialRiftRendererApi();
+      if (renderer && typeof renderer.destroyZone === "function") renderer.destroyZone(zone);
+      return;
+    }
+    if (zone.type === "anchor") {
+      const renderer = getGravAnchorRendererApi();
+      if (renderer && typeof renderer.destroyZone === "function") renderer.destroyZone(zone);
+      return;
+    }
+    if (zone.type === "nano") {
+      const renderer = getNanoSwarmRendererApi();
+      if (renderer && typeof renderer.destroyZone === "function") renderer.destroyZone(zone);
+    }
+  }
+
+  function executeAbilityAction(action) {
+    if (!action || action.pid == null || !action.abilityId) return { ok: false, reason: "bad_action" };
+    const pid = action.pid;
+    const abilityId = action.abilityId;
+    const def = ABILITY_DEFS.find((d) => d.id === abilityId) || getAbilityDefById(abilityId);
+    if (!def) return { ok: false, reason: "unknown_ability" };
+
+    if (abilityId === "ionNebula") {
+      _spawnIonNebulaLocal(action.x, action.y, pid);
+      if (!def.oneTime) setAbilityCooldown(pid, abilityId, def.cooldown || 0);
+      pushAbilityAnnouncement(pid, abilityId);
+      cancelAbilityTargeting();
+      return { ok: true };
+    }
+    if (abilityId === "meteor") {
+      _spawnMeteorLocal(action.x, action.y, action.angle || 0, pid);
+      if (!def.oneTime) setAbilityCooldown(pid, abilityId, def.cooldown || 0);
+      pushAbilityAnnouncement(pid, abilityId);
+      cancelAbilityTargeting();
+      return { ok: true };
+    }
+    if (abilityId === METEOR_SWARM_ABILITY_ID) {
+      _spawnMeteorSwarmLocal(action.x, action.y, action.angle, pid);
+      if (!def.oneTime) setAbilityCooldown(pid, abilityId, def.cooldown || 0);
+      pushAbilityAnnouncement(pid, abilityId);
+      cancelAbilityTargeting();
+      return { ok: true };
+    }
+    if (abilityId === "spatialRift") {
+      spawnSpatialRiftLocal(action.x, action.y, action.angle || 0, pid);
+      if (!def.oneTime) setAbilityCooldown(pid, abilityId, def.cooldown || 0);
+      pushAbilityAnnouncement(pid, abilityId);
+      cancelAbilityTargeting();
+      return { ok: true };
+    }
+    if (abilityId === "blackHole") {
+      spawnBlackHole(action.x, action.y, pid);
+      if (!def.oneTime) setAbilityCooldown(pid, abilityId, def.cooldown || CFG.BLACKHOLE_COOLDOWN);
+      pushAbilityAnnouncement(pid, abilityId);
+      cancelAbilityTargeting();
+      return { ok: true };
+    }
+    if (abilityId === "thermoNuke") {
+      queueThermoNukeLocal(action.x, action.y, pid);
+      if (!def.oneTime) setAbilityCooldown(pid, abilityId, def.cooldown || 0);
+      pushAbilityAnnouncement(pid, abilityId);
+      cancelAbilityTargeting();
+      return { ok: true };
+    }
+    if (abilityId === "activeShield") {
+      useActiveShield(pid);
+      if (!def.oneTime) setAbilityCooldown(pid, abilityId, def.cooldown || 0);
+      pushAbilityAnnouncement(pid, abilityId);
+      cancelAbilityTargeting();
+      return { ok: true };
+    }
+    if (abilityId === "pirateRaid") {
+      spawnPirateRaid(action.x, action.y, pid);
+      if (!def.oneTime) setAbilityCooldown(pid, abilityId, def.cooldown || 0);
+      pushAbilityAnnouncement(pid, abilityId);
+      cancelAbilityTargeting();
+      return { ok: true };
+    }
+    if (abilityId === "gloriousBattleMarch") {
+      useGloriousBattleMarch(pid);
+      if (!def.oneTime) setAbilityCooldown(pid, abilityId, def.cooldown || 0);
+      pushAbilityAnnouncement(pid, abilityId);
+      cancelAbilityTargeting();
+      return { ok: true };
+    }
+    if (abilityId === "loan") {
+      useLoan(pid);
+      if (!def.oneTime) setAbilityCooldown(pid, abilityId, def.cooldown || 0);
+      pushAbilityAnnouncement(pid, abilityId);
+      cancelAbilityTargeting();
+      return { ok: true };
+    }
+    if (abilityId === "raiderCapture") {
+      useRaiderCapture(pid, action.targetCityId);
+      if (!def.oneTime) setAbilityCooldown(pid, abilityId, def.cooldown || 0);
+      pushAbilityAnnouncement(pid, abilityId);
+      cancelAbilityTargeting();
+      return { ok: true };
+    }
+    if (abilityId === "timeJump") {
+      if (!state._timeSnapshots || state._timeSnapshots.length === 0) return { ok: false, reason: "no_snapshots" };
+      const targetT = Math.max(0, state.t - TIME_JUMP_REWIND_SEC);
+      let snap = null;
+      for (let i = state._timeSnapshots.length - 1; i >= 0; i--) {
+        if (state._timeSnapshots[i].t <= targetT) {
+          snap = state._timeSnapshots[i];
+          break;
+        }
+      }
+      if (snap) {
+        const eliminatedBeforeRewind = [...state.players.values()].filter((p) => p.eliminated).map((p) => p.id);
+        beginTimeRewindSequence(pid, snap, eliminatedBeforeRewind);
+        pushAbilityAnnouncement(pid, abilityId);
+      }
+      cancelAbilityTargeting();
+      return { ok: !!snap };
+    }
+    if (abilityId === "shieldOvercharge") {
+      useShieldOvercharge(pid);
+      if (!def.oneTime) setAbilityCooldown(pid, abilityId, def.cooldown || 0);
+      pushAbilityAnnouncement(pid, abilityId);
+      cancelAbilityTargeting();
+      return { ok: true };
+    }
+    if (abilityId === "droneSwarm") {
+      useDroneSwarm(pid);
+      if (!def.oneTime) setAbilityCooldown(pid, abilityId, def.cooldown || 0);
+      pushAbilityAnnouncement(pid, abilityId);
+      cancelAbilityTargeting();
+      return { ok: true };
+    }
+    if (abilityId === "fleetBoost") {
+      useFleetBoost(pid);
+      if (!def.oneTime) setAbilityCooldown(pid, abilityId, def.cooldown || 0);
+      pushAbilityAnnouncement(pid, abilityId);
+      cancelAbilityTargeting();
+      return { ok: true };
+    }
+    if (abilityId === "resourceSurge") {
+      useResourceSurge(pid);
+      if (!def.oneTime) setAbilityCooldown(pid, abilityId, def.cooldown || 0);
+      pushAbilityAnnouncement(pid, abilityId);
+      cancelAbilityTargeting();
+      return { ok: true };
+    }
+    if (abilityId === "voidShield") {
+      useVoidShield(pid);
+      if (!def.oneTime) setAbilityCooldown(pid, abilityId, def.cooldown || 0);
+      pushAbilityAnnouncement(pid, abilityId);
+      cancelAbilityTargeting();
+      return { ok: true };
+    }
+    if (abilityId === "sabotage") {
+      useSabotage(pid);
+      if (!def.oneTime) setAbilityCooldown(pid, abilityId, def.cooldown || 0);
+      pushAbilityAnnouncement(pid, abilityId);
+      cancelAbilityTargeting();
+      return { ok: true };
+    }
+    if (abilityId === "emergencyRepair") {
+      useEmergencyRepair(pid);
+      if (!def.oneTime) setAbilityCooldown(pid, abilityId, def.cooldown || 0);
+      pushAbilityAnnouncement(pid, abilityId);
+      cancelAbilityTargeting();
+      return { ok: true };
+    }
+    if (abilityId === "orbitalStrike") {
+      queueOrbitalStrikeLocal(action.x, action.y, pid);
+      if (!def.oneTime) setAbilityCooldown(pid, abilityId, def.cooldown || 0);
+      pushAbilityAnnouncement(pid, abilityId);
+      cancelAbilityTargeting();
+      return { ok: true };
+    }
+    useAbilityAtPoint(abilityId, action.x, action.y, pid);
+    return { ok: true };
+  }
+
   function stepAbilityZoneEffects(dt) {
     for (let i = state._abilityZoneEffects.length - 1; i >= 0; i--) {
       const z = state._abilityZoneEffects[i];
       const elapsed = state.t - z.spawnedAt;
-      if (elapsed > z.duration) { state._abilityZoneEffects.splice(i, 1); continue; }
+      if (elapsed > z.duration) {
+        destroyAbilityZoneVisual(z);
+        state._abilityZoneEffects.splice(i, 1);
+        continue;
+      }
+
+      if (z.type === "rift") {
+        const api = getSpatialRiftAbilityApi();
+        if (!api || typeof api.buildRuntime !== "function") continue;
+        const runtime = api.buildRuntime(z, elapsed);
+        if (!z._collapseApplied && runtime.timeline.flashK > 0.01) {
+          z._collapseApplied = true;
+          for (const u of [...state.units.values()]) {
+            if (u.owner === z.ownerId || u.hp <= 0) continue;
+            if (!api.pointInCollapse(z, u.x, u.y)) continue;
+            killUnit(u, "spatialRift", z.ownerId);
+          }
+        }
+        if (elapsed >= (z.collapseAtSec != null ? z.collapseAtSec : (api.COLLAPSE_AT_SEC || 6.05))) continue;
+        z._hitUnitIds = z._hitUnitIds || {};
+        for (const u of state.units.values()) {
+          if (u.owner === z.ownerId || u.hp <= 0 || z._hitUnitIds[u.id]) continue;
+          const hitInfo = api.getRibbonHitInfo(z, u.x, u.y, runtime);
+          if (!hitInfo || !hitInfo.inside) continue;
+          const maxHp = Math.max(1, u.maxHp || u.baseMaxHp || u.hp || 1);
+          const hitDamage = (z.hitFlat != null ? z.hitFlat : (api.DAMAGE_FLAT || 5)) + maxHp * (z.hitMaxHpPct != null ? z.hitMaxHpPct : (api.DAMAGE_MAX_HP_PCT || 0.5));
+          z._hitUnitIds[u.id] = state.t;
+          applyUnitDamage(u, hitDamage, z.ownerId);
+          if (u.hp <= 0) killUnit(u, "spatialRift", z.ownerId);
+        }
+        continue;
+      }
 
       for (const u of state.units.values()) {
         if (u.owner === z.ownerId || u.hp <= 0) continue;
         const d = Math.hypot(u.x - z.x, u.y - z.y);
         if (d > z.radius) continue;
 
-        if (z.type === "rift" || z.type === "nano") {
-          applyUnitDamage(u, (z.dps || 5) * dt, z.ownerId);
+        if (z.type === "nano") {
+          const maxHp = Math.max(1, u.maxHp || u.baseMaxHp || u.hp || 1);
+          const zoneDps = (z.dps || 5) + maxHp * (z.maxHpPctPerSec || 0);
+          applyUnitDamage(u, zoneDps * dt, z.ownerId);
           if (z.slowPct) { u._cryoSlowUntil = state.t + 0.5; u._cryoSlowAmount = z.slowPct; }
-          if (z.atkReduction) u._atkReductionUntil = state.t + 0.5;
+          if (z.atkReduction) {
+            u._atkReductionUntil = state.t + 0.5;
+            u._atkReductionAmount = z.atkReduction;
+          }
         } else if (z.type === "anchor") {
-          u.x = u.x * 0.95 + z.x * 0.05;
-          u.y = u.y * 0.95 + z.y * 0.05;
+          const pullBlend = z.pullBlend != null ? z.pullBlend : 0.05;
+          u.x = u.x * (1 - pullBlend) + z.x * pullBlend;
+          u.y = u.y * (1 - pullBlend) + z.y * pullBlend;
         } else if (z.type === "timeSlow") {
           u._cryoSlowUntil = state.t + 0.5;
           u._cryoSlowAmount = z.slowPct;
@@ -11669,24 +14334,6 @@
     if (state._fleetBoostUntil) {
       for (const pid of Object.keys(state._fleetBoostUntil)) {
         if (state.t > state._fleetBoostUntil[pid]) delete state._fleetBoostUntil[pid];
-      }
-    }
-
-    for (let i = (state._activeMeteors?.length ?? 0) - 1; i >= 0; i--) {
-      const m = state._activeMeteors[i];
-      if (m.type === "orbital") {
-        m.x += m.vx * dt;
-        m.y += m.vy * dt;
-        if (m.x < -200 || m.x > CFG.WORLD_W + 200 || m.y < -200 || m.y > CFG.WORLD_H + 200) {
-          state._activeMeteors.splice(i, 1);
-          continue;
-        }
-        for (const u of state.units.values()) {
-          if (u.owner === m.ownerId || u.hp <= 0) continue;
-          if (Math.hypot(u.x - m.x, u.y - m.y) < 40) {
-            applyUnitDamage(u, 50, m.ownerId);
-          }
-        }
       }
     }
 
@@ -11737,35 +14384,176 @@
     state._activeShieldEffects.push({ pid, t0: state.t, duration: 2 });
   }
 
-  const PIRATE_RAID_CORRIDOR_HALFW = 55;
-  const PIRATE_RAID_SPAWN_DIST = Math.hypot(CFG.WORLD_W, CFG.WORLD_H) * 0.65 + 400;
   const PIRATE_RAID_HYPER_SPEED_MUL = 4.5;
-  const PIRATE_RAID_HYPER_DIST = 320;
+  const PIRATE_RAID_HYPER_DIST = 180;
   const PIRATE_RAID_ARRIVE_DIST = 320;
-  function spawnPirateRaid(targetX, targetY, angle) {
-    const cosA = Math.cos(angle), sinA = Math.sin(angle);
-    const types = ["fighter", "fighter", "fighter", "fighter", "fighter", "destroyer", "destroyer", "cruiser"];
-    const wpX = targetX + (Math.random() - 0.5) * 80;
-    const wpY = targetY + (Math.random() - 0.5) * 80;
-    const batchTag = `pirate-raid-${state.nextUnitId}`;
-    for (const unitTypeKey of types) {
-      const spread = (Math.random() - 0.5) * 100;
-      const perpX = -sinA * spread, perpY = cosA * spread;
-      const sx = targetX - cosA * PIRATE_RAID_SPAWN_DIST + perpX;
-      const sy = targetY - sinA * PIRATE_RAID_SPAWN_DIST + perpY;
-      const u = spawnUnitAt(sx, sy, PIRATE_OWNER_ID, unitTypeKey, [{ x: wpX, y: wpY }], {
+
+  function snapshotPirateRaid(raid) {
+    if (!raid) return null;
+    return {
+      id: raid.id,
+      ownerId: raid.ownerId,
+      spawnedAt: raid.spawnedAt,
+      duration: raid.duration,
+      portalDuration: raid.portalDuration,
+      hyperDuration: raid.hyperDuration,
+      seed: raid.seed,
+      styleKey: raid.styleKey,
+      paletteKey: raid.paletteKey,
+      targetX: raid.targetX,
+      targetY: raid.targetY,
+      zoneRadius: raid.zoneRadius,
+      portalX: raid.portalX,
+      portalY: raid.portalY,
+      portalDistance: raid.portalDistance,
+      sideAngle: raid.sideAngle,
+      attackAngle: raid.attackAngle
+    };
+  }
+
+  function restorePirateRaidSnapshot(raid) {
+    if (!raid) return null;
+    return {
+      ...raid,
+      gfx: null
+    };
+  }
+
+  function getPirateRaidPreview(targetX, targetY, ownerId) {
+    const api = getPirateRaidAbilityApi();
+    if (!api || typeof api.buildCast !== "function") return null;
+    return api.buildCast(targetX, targetY, ownerId);
+  }
+
+  function raidHasEnemyUnitsInZone(raid) {
+    const hitR2 = (raid.zoneRadius || PIRATE_RAID_ARRIVE_DIST) * (raid.zoneRadius || PIRATE_RAID_ARRIVE_DIST);
+    for (const u of state.units.values()) {
+      if (!u || u.hp <= 0 || u.owner === PIRATE_OWNER_ID) continue;
+      const dx = u.x - raid.targetX;
+      const dy = u.y - raid.targetY;
+      if (dx * dx + dy * dy <= hitR2) return true;
+    }
+    return false;
+  }
+
+  function findNearestRaidCity(x, y) {
+    let best = null;
+    let bestD2 = Infinity;
+    for (const p of state.players.values()) {
+      if (!p || p.eliminated) continue;
+      const dx = p.x - x;
+      const dy = p.y - y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < bestD2) {
+        bestD2 = d2;
+        best = p;
+      }
+    }
+    return best;
+  }
+
+  function markPirateRaidSquadStage(leader, stage) {
+    if (!leader) return;
+    leader._pirateRaidStage = stage;
+    if (leader.squadId == null) return;
+    for (const u of state.units.values()) {
+      if (u && u.squadId === leader.squadId) u._pirateRaidStage = stage;
+    }
+  }
+
+  function issuePirateRaidSiegeOrder(leader, city) {
+    if (!leader || !city) return;
+    if (typeof SQUADLOGIC !== "undefined" && leader.squadId != null && SQUADLOGIC.issueSiegeOrder) {
+      SQUADLOGIC.issueSiegeOrder(state, leader.squadId, city.id, [{ x: city.x, y: city.y }]);
+      markPirateRaidSquadStage(leader, "siege");
+      return;
+    }
+    leader.chaseTargetCityId = city.id;
+    leader.chaseTargetUnitId = undefined;
+    const minStopR = shieldRadius(city) + 6;
+    const stopR = Math.max(getUnitAtkRange(leader) * 0.85, minStopR);
+    const dx = leader.x - city.x;
+    const dy = leader.y - city.y;
+    const dist = Math.hypot(dx, dy) || 1;
+    const wp = { x: city.x + (dx / dist) * stopR, y: city.y + (dy / dist) * stopR };
+    leader.waypoints = [wp];
+    leader.waypointIndex = 0;
+    for (const u of state.units.values()) {
+      if (!u || u === leader || u.squadId == null || u.squadId !== leader.squadId) continue;
+      u.waypoints = [{ x: wp.x, y: wp.y }];
+      u.waypointIndex = 0;
+    }
+    markPirateRaidSquadStage(leader, "siege");
+  }
+
+  function spawnPirateRaid(targetX, targetY, ownerId) {
+    const built = getPirateRaidPreview(targetX, targetY, ownerId);
+    if (!built) return;
+    const raidId = `pirate-raid-${state.nextUnitId}`;
+    const batchTag = raidId;
+    state._pirateRaids.push({
+      ...built,
+      id: raidId,
+      spawnedAt: state.t,
+      gfx: null
+    });
+    for (const ship of built.ships || []) {
+      const u = spawnUnitAt(ship.spawnX, ship.spawnY, PIRATE_OWNER_ID, ship.unitType, [{ x: ship.targetX, y: ship.targetY }], {
         sourceTag: batchTag,
         autoGroupUntil: state.t + 3,
         allowAutoJoinRecentSpawn: true
       });
-      if (u) {
-        u._pirateHyperUntil = state.t + 45;
-        u.vx = cosA;
-        u.vy = sinA;
-      }
+      if (!u) continue;
+      u._pirateHyperUntil = state.t + (built.hyperDuration || 9);
+      u.vx = Math.cos(built.attackAngle);
+      u.vy = Math.sin(built.attackAngle);
+      u._pirateRaidId = raidId;
+      u._pirateRaidTargetX = built.targetX;
+      u._pirateRaidTargetY = built.targetY;
+      u._pirateRaidZoneRadius = built.zoneRadius;
+      u._pirateRaidStage = "assault";
     }
     state._hyperFlashes = state._hyperFlashes || [];
-    state._hyperFlashes.push({ x: targetX - cosA * PIRATE_RAID_SPAWN_DIST * 0.5, y: targetY - sinA * PIRATE_RAID_SPAWN_DIST * 0.5, t0: state.t, duration: 1.2 });
+    state._hyperFlashes.push({ x: built.portalX, y: built.portalY, t0: state.t, duration: 1.2 });
+  }
+
+  function stepPirateRaids(dt) {
+    void dt;
+    for (let i = state._pirateRaids.length - 1; i >= 0; i--) {
+      const raid = state._pirateRaids[i];
+      const elapsed = state.t - raid.spawnedAt;
+      if (elapsed > (raid.duration || 5.4)) {
+        destroyPirateRaidVisual(raid);
+        state._pirateRaids.splice(i, 1);
+        continue;
+      }
+      if (raidHasEnemyUnitsInZone(raid)) continue;
+      for (const u of state.units.values()) {
+        if (!u || u.hp <= 0 || u.owner !== PIRATE_OWNER_ID || u._pirateRaidId !== raid.id) continue;
+        if (u.leaderId != null || u._pirateRaidStage === "siege") continue;
+        const distToZone = Math.hypot(u.x - raid.targetX, u.y - raid.targetY);
+        if (distToZone > Math.max(72, (raid.zoneRadius || PIRATE_RAID_ARRIVE_DIST) * 0.48)) continue;
+        const city = findNearestRaidCity(u.x, u.y);
+        if (!city) continue;
+        issuePirateRaidSiegeOrder(u, city);
+      }
+    }
+    for (const u of state.units.values()) {
+      if (!u || u.hp <= 0 || u.owner !== PIRATE_OWNER_ID || u.leaderId != null || !u._pirateRaidId) continue;
+      if (isUnitInAuthoritativeCombat(u)) continue;
+      const cityTarget = u.chaseTargetCityId != null ? state.players.get(u.chaseTargetCityId) : null;
+      const idle = !u.waypoints || (u.waypointIndex ?? 0) >= u.waypoints.length;
+      const distToRaidCenter = Math.hypot(u.x - (u._pirateRaidTargetX ?? u.x), u.y - (u._pirateRaidTargetY ?? u.y));
+      const reachedRaidCenter = distToRaidCenter <= Math.max(72, (u._pirateRaidZoneRadius || PIRATE_RAID_ARRIVE_DIST) * 0.48);
+      const activeRaid = state._pirateRaids.find((raid) => raid.id === u._pirateRaidId) || null;
+
+      if (u._pirateRaidStage !== "siege" && activeRaid && !reachedRaidCenter) continue;
+      if (u._pirateRaidStage === "siege" && cityTarget && !cityTarget.eliminated && !idle) continue;
+
+      const city = findNearestRaidCity(u.x, u.y);
+      if (!city) continue;
+      issuePirateRaidSiegeOrder(u, city);
+    }
   }
 
   function useGloriousBattleMarch(pid) {
@@ -11945,16 +14733,51 @@
     }
   }
 
-  function drawPirateBase() {
-    if (!state.pirateBase || state.pirateBase.hp <= 0) {
-      if (state.pirateBase && state.pirateBase.gfx) state.pirateBase.gfx.visible = false;
-      if (state.pirateBase && state.pirateBase._emojiGfx) state.pirateBase._emojiGfx.visible = false;
+  function drawPirateBaseJaggedRing(g, radius, jitter, points, spin, color, width, alpha) {
+    for (let i = 0; i <= points; i++) {
+      const t = i / points;
+      const a = t * Math.PI * 2 + spin;
+      const pulse = Math.sin(a * 3.0 + state.t * 0.65) * jitter + Math.cos(a * 5.0 - state.t * 0.42) * jitter * 0.55;
+      const rr = radius + pulse;
+      const x = Math.cos(a) * rr;
+      const y = Math.sin(a) * rr;
+      if (i === 0) g.moveTo(x, y);
+      else g.lineTo(x, y);
+    }
+    g.closePath();
+    g.stroke({ color, width, alpha });
+  }
+
+  function drawPirateBasePlate(g, angle, innerR, outerR, spread, fillColor, strokeColor, fillAlpha, strokeAlpha) {
+    const x0 = Math.cos(angle - spread) * innerR;
+    const y0 = Math.sin(angle - spread) * innerR;
+    const x1 = Math.cos(angle) * outerR;
+    const y1 = Math.sin(angle) * outerR;
+    const x2 = Math.cos(angle + spread) * innerR;
+    const y2 = Math.sin(angle + spread) * innerR;
+    g.moveTo(x0, y0);
+    g.lineTo(x1, y1);
+    g.lineTo(x2, y2);
+    g.closePath();
+    g.fill({ color: fillColor, alpha: fillAlpha });
+    g.moveTo(x0, y0);
+    g.lineTo(x1, y1);
+    g.lineTo(x2, y2);
+    g.closePath();
+    g.stroke({ color: strokeColor, width: 1.1, alpha: strokeAlpha });
+  }
+
+  function drawSinglePirateBase(pb) {
+    if (!pb || pb.hp <= 0) {
+      if (pb && pb.gfx) pb.gfx.visible = false;
+      if (pb && pb._emojiGfx) pb._emojiGfx.visible = false;
+      if (pb && pb._timerTxt) pb._timerTxt.visible = false;
       return;
     }
-    const pb = state.pirateBase;
     if (!inView(pb.x, pb.y)) {
       if (pb.gfx) pb.gfx.visible = false;
       if (pb._emojiGfx) pb._emojiGfx.visible = false;
+      if (pb._timerTxt) pb._timerTxt.visible = false;
       return;
     }
     if (!pb.gfx || pb.gfx.destroyed) {
@@ -11962,38 +14785,123 @@
       resLayer.addChild(pb.gfx);
     }
     if (!pb._emojiGfx || pb._emojiGfx.destroyed) {
-      pb._emojiGfx = new PIXI.Text({ text: "🏴‍☠️", style: { fontSize: 36 } });
-      pb._emojiGfx.anchor.set(0.5);
+      pb._emojiGfx = new PIXI.Text({
+        text: "🏴‍☠️",
+        style: {
+          fontFamily: "Segoe UI Emoji, Apple Color Emoji, Noto Color Emoji, Arial",
+          fontSize: 26,
+          stroke: { color: 0x000000, width: 4 }
+        }
+      });
+      pb._emojiGfx.anchor.set(0.5, 1);
       resLayer.addChild(pb._emojiGfx);
     }
     pb.gfx.visible = true;
     pb._emojiGfx.visible = true;
     pb.gfx.position.set(pb.x, pb.y);
-    pb._emojiGfx.position.set(pb.x, pb.y - 2);
     pb.gfx.clear();
-    const R = 46;
+
     const g = pb.gfx;
-    g.moveTo(0, -R);
-    g.lineTo(R * 0.87, R * 0.5);
-    g.lineTo(-R * 0.87, R * 0.5);
+    const R = 54;
+    const attackRange = getPirateBaseAttackRange(pb);
+    const facing = pb.orbitCenter
+      ? Math.atan2((pb.orbitCenter.y || 0) - pb.y, (pb.orbitCenter.x || 0) - pb.x)
+      : -Math.PI / 2;
+    const pulse = 0.5 + 0.5 * Math.sin(state.t * 1.7);
+    const shellCol = 0x120d12;
+    const hullCol = 0x4b2d27;
+    const trimCol = 0xd48c63;
+    const glowCol = 0xff9258;
+    const hotCol = 0xffe3ab;
+    const underAttack = !!(pb._lastAttackedAt && (state.t - pb._lastAttackedAt) < 5);
+
+    g.circle(0, 0, attackRange);
+    g.fill({ color: 0xff7a4f, alpha: 0.018 });
+    g.circle(0, 0, attackRange);
+    g.stroke({ color: 0xff8f66, width: 1.8, alpha: 0.12 });
+
+    const outerHex = [];
+    const innerHex = [];
+    for (let i = 0; i < 6; i++) {
+      const a = facing + Math.PI / 6 + i * (Math.PI * 2 / 6);
+      outerHex.push(Math.cos(a) * (R * 0.98), Math.sin(a) * (R * 0.98));
+      innerHex.push(Math.cos(a) * (R * 0.48), Math.sin(a) * (R * 0.48));
+    }
+
+    g.circle(0, 0, R * 1.34);
+    g.fill({ color: glowCol, alpha: 0.04 + pulse * 0.03 });
+
+    g.poly(outerHex);
+    g.fill({ color: 0x090b12, alpha: 0.94 });
+    g.poly(outerHex);
+    g.stroke({ color: trimCol, width: 2.1, alpha: 0.54 });
+
+    g.poly(innerHex);
+    g.fill({ color: shellCol, alpha: 0.94 });
+    g.poly(innerHex);
+    g.stroke({ color: hotCol, width: 1.4, alpha: 0.46 });
+
+    const armAngles = [-2.25, -1.38, -0.42, 0.42, 1.38, 2.25];
+    for (let i = 0; i < armAngles.length; i++) {
+      const a = facing + armAngles[i];
+      const innerR = R * 0.28;
+      const outerR = R * 0.86;
+      const x0 = Math.cos(a) * innerR;
+      const y0 = Math.sin(a) * innerR;
+      const x1 = Math.cos(a) * outerR;
+      const y1 = Math.sin(a) * outerR;
+      g.moveTo(x0, y0);
+      g.lineTo(x1, y1);
+      g.stroke({ color: hullCol, width: 5.8, alpha: 0.96 });
+      g.moveTo(x0, y0);
+      g.lineTo(x1, y1);
+      g.stroke({ color: trimCol, width: 1.1, alpha: 0.28 });
+      g.circle(x1, y1, R * 0.075);
+      g.fill({ color: 0x160f13, alpha: 0.96 });
+      g.circle(x1, y1, R * 0.075);
+      g.stroke({ color: glowCol, width: 1.0, alpha: 0.34 });
+    }
+
+    const mouthSpread = 0.46;
+    const mouthOuter = R * 0.78;
+    const mouthInner = R * 0.12;
+    const mx0 = Math.cos(facing - mouthSpread) * mouthOuter;
+    const my0 = Math.sin(facing - mouthSpread) * mouthOuter;
+    const mx1 = Math.cos(facing) * mouthInner;
+    const my1 = Math.sin(facing) * mouthInner;
+    const mx2 = Math.cos(facing + mouthSpread) * mouthOuter;
+    const my2 = Math.sin(facing + mouthSpread) * mouthOuter;
+    g.moveTo(mx0, my0);
+    g.lineTo(mx1, my1);
+    g.lineTo(mx2, my2);
     g.closePath();
-    g.fill({ color: 0x111111, alpha: 0.92 });
-    g.moveTo(0, -R);
-    g.lineTo(R * 0.87, R * 0.5);
-    g.lineTo(-R * 0.87, R * 0.5);
+    g.fill({ color: 0x03050a, alpha: 0.98 });
+    g.moveTo(mx0, my0);
+    g.lineTo(mx1, my1);
+    g.lineTo(mx2, my2);
     g.closePath();
-    g.stroke({ color: 0xaa6622, width: 3 });
-    g.moveTo(0, -R * 0.55);
-    g.lineTo(R * 0.48, R * 0.28);
-    g.lineTo(-R * 0.48, R * 0.28);
-    g.closePath();
-    g.stroke({ color: 0xcc8833, width: 1.5, alpha: 0.5 });
-    const hpBarW = R * 1.6, hpBarH = 5;
+    g.stroke({ color: hotCol, width: 1.5, alpha: 0.42 });
+
+    g.circle(0, 0, R * 0.18);
+    g.fill({ color: glowCol, alpha: 0.42 + pulse * 0.10 });
+    g.circle(0, 0, R * 0.08);
+    g.fill({ color: hotCol, alpha: 0.92 });
+
+    if (underAttack) {
+      g.circle(0, 0, R * 1.18);
+      g.stroke({ color: 0xff5648, width: 2.0, alpha: 0.24 + pulse * 0.24 });
+    }
+
+    const hpBarW = R * 1.9;
+    const hpBarH = 5;
     const hpPct = pb.maxHp > 0 ? pb.hp / pb.maxHp : 1;
-    g.rect(-hpBarW / 2, -R - 16, hpBarW, hpBarH);
-    g.fill({ color: 0x331111, alpha: 0.8 });
-    g.rect(-hpBarW / 2, -R - 16, hpBarW * hpPct, hpBarH);
-    g.fill({ color: 0xcc4422, alpha: 0.9 });
+    g.rect(-hpBarW / 2, -R - 18, hpBarW, hpBarH);
+    g.fill({ color: 0x2a0f12, alpha: 0.84 });
+    g.rect(-hpBarW / 2, -R - 18, hpBarW * hpPct, hpBarH);
+    g.fill({ color: 0xff6a4a, alpha: 0.92 });
+
+    const flagY = pb._respawnTimer > 0 ? pb.y - R - 44 : pb.y - R - 26;
+    pb._emojiGfx.position.set(pb.x, flagY);
 
     if (pb._respawnTimer > 0) {
       if (!pb._timerTxt || pb._timerTxt.destroyed) {
@@ -12005,11 +14913,17 @@
       const min = Math.floor(secs / 60);
       const sec = secs % 60;
       pb._timerTxt.text = "⏱ " + min + ":" + (sec < 10 ? "0" : "") + sec;
-      pb._timerTxt.position.set(pb.x, pb.y - R - 22);
+      pb._timerTxt.position.set(pb.x, pb.y - R - 24);
       pb._timerTxt.visible = true;
     } else if (pb._timerTxt) {
       pb._timerTxt.visible = false;
     }
+  }
+
+  function drawPirateBase() {
+    const pirateBases = getPirateBases();
+    if (!pirateBases.length) return;
+    for (const pb of pirateBases) drawSinglePirateBase(pb);
   }
 
   function drawHyperFlashes() {
@@ -12158,7 +15072,19 @@
 
     const btnPop = document.getElementById("testAddPop");
     const btnLvl = document.getElementById("testAddLevel");
+    const abilitySelect = document.getElementById("testAbilitySelect");
+    const giveAbilityBtn = document.getElementById("testGiveAbilityCard");
     const btnCD = document.getElementById("testNoCooldowns");
+
+    if (abilitySelect) {
+      abilitySelect.innerHTML = "";
+      for (const def of ABILITY_DEFS) {
+        const opt = document.createElement("option");
+        opt.value = def.id;
+        opt.textContent = (def.icon || "🃏") + " " + def.name;
+        abilitySelect.appendChild(opt);
+      }
+    }
 
     if (btnPop) btnPop.addEventListener("click", () => {
       const me = state.players.get(state.myPlayerId);
@@ -12166,7 +15092,21 @@
     });
     if (btnLvl) btnLvl.addEventListener("click", () => {
       const me = state.players.get(state.myPlayerId);
-      if (me) { me.level = (me.level || 0) + 100; me.xp = me.xp || 0; }
+      if (!me) return;
+      for (let i = 0; i < 10; i++) {
+        const gainMul = Math.max(0.0001, me.xpGainMul != null ? me.xpGainMul : 1);
+        const missingXp = Math.max(1, (me.xpNext || 1) - (me.xp || 0));
+        const rawXpToGrant = Math.max(1, Math.ceil(missingXp / gainMul));
+        gainXP(me, rawXpToGrant);
+      }
+      focusCardHud();
+    });
+    if (giveAbilityBtn) giveAbilityBtn.addEventListener("click", () => {
+      const me = state.players.get(state.myPlayerId);
+      const abilityId = abilitySelect && abilitySelect.value ? abilitySelect.value : null;
+      if (!me || !abilityId) return;
+      grantSpecificCardToPlayer(me, "A_" + abilityId, "testPanel");
+      focusCardHud();
     });
     if (btnCD) btnCD.addEventListener("click", () => {
       state._testNoCooldowns = !state._testNoCooldowns;
@@ -12176,18 +15116,68 @@
   })();
 
   function drawAbilityZoneEffects() {
-    if (!state._abilityZoneEffects || state._abilityZoneEffects.length === 0) return;
-    if (!state._zoneGfx || state._zoneGfx.destroyed) {
+    if (!state._zoneGfx || state._zoneGfx.destroyed || state._zoneGfx.parent !== abilityFxLayer) {
+      if (state._zoneGfx && !state._zoneGfx.destroyed && state._zoneGfx.parent) state._zoneGfx.parent.removeChild(state._zoneGfx);
       state._zoneGfx = new PIXI.Graphics();
       state._zoneGfx.zIndex = 9999;
-      app.stage.addChild(state._zoneGfx);
+      abilityFxLayer.addChild(state._zoneGfx);
     }
     const g = state._zoneGfx;
     g.clear();
+    if (!state._abilityZoneEffects || state._abilityZoneEffects.length === 0) return;
     const t = performance.now() / 1000;
     const zoneColors = { rift: 0x8844ff, anchor: 0x44aaff, timeSlow: 0x66ccff, nano: 0x88ff44 };
     for (const z of state._abilityZoneEffects) {
-      if (!inView(z.x, z.y)) continue;
+      const visible = z.type === "rift"
+        ? (!state._vp || !z.renderBounds || !(
+            z.renderBounds.left > state._vp.x2 + 120 ||
+            z.renderBounds.left + z.renderBounds.width < state._vp.x - 120 ||
+            z.renderBounds.top > state._vp.y2 + 120 ||
+            z.renderBounds.top + z.renderBounds.height < state._vp.y - 120
+          ))
+        : inView(z.x, z.y);
+      if (z.type === "rift") {
+        const renderer = getSpatialRiftRendererApi();
+        if (renderer && typeof renderer.renderZone === "function") {
+          renderer.renderZone(z, {
+            layer: abilityFxLayer,
+            simTimeSec: state.t,
+            animTimeSec: t,
+            zoom: cam.zoom || 0.22,
+            visible
+          });
+          continue;
+        }
+      } else if (z.type === "anchor") {
+        const renderer = getGravAnchorRendererApi();
+        if (renderer && typeof renderer.renderZone === "function") {
+          renderer.renderZone(z, {
+            layer: abilityFxLayer,
+            simTimeSec: state.t,
+            animTimeSec: t,
+            zoom: cam.zoom || 0.22,
+            visible,
+            units: state.units.values(),
+            getUnitHitRadius
+          });
+          continue;
+        }
+      } else if (z.type === "nano") {
+        const renderer = getNanoSwarmRendererApi();
+        if (renderer && typeof renderer.renderZone === "function") {
+          renderer.renderZone(z, {
+            layer: abilityFxLayer,
+            simTimeSec: state.t,
+            animTimeSec: t,
+            zoom: cam.zoom || 0.22,
+            visible,
+            units: state.units.values(),
+            getUnitHitRadius
+          });
+          continue;
+        }
+      }
+      if (!visible) continue;
       const elapsed = state.t - z.spawnedAt;
       const fadeAlpha = Math.min(1, Math.max(0, 1 - (elapsed / z.duration - 0.8) * 5));
       const c = zoneColors[z.type] || 0xffffff;
@@ -12229,6 +15219,10 @@
     const msy = state._mouseScreenY ?? selectionPointerState.lastY;
     const mx = (msx - cam.x) / cam.zoom;
     const my = (msy - cam.y) / cam.zoom;
+    const spatialRiftRenderer = getSpatialRiftRendererApi();
+    if (state._abilityTargeting !== "spatialRift" && spatialRiftRenderer && typeof spatialRiftRenderer.destroyPreview === "function") {
+      spatialRiftRenderer.destroyPreview(state);
+    }
 
     if (state._abilityTargeting === "ionNebula") {
       const t = performance.now() / 1000;
@@ -12260,71 +15254,159 @@
 
     if (state._abilityTargeting === "meteor" && state._meteorTargeting) {
       const mt = state._meteorTargeting;
+      const t = performance.now() / 1000;
       if (mt.phase === "point") {
-        g.beginFill(0xff4400, 0.12);
-        g.drawCircle(mx, my, METEOR_RADIUS * 3);
-        g.endFill();
-        g.lineStyle(2, 0xff6600, 0.7);
-        g.drawCircle(mx, my, METEOR_RADIUS);
+        if (typeof MeteorStrikeRenderer !== "undefined" && MeteorStrikeRenderer && typeof MeteorStrikeRenderer.drawMeteorPreview === "function") {
+          MeteorStrikeRenderer.drawMeteorPreview(g, {
+            phase: "point",
+            mouseX: mx,
+            mouseY: my,
+            aoeRadius: METEOR_PREVIEW_RADIUS
+          }, {
+            timeSec: t,
+            zoom: cam.zoom || 0.22
+          });
+        }
       } else if (mt.phase === "angle") {
-        const ang = mt.angle;
-        const cosA = Math.cos(ang), sinA = Math.sin(ang);
-        const diag = Math.hypot(CFG.WORLD_W, CFG.WORLD_H);
-        const sx = mt.x - cosA * diag;
-        const sy = mt.y - sinA * diag;
-        const ex = mt.x + cosA * diag;
-        const ey = mt.y + sinA * diag;
-        const halfW = METEOR_AOE_RADIUS;
-        // Corridor fill (rectangle along trajectory)
-        const nx = -sinA * halfW, ny = cosA * halfW;
-        g.beginFill(0xff2200, 0.12);
-        g.moveTo(sx + nx, sy + ny);
-        g.lineTo(ex + nx, ey + ny);
-        g.lineTo(ex - nx, ey - ny);
-        g.lineTo(sx - nx, sy - ny);
-        g.closePath();
-        g.endFill();
-        // Edge lines
-        g.lineStyle(1.5, 0xff4400, 0.5);
-        g.moveTo(sx + nx, sy + ny); g.lineTo(ex + nx, ey + ny);
-        g.moveTo(sx - nx, sy - ny); g.lineTo(ex - nx, ey - ny);
-        // Center line
-        g.lineStyle(1, 0xff6600, 0.3);
-        g.moveTo(sx, sy); g.lineTo(ex, ey);
-        // Direction arrows along trajectory
-        const arrowSpacing = 100;
-        const arrowSize = 12;
-        for (let d = 0; d < diag * 2; d += arrowSpacing) {
-          const ax = sx + cosA * d, ay = sy + sinA * d;
-          if (ax < -200 || ax > CFG.WORLD_W + 200 || ay < -200 || ay > CFG.WORLD_H + 200) continue;
-          const ap = 0.35 + 0.25 * Math.sin(performance.now() / 200 + d * 0.01);
-          g.lineStyle(2.5, 0xff8800, ap);
-          g.moveTo(ax - cosA * arrowSize + nx * 0.5, ay - sinA * arrowSize + ny * 0.5);
-          g.lineTo(ax, ay);
-          g.lineTo(ax - cosA * arrowSize - nx * 0.5, ay - sinA * arrowSize - ny * 0.5);
+        const diag = Math.hypot(CFG.WORLD_W, CFG.WORLD_H) + 400;
+        const ax = mt.x - Math.cos(mt.angle) * diag;
+        const ay = mt.y - Math.sin(mt.angle) * diag;
+        const bx = mt.x + Math.cos(mt.angle) * diag;
+        const by = mt.y + Math.sin(mt.angle) * diag;
+        const predictedImpact = findMeteorFirstImpactOnSegment({ radius: METEOR_RADIUS }, ax, ay, bx, by);
+        const impactX = predictedImpact ? predictedImpact.x : mt.x;
+        const impactY = predictedImpact ? predictedImpact.y : mt.y;
+        if (typeof MeteorStrikeRenderer !== "undefined" && MeteorStrikeRenderer && typeof MeteorStrikeRenderer.drawMeteorPreview === "function") {
+          MeteorStrikeRenderer.drawMeteorPreview(g, {
+            phase: "angle",
+            x: mt.x,
+            y: mt.y,
+            angle: mt.angle,
+            aoeRadius: METEOR_PREVIEW_RADIUS,
+            impactX,
+            impactY,
+            worldW: CFG.WORLD_W,
+            worldH: CFG.WORLD_H,
+            predictedTargetX: predictedImpact?.target?.x,
+            predictedTargetY: predictedImpact?.target?.y,
+            predictedTargetRadius: predictedImpact
+              ? (predictedImpact.type === "unit"
+                ? getUnitHitRadius(predictedImpact.target) + 6
+                : getMeteorPlanetImpactRadius(predictedImpact.target) + 6)
+              : 0
+          }, {
+            timeSec: t,
+            zoom: cam.zoom || 0.22
+          });
         }
-        // Target point marker
-        g.lineStyle(3, 0xff8800, 0.9);
-        g.drawCircle(mt.x, mt.y, 8);
-        // Highlight units on path
-        for (const u of state.units.values()) {
-          if (u.hp <= 0) continue;
-          const perpDist = Math.abs((u.x - sx) * sinA - (u.y - sy) * cosA);
-          if (perpDist <= halfW + 6) {
-            g.beginFill(0xff2222, 0.4);
-            g.drawCircle(u.x, u.y, 6);
-            g.endFill();
-          }
+      }
+    }
+
+    if (state._abilityTargeting === "spatialRift" && state._meteorTargeting) {
+      const mt = state._meteorTargeting;
+      const api = getSpatialRiftAbilityApi();
+      if (spatialRiftRenderer && typeof spatialRiftRenderer.renderPreview === "function") {
+        spatialRiftRenderer.renderPreview(state, {
+          phase: mt.phase,
+          x: mt.phase === "point" ? mx : mt.x,
+          y: mt.phase === "point" ? my : mt.y,
+          angle: mt.phase === "angle" ? mt.angle : 0,
+          radius: (api && api.RADIUS) || 180,
+          length: (api && api.LENGTH) || 760
+        }, {
+          layer: world,
+          timeSec: performance.now() / 1000,
+          zoom: cam.zoom || 0.22
+        });
+      }
+    }
+
+    if (state._abilityTargeting === "orbitalStrike") {
+      const t = performance.now() / 1000;
+      const preview = getOrbitalPreviewSalvo(state.myPlayerId, mx, my);
+      drawOrbitalPreviewFallback(g, mx, my, ORBITAL_STRIKE_ZONE_RADIUS, preview.targets, t, false);
+    }
+
+    if (state._abilityTargeting === "thermoNuke") {
+      const t = performance.now() / 1000;
+      const renderer = getThermoNukeRendererApi();
+      const thermoApi = getThermoNukeAbilityApi();
+      const me = state.players.get(state.myPlayerId);
+      if (renderer && typeof renderer.drawPreview === "function") {
+        renderer.drawPreview(g, {
+          x: mx,
+          y: my,
+          radius: thermoApi && thermoApi.PREVIEW_RADIUS ? thermoApi.PREVIEW_RADIUS : 500,
+          originX: me ? me.x : undefined,
+          originY: me ? me.y : undefined
+        }, {
+          timeSec: t,
+          zoom: cam.zoom || 0.22
+        });
+      }
+    }
+
+    if (state._abilityTargeting === "pirateRaid") {
+      const t = performance.now() / 1000;
+      const renderer = getPirateRaidRendererApi();
+      const preview = getPirateRaidPreview(mx, my, state.myPlayerId);
+      if (renderer && preview && typeof renderer.drawPreview === "function") {
+        renderer.drawPreview(g, preview, {
+          timeSec: t,
+          zoom: cam.zoom || 0.22
+        });
+      }
+    }
+
+    if (state._abilityTargeting === METEOR_SWARM_ABILITY_ID && state._meteorTargeting) {
+      const t = performance.now() / 1000;
+      const mt = state._meteorTargeting;
+      if (mt.phase === "point") {
+        const pointPreview = getMeteorSwarmPreview(mx, my, state.myPlayerId);
+        if (pointPreview && typeof MeteorSwarmRenderer !== "undefined" && MeteorSwarmRenderer && typeof MeteorSwarmRenderer.drawPreview === "function") {
+          MeteorSwarmRenderer.drawPreview(g, {
+            x: mx,
+            y: my,
+            radius: pointPreview.previewRadius || 120,
+            shots: []
+          }, {
+            timeSec: t,
+            zoom: cam.zoom || 0.22
+          });
         }
-        // Indicate shield hit
-        for (const p of state.players.values()) {
-          if (p.eliminated || (p.shieldHp || 0) <= 0) continue;
-          const perpDist = Math.abs((p.x - sx) * sinA - (p.y - sy) * cosA);
-          const sR = shieldRadius(p);
-          if (perpDist <= sR + halfW) {
-            g.lineStyle(3, 0xff0000, 0.6);
-            g.drawCircle(p.x, p.y, sR + 5);
-          }
+      } else if (mt.phase === "angle") {
+        const preview = getMeteorSwarmPreview(mt.x, mt.y, state.myPlayerId, mt.angle);
+        if (preview && typeof MeteorSwarmRenderer !== "undefined" && MeteorSwarmRenderer && typeof MeteorSwarmRenderer.drawPreview === "function") {
+          const shots = preview.shots.map((shot) => {
+            const predictedImpact = findMeteorFirstImpactOnSegment({ radius: shot.radius }, shot.entryX, shot.entryY, shot.exitX, shot.exitY);
+            return {
+              swarmIndex: shot.swarmIndex,
+              entryX: shot.entryX,
+              entryY: shot.entryY,
+              aimX: shot.aimX,
+              aimY: shot.aimY,
+              aoeR: shot.aoeR,
+              previewRadius: shot.aoeR,
+              predictedImpactX: predictedImpact ? predictedImpact.x : shot.aimX,
+              predictedImpactY: predictedImpact ? predictedImpact.y : shot.aimY,
+              predictedTargetX: predictedImpact?.target?.x,
+              predictedTargetY: predictedImpact?.target?.y,
+              predictedTargetRadius: predictedImpact
+                ? (predictedImpact.type === "unit"
+                  ? getUnitHitRadius(predictedImpact.target) + 6
+                  : getMeteorPlanetImpactRadius(predictedImpact.target) + 6)
+                : 0
+            };
+          });
+          MeteorSwarmRenderer.drawPreview(g, {
+            x: mt.x,
+            y: mt.y,
+            radius: preview.previewRadius || 120,
+            shots: shots
+          }, {
+            timeSec: t,
+            zoom: cam.zoom || 0.22
+          });
         }
       }
     }
@@ -12353,49 +15435,6 @@
         g.stroke({ color: 0x44ccff, width: 2, alpha: 0.4 + 0.2 * p });
         g.circle(u.x, u.y, r + 4);
         g.stroke({ color: 0x2288cc, width: 1, alpha: 0.2 });
-      }
-    }
-    if (state._abilityTargeting === "pirateRaid" && state._meteorTargeting) {
-      const mt = state._meteorTargeting;
-      const t = performance.now() / 1000;
-      if (mt.phase === "point") {
-        const p = 0.5 + 0.3 * Math.sin(t * 2);
-        g.circle(mx, my, PIRATE_RAID_ARRIVE_DIST);
-        g.fill({ color: 0x553300, alpha: 0.06 });
-        g.circle(mx, my, PIRATE_RAID_ARRIVE_DIST);
-        g.stroke({ color: 0xaa7733, width: 2, alpha: 0.3 + 0.2 * p });
-        g.circle(mx, my, 20);
-        g.fill({ color: 0xffaa22, alpha: 0.3 });
-        g.circle(mx, my, 20);
-        g.stroke({ color: 0xffcc44, width: 2, alpha: 0.6 });
-      } else if (mt.phase === "angle") {
-        const ang = mt.angle;
-        const cosA = Math.cos(ang), sinA = Math.sin(ang);
-        const arrX = mt.x - cosA * PIRATE_RAID_ARRIVE_DIST;
-        const arrY = mt.y - sinA * PIRATE_RAID_ARRIVE_DIST;
-        g.circle(mt.x, mt.y, PIRATE_RAID_ARRIVE_DIST);
-        g.fill({ color: 0x553300, alpha: 0.05 });
-        g.circle(mt.x, mt.y, PIRATE_RAID_ARRIVE_DIST);
-        g.stroke({ color: 0xaa7733, width: 2, alpha: 0.25 });
-        g.moveTo(arrX, arrY);
-        g.lineTo(mt.x, mt.y);
-        g.stroke({ color: 0xffaa44, width: 2, alpha: 0.5 });
-        for (let i = 0; i < 5; i++) {
-          const frac = i / 5 + ((t * 0.5) % 0.2);
-          if (frac > 1) continue;
-          const ax = arrX + (mt.x - arrX) * frac;
-          const ay = arrY + (mt.y - arrY) * frac;
-          g.moveTo(ax - cosA * 8 - sinA * 6, ay - sinA * 8 + cosA * 6);
-          g.lineTo(ax, ay);
-          g.lineTo(ax - cosA * 8 + sinA * 6, ay - sinA * 8 - cosA * 6);
-          g.stroke({ color: 0xffcc44, width: 2, alpha: 0.4 });
-        }
-        g.circle(arrX, arrY, 25);
-        g.fill({ color: 0x4488ff, alpha: 0.15 + 0.1 * Math.sin(t * 3) });
-        g.circle(arrX, arrY, 25);
-        g.stroke({ color: 0x66aaff, width: 2, alpha: 0.4 });
-        g.circle(mt.x, mt.y, 10);
-        g.fill({ color: 0xffaa22, alpha: 0.4 });
       }
     }
     if (state._abilityTargeting === "loan") {
@@ -12445,16 +15484,39 @@
         }
       }
     }
+    if (state._abilityTargeting === "gravAnchor") {
+      const renderer = getGravAnchorRendererApi();
+      const api = getGravAnchorAbilityApi();
+      if (renderer && typeof renderer.drawPreview === "function") {
+        renderer.drawPreview(g, {
+          x: mx,
+          y: my,
+          radius: (api && (api.PREVIEW_RADIUS || api.RADIUS)) || 420
+        }, {
+          timeSec: performance.now() / 1000,
+          zoom: cam.zoom || 0.22
+        });
+      }
+    }
+    if (state._abilityTargeting === "nanoSwarm") {
+      const renderer = getNanoSwarmRendererApi();
+      const api = getNanoSwarmAbilityApi();
+      if (renderer && typeof renderer.drawPreview === "function") {
+        renderer.drawPreview(g, {
+          x: mx,
+          y: my,
+          radius: (api && (api.PREVIEW_RADIUS || api.RADIUS)) || 240
+        }, {
+          timeSec: performance.now() / 1000,
+          zoom: cam.zoom || 0.22
+        });
+      }
+    }
     const genericPointAbilities = {
-      spatialRift:     { radius: 180, color: 0x8844ff, label: "Разлом" },
-      gravAnchor:      { radius: 150, color: 0x44aaff, label: "Грав. Якорь" },
       fakeSignature:   { radius: 80,  color: 0xaacc44, label: "Сигнатуры" },
       timeSingularity: { radius: 200, color: 0x66ccff, label: "Сингулярность" },
-      nanoSwarm:       { radius: 160, color: 0x88ff44, label: "Нанорой" },
       gravWave:        { radius: 250, color: 0xff8844, label: "Грав. Волна" },
       resourceRaid:    { radius: 100, color: 0xffcc00, label: "Набег" },
-      thermoNuke:      { radius: 250, color: 0xff2200, label: "Термоядерный" },
-      orbitalStrike:   { radius: 120, color: 0xff6600, label: "Орб. Удар" },
       hyperJump:       { radius: 60,  color: 0x44ffaa, label: "Гиперскачок" }
     };
     const gpa = genericPointAbilities[state._abilityTargeting];
@@ -12472,6 +15534,8 @@
     if (state._abilityPreviewGfx && !state._abilityPreviewGfx.destroyed) {
       state._abilityPreviewGfx.clear();
     }
+    const renderer = getSpatialRiftRendererApi();
+    if (renderer && typeof renderer.destroyPreview === "function") renderer.destroyPreview(state);
   }
 
   app.canvas.addEventListener("mousedown", (e) => {
@@ -12482,8 +15546,9 @@
       const wx = (e.clientX - cam.x) / cam.zoom;
       const wy = (e.clientY - cam.y) / cam.zoom;
       if (state._abilityTargeting === "ionNebula") {
-        useIonNebula(wx, wy);
+        if (!confirmPendingAbilityCardCast({ x: wx, y: wy })) useIonNebula(wx, wy);
       } else if (state._abilityTargeting === "blackHole") {
+        if (confirmPendingAbilityCardCast({ x: wx, y: wy })) return;
         const me = state.players.get(state.myPlayerId);
         if (state._multiSlots && !state._multiIsHost && state._socket) {
           state._socket.emit("playerAction", { type: "useAbility", abilityId: "blackHole", pid: state.myPlayerId, x: wx, y: wy });
@@ -12501,6 +15566,7 @@
         }
         cancelAbilityTargeting();
       } else if (state._abilityTargeting === "activeShield") {
+        if (confirmPendingAbilityCardCast()) return;
         const def = ABILITY_DEFS.find(d => d.id === "activeShield");
         if (state._multiSlots && !state._multiIsHost && state._socket) {
           state._socket.emit("playerAction", { type: "useAbility", abilityId: "activeShield", pid: state.myPlayerId });
@@ -12511,6 +15577,7 @@
         }
         cancelAbilityTargeting();
       } else if (state._abilityTargeting === "loan") {
+        if (confirmPendingAbilityCardCast()) return;
         const def = ABILITY_DEFS.find(d => d.id === "loan");
         if (state._multiSlots && !state._multiIsHost && state._socket) {
           state._socket.emit("playerAction", { type: "useAbility", abilityId: "loan", pid: state.myPlayerId });
@@ -12521,6 +15588,7 @@
         }
         cancelAbilityTargeting();
       } else if (state._abilityTargeting === "gloriousBattleMarch") {
+        if (confirmPendingAbilityCardCast()) return;
         const def = ABILITY_DEFS.find(d => d.id === "gloriousBattleMarch");
         if (state._multiSlots && !state._multiIsHost && state._socket) {
           state._socket.emit("playerAction", { type: "useAbility", abilityId: "gloriousBattleMarch", pid: state.myPlayerId });
@@ -12538,6 +15606,7 @@
           if (d2 <= (getPlanetRadius(p) + 40) ** 2) { targetCityId = p.id; break; }
         }
         if (targetCityId != null) {
+          if (confirmPendingAbilityCardCast({ targetCityId })) return;
           const def = ABILITY_DEFS.find(d => d.id === "raiderCapture");
           if (state._multiSlots && !state._multiIsHost && state._socket) {
             state._socket.emit("playerAction", { type: "useAbility", abilityId: "raiderCapture", pid: state.myPlayerId, targetCityId });
@@ -12549,55 +15618,70 @@
           cancelAbilityTargeting();
         }
       } else if (state._abilityTargeting === "pirateRaid") {
-        const mt = state._meteorTargeting;
-        if (mt && mt.phase === "point") {
-          mt.x = wx; mt.y = wy; mt.phase = "angle";
-        } else if (mt && mt.phase === "angle") {
-          const def = ABILITY_DEFS.find(d => d.id === "pirateRaid");
-          if (state._multiSlots && !state._multiIsHost && state._socket) {
-            state._socket.emit("playerAction", { type: "useAbility", abilityId: "pirateRaid", pid: state.myPlayerId, x: mt.x, y: mt.y, angle: mt.angle });
-          } else {
-            spawnPirateRaid(mt.x, mt.y, mt.angle);
-            if (def) setAbilityCooldown(state.myPlayerId, "pirateRaid", def.cooldown);
-            pushAbilityAnnouncement(state.myPlayerId, "pirateRaid");
-          }
-          cancelAbilityTargeting();
+        if (confirmPendingAbilityCardCast({ x: wx, y: wy })) return;
+        const def = ABILITY_DEFS.find(d => d.id === "pirateRaid");
+        if (state._multiSlots && !state._multiIsHost && state._socket) {
+          state._socket.emit("playerAction", { type: "useAbility", abilityId: "pirateRaid", pid: state.myPlayerId, x: wx, y: wy });
+        } else {
+          spawnPirateRaid(wx, wy, state.myPlayerId);
+          if (def) setAbilityCooldown(state.myPlayerId, "pirateRaid", def.cooldown);
+          pushAbilityAnnouncement(state.myPlayerId, "pirateRaid");
         }
+        cancelAbilityTargeting();
       } else if (state._abilityTargeting === "meteor") {
         const mt = state._meteorTargeting;
         if (mt.phase === "point") {
           mt.x = wx; mt.y = wy;
           mt.phase = "angle";
         } else if (mt.phase === "angle") {
-          useMeteor(mt.x, mt.y, mt.angle);
+          if (!confirmPendingAbilityCardCast({ x: mt.x, y: mt.y, angle: mt.angle })) useMeteor(mt.x, mt.y, mt.angle);
+        }
+      } else if (state._abilityTargeting === "spatialRift") {
+        const mt = state._meteorTargeting;
+        if (mt.phase === "point") {
+          mt.x = wx; mt.y = wy;
+          mt.phase = "angle";
+        } else if (mt.phase === "angle") {
+          if (confirmPendingAbilityCardCast({ x: mt.x, y: mt.y, angle: mt.angle })) return;
+          const def = ABILITY_DEFS.find(d => d.id === "spatialRift");
+          if (state._multiSlots && !state._multiIsHost && state._socket) {
+            state._socket.emit("playerAction", { type: "useAbility", abilityId: "spatialRift", pid: state.myPlayerId, x: mt.x, y: mt.y, angle: mt.angle });
+          } else {
+            spawnSpatialRiftLocal(mt.x, mt.y, mt.angle, state.myPlayerId);
+            if (def) setAbilityCooldown(state.myPlayerId, "spatialRift", def.cooldown);
+            pushAbilityAnnouncement(state.myPlayerId, "spatialRift");
+          }
+          cancelAbilityTargeting();
+        }
+      } else if (state._abilityTargeting === METEOR_SWARM_ABILITY_ID) {
+        const mt = state._meteorTargeting;
+        if (mt.phase === "point") {
+          mt.x = wx; mt.y = wy;
+          mt.phase = "angle";
+        } else if (mt.phase === "angle") {
+          if (confirmPendingAbilityCardCast({ x: mt.x, y: mt.y, angle: mt.angle })) return;
+          const def = ABILITY_DEFS.find(d => d.id === METEOR_SWARM_ABILITY_ID);
+          if (state._multiSlots && !state._multiIsHost && state._socket) {
+            state._socket.emit("playerAction", { type: "useAbility", abilityId: METEOR_SWARM_ABILITY_ID, pid: state.myPlayerId, x: mt.x, y: mt.y, angle: mt.angle });
+          } else {
+            _spawnMeteorSwarmLocal(mt.x, mt.y, mt.angle, state.myPlayerId);
+            if (def) setAbilityCooldown(state.myPlayerId, METEOR_SWARM_ABILITY_ID, def.cooldown);
+            pushAbilityAnnouncement(state.myPlayerId, METEOR_SWARM_ABILITY_ID);
+          }
+          cancelAbilityTargeting();
+        }
+      } else if (state._abilityTargeting === "orbitalStrike") {
+        if (confirmPendingAbilityCardCast({ x: wx, y: wy })) return;
+        if (state._multiSlots && !state._multiIsHost && state._socket) {
+          state._socket.emit("playerAction", { type: "useAbility", abilityId: "orbitalStrike", pid: state.myPlayerId, x: wx, y: wy });
+          cancelAbilityTargeting();
+        } else {
+          useAbilityAtPoint("orbitalStrike", wx, wy, state.myPlayerId);
         }
       } else {
-        const pointAbilities = ["spatialRift", "gravAnchor", "fakeSignature", "timeSingularity", "nanoSwarm", "gravWave", "resourceRaid", "thermoNuke", "orbitalStrike", "hyperJump"];
+        const pointAbilities = ["gravAnchor", "fakeSignature", "timeSingularity", "nanoSwarm", "gravWave", "resourceRaid", "thermoNuke", "hyperJump"];
         if (pointAbilities.includes(state._abilityTargeting)) {
-          if (state._abilityTargeting === "orbitalStrike") {
-            if (!state._meteorTargeting || state._meteorTargeting.phase === "point") {
-              state._meteorTargeting = { phase: "angle", x: wx, y: wy, angle: 0 };
-            } else if (state._meteorTargeting.phase === "angle") {
-              const ang = state._meteorTargeting.angle || 0;
-              state._activeMeteors = state._activeMeteors || [];
-              for (let i = 0; i < 5; i++) {
-                const offAng = ang + (i - 2) * 0.15;
-                const sx = wx - Math.cos(offAng) * 800;
-                const sy = wy - Math.sin(offAng) * 800;
-                state._activeMeteors.push({
-                  type: "orbital", x: sx, y: sy,
-                  vx: Math.cos(offAng) * 500, vy: Math.sin(offAng) * 500,
-                  ownerId: state.myPlayerId, spawnedAt: state.t
-                });
-              }
-              const def = ABILITY_DEFS.find(d => d.id === "orbitalStrike");
-              if (def) setAbilityCooldown(state.myPlayerId, "orbitalStrike", def.cooldown);
-              pushAbilityAnnouncement(state.myPlayerId, "orbitalStrike");
-              cancelAbilityTargeting();
-            }
-          } else {
-            useAbilityAtPoint(state._abilityTargeting, wx, wy, state.myPlayerId);
-          }
+          if (!confirmPendingAbilityCardCast({ x: wx, y: wy })) useAbilityAtPoint(state._abilityTargeting, wx, wy, state.myPlayerId);
         }
       }
     }
@@ -12605,14 +15689,6 @@
 
   app.canvas.addEventListener("mousemove", (e) => {
     if (state._meteorTargeting && state._meteorTargeting.phase === "angle") {
-      const wx = (e.clientX - cam.x) / cam.zoom;
-      const wy = (e.clientY - cam.y) / cam.zoom;
-      state._meteorTargeting.angle = Math.atan2(wy - state._meteorTargeting.y, wx - state._meteorTargeting.x);
-    }
-  });
-
-  app.canvas.addEventListener("mousemove", (e) => {
-    if (state._abilityTargeting === "orbitalStrike" && state._meteorTargeting && state._meteorTargeting.phase === "angle") {
       const wx = (e.clientX - cam.x) / cam.zoom;
       const wy = (e.clientY - cam.y) / cam.zoom;
       state._meteorTargeting.angle = Math.atan2(wy - state._meteorTargeting.y, wx - state._meteorTargeting.x);
@@ -12793,6 +15869,13 @@
     if (!menuSimBackdropEl || !menuSimCanvasEl) return null;
     const ctx = menuSimCanvasEl.getContext("2d", { alpha: true });
     if (!ctx) return null;
+    const useRealMenuWorld = true;
+    if (useRealMenuWorld) {
+      function setVisible(visible) {
+        menuSimBackdropEl.style.display = visible ? "block" : "none";
+      }
+      return { setVisible };
+    }
 
     const SIM_FPS = 30;
     const FRAME_MS = 1000 / SIM_FPS;
@@ -13532,6 +16615,326 @@
     return { setVisible };
   })();
 
+  state._menuBackdropActive = false;
+  state._menuBackdropRestartAtMs = 0;
+
+  function setMenuWorldCanvasVisibility(visible, interactive) {
+    if (!app || !app.canvas) return;
+    app.canvas.style.opacity = visible ? "1" : "0";
+    app.canvas.style.pointerEvents = interactive ? "auto" : "none";
+  }
+
+  function setMenuBackdropPlayerPosition(player, x, y) {
+    if (!player) return;
+    player.x = x;
+    player.y = y;
+    const popRef = player.popFloat || player.pop || CFG.POP_START;
+    const poly = computeInfluencePolygon(x, y, popRef);
+    player.influencePolygon = poly;
+    player.influenceRayDistances = poly.map((pt) => Math.hypot(pt.x - x, pt.y - y));
+    player._cachedTargetPoly = poly;
+    player._raySmooth = player.influenceRayDistances.slice();
+    let maxR = 0;
+    for (let i = 0; i < player.influenceRayDistances.length; i++) maxR = Math.max(maxR, player.influenceRayDistances[i] || 0);
+    player.influenceR = Math.max(maxR, CFG.INFLUENCE_R(popRef));
+  }
+
+  function rebuildMenuBackdropMines(layout) {
+    clearMineVisuals();
+    state.mines.clear();
+    nextMineId = 1;
+    state.mineGems = [];
+    state.mineFlowPackets = [];
+    clearPirateBases();
+
+    const centerMine = createMine(layout.centerX, layout.centerY, null, true);
+    centerMine.captureProgress = 0;
+    updateMineVisual(centerMine);
+
+    const centerOffsets = [
+      { x: -145, y: -58, type: "money" },
+      { x: -54, y: 84, type: "xp" },
+      { x: 52, y: -88, type: "money" },
+      { x: 142, y: 62, type: "xp" }
+    ];
+    for (const entry of centerOffsets) {
+      createMine(layout.centerX + entry.x, layout.centerY + entry.y, null, false, entry.type);
+    }
+
+    const baseMineOffsetX = 120;
+    const nearBaseMineOffsets = [
+      { x: 0, y: -88, type: "money" },
+      { x: 36, y: 0, type: "xp" },
+      { x: 0, y: 88, type: "money" }
+    ];
+    for (const entry of nearBaseMineOffsets) {
+      createMine(layout.leftX + baseMineOffsetX + entry.x, layout.centerY + entry.y, 1, false, entry.type);
+      createMine(layout.rightX - baseMineOffsetX - entry.x, layout.centerY + entry.y, 2, false, entry.type);
+    }
+  }
+
+  function spawnMenuBackdropWave(ownerId, targetPlayer, count) {
+    const owner = state.players.get(ownerId);
+    if (!owner || !targetPlayer) return;
+    const sourceTag = "menu-wave-" + ownerId + "-" + Math.floor(state.t);
+    const dx = targetPlayer.x - owner.x;
+    const dy = targetPlayer.y - owner.y;
+    const dist = Math.hypot(dx, dy) || 1;
+    const dirX = dx / dist;
+    const dirY = dy / dist;
+    const sideX = -dirY;
+    const sideY = dirX;
+    const spawnBase = getPlanetRadius(owner) * 1.32;
+    const squadIds = [];
+    const total = Math.max(1, count || 5);
+
+    for (let i = 0; i < total; i++) {
+      const lane = i - (total - 1) * 0.5;
+      const sx = owner.x + dirX * spawnBase + sideX * lane * 18;
+      const sy = owner.y + dirY * spawnBase + sideY * lane * 18;
+      const u = spawnUnitAt(
+        sx,
+        sy,
+        ownerId,
+        "fighter",
+        [{ x: targetPlayer.x, y: targetPlayer.y }],
+        { sourceTag, autoGroupUntil: state.t + 4, allowAutoJoinRecentSpawn: true }
+      );
+      if (u && u.squadId != null) squadIds.push(u.squadId);
+    }
+
+    if (typeof SQUADLOGIC !== "undefined" && SQUADLOGIC.mergeSquads && squadIds.length > 1) {
+      const merged = SQUADLOGIC.mergeSquads(state, [...new Set(squadIds)], "line", 3, 1);
+      if (merged && SQUADLOGIC.issueSiegeOrder) {
+        SQUADLOGIC.issueSiegeOrder(state, merged.id, targetPlayer.id, [{ x: targetPlayer.x, y: targetPlayer.y }]);
+        return;
+      }
+    }
+    if (typeof SQUADLOGIC !== "undefined" && SQUADLOGIC.issueSiegeOrder) {
+      for (const squadId of [...new Set(squadIds)]) {
+        SQUADLOGIC.issueSiegeOrder(state, squadId, targetPlayer.id, [{ x: targetPlayer.x, y: targetPlayer.y }]);
+      }
+    }
+  }
+
+  function stepMenuBackdropScenario() {
+    if (!state._menuBackdropActive) return;
+    const scenario = state._menuBackdropScenario;
+    if (!scenario) return;
+    const left = state.players.get(1);
+    const right = state.players.get(2);
+    if (!left || !right) return;
+
+    if (state.t >= (scenario.nextWaveAt?.left ?? 0)) {
+      spawnMenuBackdropWave(1, right, 5);
+      scenario.nextWaveAt.left = state.t + 10;
+    }
+    if (state.t >= (scenario.nextWaveAt?.right ?? 0)) {
+      spawnMenuBackdropWave(2, left, 5);
+      scenario.nextWaveAt.right = state.t + 10;
+    }
+
+    if (state.t >= (scenario.nextBlackHoleAt || 0)) {
+      spawnBlackHole(
+        scenario.centerX + rand(-scenario.halfW * 0.18, scenario.halfW * 0.18),
+        scenario.centerY + rand(-scenario.halfH * 0.16, scenario.halfH * 0.16),
+        null
+      );
+      scenario.nextBlackHoleAt = state.t + 54 + Math.random() * 54;
+    }
+
+    if (state.t >= (scenario.nextThermoAt || 0)) {
+      const attackerId = Math.random() < 0.5 ? 1 : 2;
+      const target = attackerId === 1 ? right : left;
+      const tx = target.x + (scenario.centerX - target.x) * 0.32 + rand(-90, 90);
+      const ty = scenario.centerY + rand(-scenario.halfH * 0.20, scenario.halfH * 0.20);
+      queueThermoNukeLocal(tx, ty, attackerId);
+      scenario.nextThermoAt = state.t + 72 + Math.random() * 72;
+    }
+  }
+
+  function startMenuBackdropBattle() {
+    const savedPrefs = {
+      soloBotCount: state._soloBotCount,
+      soloSpawnIndex: state._soloSpawnIndex,
+      soloColorIndex: state._soloColorIndex,
+      mapVariation: state._mapVariation,
+      customMapSeed: state._customMapSeed,
+      soloGameMode: state._soloGameMode,
+      quickStartScenario: state._quickStartScenario
+    };
+    const menuSeed = 0x51f15e;
+
+    state._menuBackdropActive = true;
+    state._menuBackdropScenario = null;
+    state._menuBackdropRestartAtMs = 0;
+    state._gameOver = false;
+    state._multiIsHost = false;
+    state._multiSlots = null;
+    state._slotToPid = null;
+    state._pendingFullSnap = null;
+    state._pendingSnap = null;
+    state._survivalMode = false;
+    state._soloNoBotAi = true;
+    state._soloGameMode = "classic";
+    state._quickStartScenario = null;
+    state.myPlayerId = 1;
+    state.botPlayerIds = null;
+    state._soloBotCount = 1;
+    state._soloSpawnIndex = 0;
+    state._soloColorIndex = 0;
+    state._mapVariation = 1;
+    state._customMapSeed = menuSeed;
+    PLAYER_NAMES[1] = "Helios";
+    PLAYER_NAMES[2] = "Nyx";
+
+    rebuildMap(menuSeed);
+    rebuildGrid();
+    resetWorld();
+
+    state._soloBotCount = savedPrefs.soloBotCount;
+    state._soloSpawnIndex = savedPrefs.soloSpawnIndex;
+    state._soloColorIndex = savedPrefs.soloColorIndex;
+    state._mapVariation = savedPrefs.mapVariation;
+    state._customMapSeed = savedPrefs.customMapSeed;
+    state._soloGameMode = savedPrefs.soloGameMode;
+    state._quickStartScenario = savedPrefs.quickStartScenario;
+
+    state._soloNoBotAi = true;
+    for (const p of state.players.values()) {
+      p.pop = 170;
+      p.popFloat = 170;
+      p.shieldHp = Math.max(5, p.pop * 2);
+      p.shieldMaxHp = p.shieldHp;
+      p.eCredits = Math.max(p.eCredits || 0, 2500);
+    }
+
+    const p1 = state.players.get(1);
+    const p2 = state.players.get(2);
+    if (p1 && p2) {
+      const layout = {
+        centerX: CFG.WORLD_W * 0.5,
+        centerY: CFG.WORLD_H * 0.50,
+        halfW: 920,
+        halfH: 220
+      };
+      layout.leftX = layout.centerX - 840;
+      layout.rightX = layout.centerX + 840;
+      setMenuBackdropPlayerPosition(p1, layout.leftX, layout.centerY);
+      setMenuBackdropPlayerPosition(p2, layout.rightX, layout.centerY);
+      rebuildMenuBackdropMines(layout);
+      for (const p of [p1, p2]) {
+        redrawZone(p);
+        rebuildTurrets(p);
+      }
+      state._menuBackdropScenario = {
+        ...layout,
+        nextWaveAt: { left: state.t + 1.2, right: state.t + 6.2 },
+        nextBlackHoleAt: state.t + 42,
+        nextThermoAt: state.t + 60
+      };
+      cam.zoom = 0.62;
+      centerOn(layout.centerX, layout.centerY);
+    }
+  }
+
+  function clearMenuBackdropSimulationState() {
+    invalidateNebulaBodyGraphics();
+    destroyChildren(nebulaLayer);
+    destroyChildren(nebulaFxLayer);
+    destroyChildren(zonesLayer);
+    clearTransientWorldFxLayers();
+    destroyChildren(turretLayer);
+    destroyChildren(resLayer);
+    destroyChildren(unitsLayer);
+    destroyChildren(cityLayer);
+    destroyChildren(ghostLayer);
+    destroyChildren(pathPreviewLayer);
+    destroyChildren(squadLabelsLayer);
+    destroyChildren(bulletsLayer);
+    destroyChildren(floatingDamageLayer);
+    destroyChildren(activityZoneLayer);
+    destroyChildren(abilityFxLayer);
+    destroyChildren(combatLayer);
+    destroyChildren(screenFxLayer);
+    overlapG = new PIXI.Graphics();
+    zonesLayer.addChild(overlapG);
+
+    clearMineVisuals();
+    clearPirateBases();
+
+    if (state.storm) destroyIonStormVisual(state.storm);
+    state.storm = null;
+    for (const storm of state._abilityStorms || []) destroyIonStormVisual(storm);
+    state._abilityStorms = [];
+    for (const bh of state._blackHoles || []) destroyBlackHoleVisual(bh);
+    state._blackHoles = [];
+    for (const meteor of state._activeMeteors || []) removeMeteorGfx(meteor);
+    state._activeMeteors = [];
+    state._meteorImpactEffects = [];
+    for (const strike of state._orbitalStrikes || []) destroyOrbitalStrikeVisual(strike);
+    state._orbitalStrikes = [];
+    for (const strike of state._thermoNukes || []) destroyThermoNukeVisual(strike);
+    state._thermoNukes = [];
+    for (const raid of state._pirateRaids || []) destroyPirateRaidVisual(raid);
+    state._pirateRaids = [];
+    for (const zone of state._abilityZoneEffects || []) destroyAbilityZoneVisual(zone);
+    state._abilityZoneEffects = [];
+    state._fakeSignatures = [];
+
+    if (state._abilityPreviewGfx && !state._abilityPreviewGfx.destroyed) {
+      if (state._abilityPreviewGfx.parent) state._abilityPreviewGfx.parent.removeChild(state._abilityPreviewGfx);
+      state._abilityPreviewGfx.destroy(true);
+      state._abilityPreviewGfx = null;
+    }
+    state._zoneGfx = null;
+
+    state.players.clear();
+    state.units.clear();
+    state.res.clear();
+    state.turrets.clear();
+    state.mines.clear();
+    state.mineGems = [];
+    state.mineFlowPackets = [];
+    state.ghosts = [];
+    state.bullets = [];
+    state.floatingDamage = [];
+    state.selectedUnitIds.clear();
+    state.prevInCombatIds.clear();
+    state.squads = new Map();
+    state.engagementZones = new Map();
+    state.nextSquadId = 1;
+    state.nextEngagementZoneId = 1;
+    state.smoothedFronts = {};
+    state.persistentBattles = {};
+  }
+
+  function stopMenuBackdropBattle() {
+    if (!state._menuBackdropActive) return;
+    clearMenuBackdropSimulationState();
+    state._menuBackdropActive = false;
+    state._menuBackdropScenario = null;
+    state._menuBackdropRestartAtMs = 0;
+    state._gameOver = true;
+  }
+
+  function stepMenuBackdropCamera(dt) {
+    if (!state._menuBackdropActive) return;
+    const scenario = state._menuBackdropScenario;
+    if (!scenario) return;
+    const spanX = scenario.halfW * 2;
+    const spanY = scenario.halfH * 2;
+    const zoomByWidth = app.renderer.width / spanX;
+    const zoomByHeight = app.renderer.height / spanY;
+    const targetZoom = Math.max(0.46, Math.min(0.82, Math.min(zoomByWidth, zoomByHeight) * 1.12));
+    cam.zoom += (targetZoom - cam.zoom) * Math.min(1, dt * 1.8);
+    const targetCamX = app.renderer.width * 0.5 - scenario.centerX * cam.zoom;
+    const targetCamY = app.renderer.height * 0.5 - scenario.centerY * cam.zoom;
+    cam.x += (targetCamX - cam.x) * Math.min(1, dt * 1.6);
+    cam.y += (targetCamY - cam.y) * Math.min(1, dt * 1.6);
+    applyCamera();
+  }
+
   function showScreen(visibleId) {
     const ids = ["mainMenu", "nicknameScreen", "soloLobbyScreen", "multiConnectScreen", "lobbyScreen"];
     for (const id of ids) {
@@ -13539,7 +16942,12 @@
       if (el) el.style.display = id === visibleId ? "flex" : "none";
     }
     if (gameWrapEl) gameWrapEl.style.display = visibleId === "gameWrap" ? "block" : "none";
+    const showRealMenuWorld = visibleId === "mainMenu";
+    if (menuSimBackdropEl) menuSimBackdropEl.classList.toggle("real-world", showRealMenuWorld);
+    setMenuWorldCanvasVisibility(visibleId === "gameWrap" || showRealMenuWorld, visibleId === "gameWrap");
     if (menuSimApi && menuSimApi.setVisible) menuSimApi.setVisible(visibleId !== "gameWrap");
+    if (showRealMenuWorld) startMenuBackdropBattle();
+    else stopMenuBackdropBattle();
     if (visibleId === "soloLobbyScreen" && typeof window !== "undefined") {
       state._myNickname = state._myNickname || window._myNickname || "";
     }
@@ -13622,6 +17030,7 @@
   }
 
   function startGameSingle(nickname) {
+    stopMenuBackdropBattle();
     state._gameSeed = null;
     state._multiIsHost = false;
     state._multiSlots = null;
@@ -13656,6 +17065,7 @@
   }
 
   function startGameMulti(slots, mySlot) {
+    stopMenuBackdropBattle();
     state.botPlayerIds = new Set();
     const filledSlots = [];
     for (let i = 0; i < slots.length; i++) {
@@ -13833,6 +17243,9 @@
     turretLayer,
     destroyIonStormVisual,
     removeMeteorGfx,
+    destroyOrbitalStrikeVisual,
+    destroyThermoNukeVisual,
+    destroyPirateRaidVisual,
     makeMineVisual,
     updateMineVisual,
     resLayer,
@@ -13861,7 +17274,10 @@
     useRaiderCapture,
     beginTimeRewindSequence,
     applyCard,
-    TIME_JUMP_REWIND_SEC
+    TIME_JUMP_REWIND_SEC,
+    activateBuffCardForPlayer,
+    castAbilityCardForPlayer,
+    executeAbilityAction
   });
 
   lobbyUiApi = installRuntime(window.LobbyUI, {
@@ -13934,8 +17350,9 @@
     stepAbilityCooldowns,
     stepLoanDebts,
     stepMeteors,
-    stepBgComets,
-    stepBgFlares,
+    stepOrbitalStrikes,
+    stepThermoNukes,
+    stepPirateRaids,
     stepSurvivalWaves
   });
 
@@ -13952,8 +17369,6 @@
     updateShieldVisuals,
     updateDischarges,
     pulseStars,
-    drawBgComets,
-    drawBgFlares,
     updateActivityZones,
     drawTurrets,
     updateCityPopLabels,
@@ -13972,6 +17387,9 @@
     drawAbilityZoneEffects,
     drawHyperFlashes,
     drawMeteors,
+    drawOrbitalStrikes,
+    drawThermoNukes,
+    drawPirateRaids,
     drawMeteorImpactEffects,
     drawTimeRewindFx,
     drawAbilityTargetPreview,
@@ -14021,6 +17439,9 @@
         state._pendingSnap = data;
       }
     });
+    socket.on("cardState", (payload) => {
+      applyIncomingCardState(payload);
+    });
     socket.on("playerAction", (action) => {
       if (socketActionDispatchApi && socketActionDispatchApi.handlePlayerAction) {
         socketActionDispatchApi.handlePlayerAction(action);
@@ -14060,6 +17481,11 @@
       startGameSingle(nick);
       return;
     }
+    if (state._menuBackdropActive && state._gameOver) {
+      if (!state._menuBackdropRestartAtMs) state._menuBackdropRestartAtMs = performance.now() + 1600;
+      if (performance.now() >= state._menuBackdropRestartAtMs) startMenuBackdropBattle();
+      return;
+    }
     if (!state.players || state.players.size === 0) return;
     const frameStart = performance.now();
     const now = frameStart;
@@ -14074,6 +17500,7 @@
     }
     state.t += dt;
     state._lastDt = dt;
+    stepPlayerCardStates();
 
     if (typeof saveTimeSnapshot === "function") saveTimeSnapshot();
 
@@ -14104,7 +17531,15 @@
 
     if (hostNetworkRuntimeApi && hostNetworkRuntimeApi.step) hostNetworkRuntimeApi.step(now);
 
+    if (state._menuBackdropActive) stepMenuBackdropScenario();
+    if (state._menuBackdropActive) stepMenuBackdropCamera(dt);
+
     requireRuntime(visualTickRuntimeApi, "VisualTickRuntime").step(dt, now);
+    pulseStars();
+    animateNebulaBackdrop(state.t);
+    if (offMapAmbienceApi && typeof offMapAmbienceApi.step === "function") {
+      offMapAmbienceApi.step(dt, state.t, cam.zoom || 0.22);
+    }
 
     // fps
     fpsAcc += dt;
@@ -14180,6 +17615,38 @@
     return { ghostPath: false, targetHighlight: false };
   }
 
+  function getPerfSummary() {
+    const stats = state.perfStats || {};
+    const packetSamples = state._netPacketStats && Array.isArray(state._netPacketStats.samples)
+      ? state._netPacketStats.samples.slice(-30)
+      : [];
+    return {
+      avgFrameMs: stats.avgFrameMs || 0,
+      maxFrameMs: stats.maxFrameMs || 0,
+      approxFps: stats.avgFrameMs ? Math.round(1000 / Math.max(0.001, stats.avgFrameMs)) : 0,
+      units: stats.units || state.units.size,
+      bullets: stats.bullets || state.bullets.length,
+      avgPacketBytes: stats.avgPacketBytes || (packetSamples.length > 0
+        ? Math.round(packetSamples.reduce((sum, sample) => sum + (sample.size || 0), 0) / packetSamples.length)
+        : 0),
+      lastPerfLines: state.perfLog.slice(-5)
+    };
+  }
+
+  async function runStress400Benchmark(durationSec) {
+    const seconds = Math.max(6, Number(durationSec) || 12);
+    state._menuMode = "single";
+    state._quickStartScenario = "stress400";
+    startGameSingle(state._myNickname || "Benchmark");
+    await new Promise((resolve) => setTimeout(resolve, Math.round(seconds * 1000)));
+    return {
+      scenario: "stress400",
+      durationSec: seconds,
+      perf: getPerfSummary(),
+      cardState: getCardStatePayloadForPlayer(state.myPlayerId)
+    };
+  }
+
   window._gameTest = {
     state, spawnXPOrb, killUnit, spawnMineGem, stepResourceMagnet, stepPickups, makeGemVisual,
     getSquads, getFormationOffsets, applyFormationToSquad, spawnUnitAt, getUnitAtkRange, getUnitEngagementRange, queryHash,
@@ -14187,7 +17654,10 @@
     makeLogicTestState,
     addLogicTestUnit,
     stepLogicTestState,
-    describeOrderPreview
+    describeOrderPreview,
+    getPerfSummary,
+    runStress400Benchmark,
+    getCardStatePayloadForPlayer
   };
 
 })();

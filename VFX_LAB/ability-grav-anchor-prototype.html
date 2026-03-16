@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ability Grav Anchor Prototype 01</title>
+  <link rel="stylesheet" href="./vfx-lab.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <h2 id="variantTitle">Ability Grav Anchor Prototype 01</h2>
+      <p id="variantSubtitle">Отдельная лаборатория для `Грав. Якоря`: контроль, остановка движения и визуальный язык удержания внутри радиуса.</p>
+      <p>Сцена сфокусирована на текущей игровой механике `gravAnchor`: `5с` иммобилизации в точке, с акцентом на читаемую ловушку, тяготение и arrested-motion у кораблей.</p>
+    </div>
+    <div class="controls">
+      <div class="control">
+        <label>Variant</label>
+        <select id="variant"></select>
+      </div>
+      <div class="control">
+        <label>Palette</label>
+        <select id="palette">
+          <option value="cyan">Cyan</option>
+          <option value="violet">Violet</option>
+          <option value="amber">Amber</option>
+          <option value="crimson">Crimson</option>
+          <option value="emerald">Emerald</option>
+        </select>
+      </div>
+      <div class="control">
+        <label>LOD</label>
+        <select id="lodMode">
+          <option value="auto">Auto</option>
+          <option value="near">Near</option>
+          <option value="mid">Mid</option>
+          <option value="far">Far</option>
+        </select>
+      </div>
+      <div class="control">
+        <label>Tempo</label>
+        <input id="tempo" type="range" min="35" max="150" value="92">
+      </div>
+      <div class="control">
+        <label>Radius</label>
+        <input id="radius" type="range" min="30" max="100" value="62">
+      </div>
+      <div class="control">
+        <label>Drag Strength</label>
+        <input id="drag" type="range" min="35" max="100" value="76">
+      </div>
+    </div>
+    <div class="actions">
+      <button type="button" id="cycleVariant">Cycle Variant</button>
+      <button type="button" id="shuffleShips">Shuffle Formation</button>
+      <button type="button" id="triggerPulse">Trigger Pulse</button>
+    </div>
+  </header>
+
+  <nav class="nav">
+    <a href="./index.html">Overview</a>
+    <a href="./cards-prototype.html">Card Prototype 01</a>
+    <a href="./ability-arsenal-prototype.html">Ability Arsenal Prototype 01</a>
+    <a href="./ability-cataclysm-prototype.html">Cataclysm Prototype 01</a>
+    <a href="./ability-grav-anchor-prototype.html" class="active">Grav Anchor Prototype 01</a>
+    <a href="./ability-nano-swarm-prototype.html">Nano Swarm Prototype 01</a>
+    <a href="./zone-pressure-prototype.html">Zone Prototype 01</a>
+    <a href="./ships-prototype.html">Ships Prototype 01</a>
+    <a href="./mine-flow-prototype.html">Mine Flow Prototype 01</a>
+    <a href="./map-nebula-prototype.html">Nebula Prototype 01</a>
+    <a href="./off-map-ambience-prototype.html">Off-Map Ambience Prototype 01</a>
+  </nav>
+
+  <main class="scene-wrap">
+    <canvas id="scene"></canvas>
+  </main>
+
+  <div id="statusLine" class="status-line">
+    Grav Anchor lab isolates the current `gravAnchor` gameplay: point-cast, `5s` immobilization, `150` radius and strong arrested-motion readability.
+  </div>
+
+  <section class="legend">
+    <article class="legend-card">
+      <h3>Gameplay Intent</h3>
+      <p id="legendGameplay">Это не просто круг контроля, а момент, когда враги должны считываться пойманными: тяга внутрь, сорванный импульс и явная потеря движения.</p>
+    </article>
+    <article class="legend-card">
+      <h3>Variant Read</h3>
+      <p id="legendRead">Шесть направлений отличаются формой удержания: гравлинза, триангуляция, приливная клетка, технолаттис, тюремный halo и агрессивный shear-knot.</p>
+    </article>
+    <article class="legend-card">
+      <h3>Prototype Focus</h3>
+      <p id="legendFocus">Главная цель: быстро понять, какой именно визуальный fantasy лучше всего продает контроль, а не урон, и при этом хорошо читается на игровой карте.</p>
+    </article>
+  </section>
+
+  <script src="./ability-grav-anchor-prototype.js"></script>
+</body>
+</html>

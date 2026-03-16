@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Off-Map Ambience Prototype 01</title>
+  <link rel="stylesheet" href="./vfx-lab.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <h2 id="variantTitle">Off-Map Ambience Prototype 01</h2>
+      <p id="variantSubtitle">Прототип оформления пространства вне игрового поля: тот же звездный фон, но с большим дальним окружением, планетами, кольцами и атмосферными эффектами за пределами карты.</p>
+      <p>Главная задача: проверить, как выглядит карта с затемнением вне поля на 60% и шестью разными направлениями внешнего космического фона, не забивая читаемость самой боевой зоны.</p>
+    </div>
+    <div class="controls">
+      <div class="control">
+        <label>Style Direction</label>
+        <select id="variantSelect"></select>
+      </div>
+      <div class="control">
+        <label>LOD</label>
+        <select id="lodMode">
+          <option value="auto">Auto</option>
+          <option value="near">Near</option>
+          <option value="mid">Mid</option>
+          <option value="far">Far</option>
+        </select>
+      </div>
+      <div class="control">
+        <label>Outer Shade</label>
+        <input id="outerShade" type="range" min="30" max="80" value="60">
+      </div>
+      <div class="control">
+        <label>Planet Scale</label>
+        <input id="planetScale" type="range" min="60" max="150" value="100">
+      </div>
+      <div class="control">
+        <label>FX Density</label>
+        <input id="fxDensity" type="range" min="0" max="100" value="58">
+      </div>
+      <div class="control">
+        <label>Drift</label>
+        <input id="drift" type="range" min="0" max="100" value="52">
+      </div>
+    </div>
+    <div class="actions">
+      <button type="button" id="cycleVariant">Cycle Variant</button>
+      <button type="button" id="randomizeSky">Randomize Sky</button>
+      <button type="button" id="pulseFringe">Pulse Fringe</button>
+    </div>
+  </header>
+
+  <nav class="nav">
+    <a href="./index.html">Overview</a>
+    <a href="./off-map-ambience-prototype.html" class="active">Off-Map Ambience Prototype 01</a>
+    <a href="./map-nebula-prototype.html">Nebula Prototype 01</a>
+    <a href="./zone-pressure-prototype.html">Zone Prototype 01</a>
+    <a href="./ships-prototype.html">Ships Prototype 01</a>
+    <a href="./mine-flow-prototype.html">Mine Flow Prototype 01</a>
+    <a href="./pirate-base-prototype.html">Pirate Base Prototype 01</a>
+  </nav>
+
+  <main class="scene-wrap">
+    <canvas id="scene"></canvas>
+  </main>
+
+  <div id="statusLine" class="status-line">
+    Off-map ambience prototype compares six ways to make the space outside the playable map feel richer while keeping the combat field clear.
+  </div>
+
+  <section class="legend">
+    <article class="legend-card">
+      <h3>Gameplay Intent</h3>
+      <p id="legendGameplay">Игровое поле остается главным: все крупные декоративные элементы вынесены наружу, а внешнее затемнение помогает сразу отделять playable area от фона.</p>
+    </article>
+    <article class="legend-card">
+      <h3>Visual Goal</h3>
+      <p id="legendVisual">Нужно сохранить тот же звездный пейзаж, но за пределами карты добавить дальние планеты, кольца, атмосферные шлейфы, обломки или энергоструктуры.</p>
+    </article>
+    <article class="legend-card">
+      <h3>Prototype Focus</h3>
+      <p id="legendFocus">Смотрим не только красоту, но и баланс: насколько хорошо 60% затемнение удерживает внимание внутри поля и не дает внешнему фону спорить с боем.</p>
+    </article>
+  </section>
+
+  <script src="./off-map-ambience-prototype.js"></script>
+</body>
+</html>

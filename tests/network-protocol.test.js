@@ -28,7 +28,13 @@ function makeState(unitCount) {
     unitAtkRateMul: 1, unitAtkRangeMul: 1,
     growthMul: 1, influenceSpeedMul: 1, sendCooldownMul: 1,
     pendingCardPicks: 0, xpZonePct: 0, xpGainMul: 1,
-    _levelBonusMul: 1, rerollCount: 0
+    _levelBonusMul: 1, rerollCount: 0,
+    buffHand: [{ instanceId: "b1", cardId: "c1", zone: "buff", kind: "buff", addedAt: 10 }],
+    abilityHand: [{ instanceId: "a1", cardId: "A_activeShield", zone: "ability", kind: "ability", addedAt: 12 }],
+    activeBuffs: [{ instanceId: "ab1", cardId: "c2", startedAt: 20, expiresAt: 60, permanent: false }],
+    legendaryBuffs: [{ instanceId: "lb1", cardId: "L1", startedAt: 10, expiresAt: null, permanent: true }],
+    nextCardInstanceId: 3,
+    cardStateVersion: 4
   });
 
   const units = new Map();
@@ -70,6 +76,7 @@ function testLightSnapshot() {
   assert(Array.isArray(snap.players), "light: players is array");
   assert(Array.isArray(snap.units), "light: units is array");
   assert(snap._fullSync === false, "light: _fullSync = false");
+  assert(snap.players[0].buffHand === undefined, "light: card hand omitted");
   assert(snap.resources === undefined, "light: resources omitted (delta)");
   assert(snap.turrets === undefined, "light: turrets omitted (delta)");
   // Bullets are in EVERY packet now for smooth visuals
@@ -112,6 +119,11 @@ function testFullSnapshot() {
   assert(Array.isArray(snap.resources), "full: resources present");
   assert(Array.isArray(snap.turrets), "full: turrets present");
   assert(Array.isArray(snap.bullets), "full: bullets always present");
+  assert(Array.isArray(snap.players[0].buffHand), "full: buff hand present");
+  assert(Array.isArray(snap.players[0].abilityHand), "full: ability hand present");
+  assert(Array.isArray(snap.players[0].activeBuffs), "full: active buffs present");
+  assert(Array.isArray(snap.players[0].legendaryBuffs), "full: legendary buffs present");
+  assert(snap.players[0].cardStateVersion === 4, "full: card version preserved");
   assert(snap.nextResId != null, "full: nextResId present");
   assert(snap.timeScale != null, "full: timeScale present");
   assert(snap.resDelta === undefined, "full: resDelta omitted (has full resources)");

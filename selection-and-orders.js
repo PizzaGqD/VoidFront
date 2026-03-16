@@ -72,6 +72,205 @@
       return squads;
     }
 
+    function cloneCaptureQueueSafe(queue) {
+      return Array.isArray(queue)
+        ? queue.map((entry) => ({
+            mineId: entry?.mineId ?? null,
+            point: entry?.point ? { x: entry.point.x, y: entry.point.y } : null
+          })).filter((entry) => entry.mineId != null && entry.point)
+        : [];
+    }
+
+    function cloneCommandQueueSafe(queue) {
+      return Array.isArray(queue)
+        ? queue.map((entry) => ({
+            type: entry?.type || "idle",
+            waypoints: cloneWaypointsSafe(entry?.waypoints),
+            holdPoint: entry?.holdPoint ? { x: entry.holdPoint.x, y: entry.holdPoint.y } : null,
+            targetUnitId: entry?.targetUnitId ?? null,
+            targetCityId: entry?.targetCityId ?? null,
+            targetPirateBase: !!entry?.targetPirateBase,
+            mineId: entry?.mineId ?? null,
+            angle: entry?.angle,
+            suppressPathPreview: !!entry?.suppressPathPreview
+          })).filter((entry) => entry.type && entry.type !== "idle")
+        : [];
+    }
+
+    function makeMoveCommand(point, angle) {
+      return {
+        type: "move",
+        waypoints: point ? [{ x: point.x, y: point.y }] : [],
+        holdPoint: null,
+        angle,
+        suppressPathPreview: false
+      };
+    }
+
+    function makeCaptureCommand(mineId, point) {
+      return {
+        type: "capture",
+        mineId,
+        waypoints: point ? [{ x: point.x, y: point.y }] : [],
+        holdPoint: null,
+        suppressPathPreview: false
+      };
+    }
+
+    function makeAttackUnitCommand(targetUnitId, point) {
+      return {
+        type: "attackUnit",
+        targetUnitId,
+        waypoints: point ? [{ x: point.x, y: point.y }] : [],
+        holdPoint: null,
+        suppressPathPreview: true
+      };
+    }
+
+    function makeSiegeCommand(targetCityId, point) {
+      return {
+        type: "siege",
+        targetCityId,
+        waypoints: point ? [{ x: point.x, y: point.y }] : [],
+        holdPoint: null,
+        suppressPathPreview: true
+      };
+    }
+
+    function makePirateBaseCommand(point) {
+      return {
+        type: "attackPirateBase",
+        targetPirateBase: true,
+        waypoints: point ? [{ x: point.x, y: point.y }] : [],
+        holdPoint: null,
+        suppressPathPreview: true
+      };
+    }
+
+    function getOrderSequence(order) {
+      const sequence = [];
+      if (!order || !order.type || order.type === "idle") return sequence;
+      sequence.push({
+        type: order.type,
+        waypoints: cloneWaypointsSafe(order.waypoints),
+        holdPoint: order.holdPoint ? { x: order.holdPoint.x, y: order.holdPoint.y } : null,
+        targetUnitId: order.targetUnitId ?? null,
+        targetCityId: order.targetCityId ?? null,
+        targetPirateBase: !!order.targetPirateBase,
+        mineId: order.mineId ?? null,
+        angle: order.angle,
+        suppressPathPreview: !!order.suppressPathPreview
+      });
+      for (const legacyCapture of cloneCaptureQueueSafe(order.captureQueue)) {
+        sequence.push(makeCaptureCommand(legacyCapture.mineId, legacyCapture.point));
+      }
+      sequence.push(...cloneCommandQueueSafe(order.commandQueue));
+      return sequence;
+    }
+
+    function applyOrderSequence(squadLogic, squadState, sequence) {
+      if (!squadLogic || !squadState || !Array.isArray(sequence) || sequence.length === 0) return;
+      const [active, ...rest] = sequence;
+      if (!active || !active.type) return;
+      if (active.type === "capture") {
+        squadLogic.issueCaptureOrder(
+          state,
+          squadState.id,
+          active.mineId,
+          active.waypoints && active.waypoints[0] ? active.waypoints[0] : null,
+          active.waypoints,
+          null,
+          rest
+        );
+        return;
+      }
+      if (active.type === "move") {
+        squadLogic.issueMoveOrder(state, squadState.id, active.waypoints, active.angle, rest);
+        return;
+      }
+      if (active.type === "attackUnit") {
+        squadLogic.issueAttackUnitOrder(state, squadState.id, active.targetUnitId, active.waypoints, rest);
+        return;
+      }
+      if (active.type === "siege") {
+        squadLogic.issueSiegeOrder(state, squadState.id, active.targetCityId, active.waypoints, rest);
+        return;
+      }
+      if (active.type === "attackPirateBase") {
+        squadLogic.issuePirateBaseOrder(state, squadState.id, active.waypoints, rest);
+      }
+    }
+
+    function getSequenceLastPoint(sequence, fallbackPoint) {
+      if (Array.isArray(sequence)) {
+        for (let i = sequence.length - 1; i >= 0; i--) {
+          const waypoints = sequence[i]?.waypoints;
+          if (Array.isArray(waypoints) && waypoints.length > 0) {
+            return waypoints[waypoints.length - 1];
+          }
+        }
+      }
+      return fallbackPoint || null;
+    }
+
+    function buildQueuedActionPayload(leaderIds, sequence, fallbackPoint) {
+      if (!Array.isArray(sequence) || sequence.length === 0) return null;
+      const [active, ...rest] = sequence;
+      if (!active || !active.type) return null;
+      const lastPoint = getSequenceLastPoint([active], fallbackPoint);
+      if (active.type === "move" || active.type === "capture") {
+        return {
+          type: "move",
+          leaderIds,
+          waypoints: cloneWaypointsSafe(active.waypoints) || (lastPoint ? [{ x: lastPoint.x, y: lastPoint.y }] : []),
+          x: lastPoint?.x,
+          y: lastPoint?.y,
+          angle: active.angle,
+          capture: active.type === "capture",
+          mineId: active.type === "capture" ? active.mineId : undefined,
+          commandQueue: rest.length > 0 ? rest : undefined
+        };
+      }
+      if (active.type === "attackUnit") {
+        const target = state.units.get(active.targetUnitId);
+        const point = target ? { x: target.x, y: target.y } : lastPoint;
+        return {
+          type: "chase",
+          leaderIds,
+          targetUnitId: active.targetUnitId,
+          x: point?.x,
+          y: point?.y,
+          waypoints: cloneWaypointsSafe(active.waypoints),
+          commandQueue: rest.length > 0 ? rest : undefined
+        };
+      }
+      if (active.type === "siege") {
+        const city = state.players.get(active.targetCityId);
+        const point = city ? { x: city.x, y: city.y } : lastPoint;
+        return {
+          type: "chaseCity",
+          leaderIds,
+          targetCityId: active.targetCityId,
+          x: point?.x,
+          y: point?.y,
+          waypoints: cloneWaypointsSafe(active.waypoints),
+          commandQueue: rest.length > 0 ? rest : undefined
+        };
+      }
+      if (active.type === "attackPirateBase") {
+        const point = lastPoint || (state.pirateBase ? { x: state.pirateBase.x, y: state.pirateBase.y } : null);
+        return {
+          type: "attackPirateBase",
+          leaderIds,
+          x: point?.x,
+          y: point?.y,
+          waypoints: cloneWaypointsSafe(active.waypoints),
+          commandQueue: rest.length > 0 ? rest : undefined
+        };
+      }
+      return null;
+    }
+
     function describeOrderPreview(order) {
       if (!order) return { ghostPath: false, targetHighlight: false };
       return {
@@ -367,6 +566,7 @@
           if (order.type === "move" && state.formationPreview) {
             const fp = state.formationPreview;
             const addWaypoint = e.shiftKey;
+            let emitSequence = null;
             for (const squad of squads) {
               const squadState = getSquadStateFromUnits(squad);
               if (!squadState) continue;
@@ -374,45 +574,72 @@
               const fType = leader.formationType || "line";
               const fRows = fp.dragRows != null ? fp.dragRows : (leader.formationRows || 3);
               const pigW = fp.dragWidth != null ? fp.dragWidth : (leader.formationPigWidth ?? 1);
-              const baseWaypoints = addWaypoint ? cloneWaypointsSafe(squadState.order?.waypoints) : [];
-              baseWaypoints.push({ x: fp.x, y: fp.y });
+              const nextPoint = { x: fp.x, y: fp.y };
+              const sequence = addWaypoint ? getOrderSequence(squadState.order) : [];
+              if (!sequence.length) {
+                sequence.push(makeMoveCommand(nextPoint, fp.angle));
+              } else if (sequence[sequence.length - 1].type === "move") {
+                sequence[sequence.length - 1].waypoints = cloneWaypointsSafe(sequence[sequence.length - 1].waypoints);
+                sequence[sequence.length - 1].waypoints.push(nextPoint);
+                if (sequence.length === 1) sequence[0].angle = fp.angle;
+              } else {
+                sequence.push(makeMoveCommand(nextPoint, fp.angle));
+              }
               squadLogic.setSquadFormation(state, squadState.id, fType, fRows, pigW);
-              squadLogic.issueMoveOrder(state, squadState.id, baseWaypoints, fp.angle);
+              applyOrderSequence(squadLogic, squadState, sequence);
               squadLogic.recalculateFormation(state, squadState.id, { getFormationOffsets }, true);
+              if (!emitSequence) emitSequence = sequence;
               leaderIds.push(leader.id);
             }
             if (state._multiSlots && !state._multiIsHost && state._socket) {
-              state._socket.emit("playerAction", { type: "move", leaderIds, waypoints: [{ x: fp.x, y: fp.y }], x: fp.x, y: fp.y, angle: fp.angle });
+              const actionPayload = buildQueuedActionPayload(leaderIds, emitSequence, { x: fp.x, y: fp.y });
+              if (actionPayload) state._socket.emit("playerAction", actionPayload);
             }
           } else if (order.type === "move" && !state.formationPreview) {
             const addWaypoint = e.shiftKey;
+            let emitSequence = null;
             for (const squad of squads) {
               const squadState = getSquadStateFromUnits(squad);
               if (!squadState) continue;
               const leader = squad.find((u) => (u.leaderId || u.id) === (squad[0].leaderId || squad[0].id)) || squad[0];
-              const baseWaypoints = addWaypoint ? cloneWaypointsSafe(squadState.order?.waypoints) : [];
-              baseWaypoints.push({ x: order.x, y: order.y });
-              squadLogic.issueMoveOrder(state, squadState.id, baseWaypoints, Math.atan2(order.y - leader.y, order.x - leader.x));
+              const nextPoint = { x: order.x, y: order.y };
+              const angle = Math.atan2(order.y - leader.y, order.x - leader.x);
+              const sequence = addWaypoint ? getOrderSequence(squadState.order) : [];
+              if (!sequence.length) {
+                sequence.push(makeMoveCommand(nextPoint, angle));
+              } else if (sequence[sequence.length - 1].type === "move") {
+                sequence[sequence.length - 1].waypoints = cloneWaypointsSafe(sequence[sequence.length - 1].waypoints);
+                sequence[sequence.length - 1].waypoints.push(nextPoint);
+                if (sequence.length === 1) sequence[0].angle = angle;
+              } else {
+                sequence.push(makeMoveCommand(nextPoint, angle));
+              }
+              applyOrderSequence(squadLogic, squadState, sequence);
+              if (!emitSequence) emitSequence = sequence;
               leaderIds.push(leader.id);
             }
             if (state._multiSlots && !state._multiIsHost && state._socket) {
-              state._socket.emit("playerAction", { type: "move", leaderIds, waypoints: [{ x: order.x, y: order.y }], x: order.x, y: order.y });
+              const actionPayload = buildQueuedActionPayload(leaderIds, emitSequence, { x: order.x, y: order.y });
+              if (actionPayload) state._socket.emit("playerAction", actionPayload);
             }
           } else if (order.type === "attackUnit") {
             const target = state.units.get(order.targetUnitId);
             if (target) {
               const addWaypoint = e.shiftKey;
+              let emitSequence = null;
               for (const squad of squads) {
                 const squadState = getSquadStateFromUnits(squad);
                 if (!squadState) continue;
                 const leader = squad.find((u) => (u.leaderId || u.id) === (squad[0].leaderId || squad[0].id)) || squad[0];
-                const baseWaypoints = addWaypoint ? cloneWaypointsSafe(squadState.order?.waypoints) : [];
-                if (addWaypoint) baseWaypoints.push({ x: target.x, y: target.y });
-                squadLogic.issueAttackUnitOrder(state, squadState.id, target.id, baseWaypoints);
+                const sequence = addWaypoint ? getOrderSequence(squadState.order) : [];
+                sequence.push(makeAttackUnitCommand(target.id, { x: target.x, y: target.y }));
+                applyOrderSequence(squadLogic, squadState, sequence);
+                if (!emitSequence) emitSequence = sequence;
                 leaderIds.push(leader.id);
               }
               if (state._multiSlots && !state._multiIsHost && state._socket) {
-                state._socket.emit("playerAction", { type: "chase", leaderIds, targetUnitId: target.id, x: target.x, y: target.y });
+                const actionPayload = buildQueuedActionPayload(leaderIds, emitSequence, { x: target.x, y: target.y });
+                if (actionPayload) state._socket.emit("playerAction", actionPayload);
               }
             }
           } else if (order.type === "focusFire") {
@@ -440,46 +667,55 @@
             const city = state.players.get(order.targetCityId);
             if (city) {
               const addWaypoint = e.shiftKey;
+              let emitSequence = null;
               for (const squad of squads) {
                 const squadState = getSquadStateFromUnits(squad);
                 if (!squadState) continue;
                 const leader = squad.find((u) => (u.leaderId || u.id) === (squad[0].leaderId || squad[0].id)) || squad[0];
-                const baseWaypoints = addWaypoint ? cloneWaypointsSafe(squadState.order?.waypoints) : [];
-                baseWaypoints.push({ x: city.x, y: city.y });
-                squadLogic.issueSiegeOrder(state, squadState.id, city.id, baseWaypoints);
+                const sequence = addWaypoint ? getOrderSequence(squadState.order) : [];
+                sequence.push(makeSiegeCommand(city.id, { x: city.x, y: city.y }));
+                applyOrderSequence(squadLogic, squadState, sequence);
+                if (!emitSequence) emitSequence = sequence;
                 leaderIds.push(leader.id);
               }
               if (state._multiSlots && !state._multiIsHost && state._socket) {
-                state._socket.emit("playerAction", { type: "chaseCity", leaderIds, targetCityId: city.id, x: city.x, y: city.y });
+                const actionPayload = buildQueuedActionPayload(leaderIds, emitSequence, { x: city.x, y: city.y });
+                if (actionPayload) state._socket.emit("playerAction", actionPayload);
               }
             }
           } else if (order.type === "attackPirateBase" && state.pirateBase) {
             const addWaypoint = e.shiftKey;
+            let emitSequence = null;
             for (const squad of squads) {
               const squadState = getSquadStateFromUnits(squad);
               if (!squadState) continue;
               const leader = squad.find((u) => (u.leaderId || u.id) === (squad[0].leaderId || squad[0].id)) || squad[0];
-              const baseWaypoints = addWaypoint ? cloneWaypointsSafe(squadState.order?.waypoints) : [];
-              baseWaypoints.push({ x: state.pirateBase.x, y: state.pirateBase.y });
-              squadLogic.issuePirateBaseOrder(state, squadState.id, baseWaypoints);
+              const sequence = addWaypoint ? getOrderSequence(squadState.order) : [];
+              sequence.push(makePirateBaseCommand({ x: state.pirateBase.x, y: state.pirateBase.y }));
+              applyOrderSequence(squadLogic, squadState, sequence);
+              if (!emitSequence) emitSequence = sequence;
               leaderIds.push(leader.id);
             }
             if (state._multiSlots && !state._multiIsHost && state._socket) {
-              state._socket.emit("playerAction", { type: "attackPirateBase", leaderIds, x: state.pirateBase.x, y: state.pirateBase.y });
+              const actionPayload = buildQueuedActionPayload(leaderIds, emitSequence, { x: state.pirateBase.x, y: state.pirateBase.y });
+              if (actionPayload) state._socket.emit("playerAction", actionPayload);
             }
           } else if (order.type === "capture") {
             const addWaypoint = e.shiftKey;
+            let emitSequence = null;
             for (const squad of squads) {
               const squadState = getSquadStateFromUnits(squad);
               if (!squadState) continue;
               const leader = squad.find((u) => (u.leaderId || u.id) === (squad[0].leaderId || squad[0].id)) || squad[0];
-              const baseWaypoints = addWaypoint ? cloneWaypointsSafe(squadState.order?.waypoints) : [];
-              baseWaypoints.push({ x: order.x, y: order.y });
-              squadLogic.issueCaptureOrder(state, squadState.id, order.mineId, { x: order.x, y: order.y }, baseWaypoints);
+              const sequence = addWaypoint ? getOrderSequence(squadState.order) : [];
+              sequence.push(makeCaptureCommand(order.mineId, { x: order.x, y: order.y }));
+              applyOrderSequence(squadLogic, squadState, sequence);
+              if (!emitSequence) emitSequence = sequence;
               leaderIds.push(leader.id);
             }
             if (state._multiSlots && !state._multiIsHost && state._socket) {
-              state._socket.emit("playerAction", { type: "move", leaderIds, waypoints: [{ x: order.x, y: order.y }], x: order.x, y: order.y, mineId: order.mineId, capture: true });
+              const actionPayload = buildQueuedActionPayload(leaderIds, emitSequence, { x: order.x, y: order.y });
+              if (actionPayload) state._socket.emit("playerAction", actionPayload);
             }
           }
           state.formationPreview = null;

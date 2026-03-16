@@ -88,17 +88,81 @@ const httpServer = http.createServer((req, res) => {
   }
   const ext = path.extname(filePath);
 
-  fs.readFile(filePath, (err, data) => {
+  fs.stat(filePath, (err, stat) => {
     if (err) {
       console.log("[HTTP] 404", filePath);
       res.writeHead(404);
       return res.end();
     }
-    res.writeHead(200, {
+
+    const headers = {
       "Content-Type": MIME[ext] || "text/plain",
-      "Cache-Control": "no-store, no-cache, must-revalidate"
+      "Cache-Control": "no-store, no-cache, must-revalidate",
+      "Accept-Ranges": "bytes",
+      "Content-Length": stat.size
+    };
+    const range = req.headers.range;
+
+    if (range && /^bytes=/.test(range)) {
+      const value = range.replace(/^bytes=/, "");
+      const parts = value.split("-");
+      let start = 0;
+      let end = stat.size - 1;
+
+      if (parts[0] === "" && parts[1]) {
+        const suffixLength = parseInt(parts[1], 10);
+        if (Number.isFinite(suffixLength) && suffixLength > 0) {
+          start = Math.max(0, stat.size - suffixLength);
+        }
+      } else {
+        start = parseInt(parts[0], 10);
+        if (!Number.isFinite(start)) start = 0;
+        if (parts[1]) {
+          end = parseInt(parts[1], 10);
+          if (!Number.isFinite(end)) end = stat.size - 1;
+        }
+      }
+
+      start = Math.max(0, start);
+      end = Math.min(stat.size - 1, end);
+
+      if (start > end || start >= stat.size) {
+        res.writeHead(416, {
+          "Content-Range": "bytes */" + stat.size,
+          "Accept-Ranges": "bytes"
+        });
+        return res.end();
+      }
+
+      const chunkSize = end - start + 1;
+      res.writeHead(206, {
+        "Content-Type": MIME[ext] || "text/plain",
+        "Cache-Control": "no-store, no-cache, must-revalidate",
+        "Accept-Ranges": "bytes",
+        "Content-Range": "bytes " + start + "-" + end + "/" + stat.size,
+        "Content-Length": chunkSize
+      });
+
+      if (req.method === "HEAD") return res.end();
+
+      const stream = fs.createReadStream(filePath, { start, end });
+      stream.on("error", () => {
+        if (!res.headersSent) res.writeHead(500);
+        res.end();
+      });
+      stream.pipe(res);
+      return;
+    }
+
+    res.writeHead(200, headers);
+    if (req.method === "HEAD") return res.end();
+
+    const stream = fs.createReadStream(filePath);
+    stream.on("error", () => {
+      if (!res.headersSent) res.writeHead(500);
+      res.end();
     });
-    res.end(data);
+    stream.pipe(res);
   });
 });
 
@@ -417,6 +481,14 @@ io.on("connection", (socket) => {
     const room = getRoom(roomId);
     if (room.hostId !== socket.id) return;
     socket.to(roomId).emit("mapRegenerate", data);
+  });
+
+  socket.on("cardState", (data) => {
+    const roomId = socket.roomId;
+    if (!roomId) return;
+    const room = getRoom(roomId);
+    if (room.hostId !== socket.id) return;
+    socket.to(roomId).emit("cardState", data);
   });
 
   // ── Game: start ──

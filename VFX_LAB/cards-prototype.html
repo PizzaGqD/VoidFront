@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Card Style Prototype 01</title>
+  <link rel="stylesheet" href="./vfx-lab.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <h2 id="variantTitle">Card Style Prototype 01</h2>
+      <p id="variantSubtitle">Шесть направлений для нового визуала карт: матовое стекло, более плотное тело карты, четкая цветная кромка и тонкий слой микросхемных линий.</p>
+      <p>Смотрим дальнее чтение, hover-презентацию и то, как редкость живет на плотной, а не прозрачной поверхности.</p>
+    </div>
+    <div class="controls">
+      <div class="control">
+        <label>Card Variant</label>
+        <select id="variant"></select>
+      </div>
+      <div class="control">
+        <label>Rarity</label>
+        <select id="rarity">
+          <option value="common">Common</option>
+          <option value="rare">Rare</option>
+          <option value="epic">Epic</option>
+          <option value="legendary">Legendary</option>
+        </select>
+      </div>
+      <div class="control">
+        <label>Palette</label>
+        <select id="palette">
+          <option value="cyan">Cyan</option>
+          <option value="amber">Amber</option>
+          <option value="violet">Violet</option>
+          <option value="crimson">Crimson</option>
+          <option value="emerald">Emerald</option>
+        </select>
+      </div>
+      <div class="control">
+        <label>Edge Glow</label>
+        <input id="edgeGlow" type="range" min="20" max="100" value="76">
+      </div>
+      <div class="control">
+        <label>Glass Frost</label>
+        <input id="glassFrost" type="range" min="10" max="100" value="62">
+      </div>
+      <div class="control">
+        <label>Circuit Density</label>
+        <input id="circuitDensity" type="range" min="20" max="100" value="58">
+      </div>
+    </div>
+    <div class="actions">
+      <button type="button" id="cycleVariant">Cycle Variant</button>
+      <button type="button" id="shufflePalette">Shuffle Palette</button>
+      <button type="button" id="pulseInspect">Pulse Inspect</button>
+    </div>
+  </header>
+
+  <nav class="nav">
+    <a href="./index.html">Overview</a>
+    <a href="./cards-prototype.html" class="active">Card Prototype 01</a>
+    <a href="./ability-arsenal-prototype.html">Ability Arsenal Prototype 01</a>
+    <a href="./zone-pressure-prototype.html">Zone Prototype 01</a>
+    <a href="./ships-prototype.html">Ships Prototype 01</a>
+    <a href="./mine-flow-prototype.html">Mine Flow Prototype 01</a>
+    <a href="./map-nebula-prototype.html">Nebula Prototype 01</a>
+    <a href="./pirate-base-prototype.html">Pirate Base Prototype 01</a>
+  </nav>
+
+  <main class="scene-wrap">
+    <canvas id="scene"></canvas>
+  </main>
+
+  <div id="statusLine" class="status-line">
+    Card Style Prototype compares six matte-glass directions with stronger rarity edges and a thin circuit layer.
+  </div>
+
+  <section class="legend">
+    <article class="legend-card">
+      <h3>Surface</h3>
+      <p id="legendSurface">Главная цель: убрать ощущение пустой прозрачной пленки и заменить ее на плотное матовое стекло с внутренней глубиной.</p>
+    </article>
+    <article class="legend-card">
+      <h3>Readability</h3>
+      <p id="legendReadability">Редкость и тип должны читаться с первого взгляда: яркая кромка, четкий emoji-якорь и аккуратный circuit-noise без мусора.</p>
+    </article>
+    <article class="legend-card">
+      <h3>Selection Goal</h3>
+      <p id="legendGoal">Внизу всегда видны все 6 направлений, а большая карта в центре показывает, как дизайн ведет себя в hover/inspect состоянии.</p>
+    </article>
+  </section>
+
+  <script src="./cards-prototype.js"></script>
+</body>
+</html>

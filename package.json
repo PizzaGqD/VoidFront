@@ -9,7 +9,7 @@
     "tunnel": "node server.js --tunnel",
     "stop": "node stop-server.js",
     "restart": "node stop-server.js && node server.js",
-    "test": "node tests/network-protocol.test.js && node tests/squad-combat-state.test.js"
+    "test": "node tests/card-system.test.js && node tests/network-protocol.test.js && node tests/squad-combat-state.test.js"
   },
   "dependencies": {
     "localtunnel": "^2.0.2",

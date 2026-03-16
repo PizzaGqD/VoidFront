@@ -478,12 +478,11 @@
 
     bh._bodySprite.visible = true;
     bh._bodySprite.position.set(bh._drawX, bh._drawY);
-    if (bh._visualExtentMul !== extentMul || bh._visualBaseRadius !== baseRadius) {
-      bh._visualExtentMul = extentMul;
-      bh._visualBaseRadius = baseRadius;
-      bh._bodySprite.width = baseRadius * extentMul * 2;
-      bh._bodySprite.height = baseRadius * extentMul * 2;
-    }
+    bh._visualExtentMul = extentMul;
+    bh._visualBaseRadius = baseRadius;
+    // Keep the world-space footprint stable when the renderer swaps LOD canvas sizes.
+    bh._bodySprite.width = baseRadius * extentMul * 2;
+    bh._bodySprite.height = baseRadius * extentMul * 2;
     bh._bodySprite.alpha = 1;
   }
 

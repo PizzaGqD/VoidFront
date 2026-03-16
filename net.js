@@ -45,7 +45,10 @@
     "_patrolCount", "_patrols"
   ];
   const PLAYER_FULL_KEYS = [
-    ...PLAYER_SYNC_KEYS, "influencePolygon", "influenceRayDistances"
+    ...PLAYER_SYNC_KEYS,
+    "influencePolygon", "influenceRayDistances",
+    "buffHand", "abilityHand", "activeBuffs", "legendaryBuffs",
+    "nextCardInstanceId", "cardStateVersion"
   ];
   const UNIT_LIGHT_KEYS = ["id", "x", "y", "vx", "vy", "hp"];
   const UNIT_FULL_KEYS = [
@@ -393,7 +396,89 @@
           vx: roundN(m.vx, 100), vy: roundN(m.vy, 100),
           angle: roundN(m.angle ?? 0, 1000),
           radius: m.radius, aoeR: m.aoeR,
-          ownerId: m.ownerId, alive: m.alive
+          ownerId: m.ownerId, alive: m.alive,
+          impactDuration: m.impactDuration,
+          styleKey: m.styleKey,
+          visualScale: m.visualScale,
+          seed: m.seed
+        }));
+      }
+      if (state._orbitalStrikes && state._orbitalStrikes.length > 0) {
+        gs.orbitalStrikes = state._orbitalStrikes.map(strike => ({
+          x: roundN(strike.x, 10),
+          y: roundN(strike.y, 10),
+          radius: strike.radius,
+          ownerId: strike.ownerId,
+          spawnedAt: roundN(strike.spawnedAt, 100),
+          duration: strike.duration,
+          seed: strike.seed,
+          coreX: roundN(strike.coreX, 10),
+          coreY: roundN(strike.coreY, 10),
+          shots: (strike.shots || []).map(shot => ({
+            salvoIndex: shot.salvoIndex,
+            shotIndex: shot.shotIndex,
+            seed: shot.seed,
+            primary: !!shot.primary,
+            sx: roundN(shot.sx, 10),
+            sy: roundN(shot.sy, 10),
+            tx: roundN(shot.tx, 10),
+            ty: roundN(shot.ty, 10),
+            radius: shot.radius,
+            launchAt: roundN(shot.launchAt, 1000),
+            arriveAt: roundN(shot.arriveAt, 1000),
+            impactAt: roundN(shot.impactAt, 1000),
+            fadeDuration: shot.fadeDuration,
+            resolved: !!shot.resolved
+          }))
+        }));
+      }
+      if (state._thermoNukes && state._thermoNukes.length > 0) {
+        gs.thermoNukes = state._thermoNukes.map(strike => ({
+          ownerId: strike.ownerId,
+          spawnedAt: roundN(strike.spawnedAt, 100),
+          duration: strike.duration,
+          seed: strike.seed,
+          x: roundN(strike.x, 10),
+          y: roundN(strike.y, 10),
+          originX: roundN(strike.originX, 10),
+          originY: roundN(strike.originY, 10),
+          startX: roundN(strike.startX, 10),
+          startY: roundN(strike.startY, 10),
+          targetX: roundN(strike.targetX, 10),
+          targetY: roundN(strike.targetY, 10),
+          dirX: roundN(strike.dirX, 1000),
+          dirY: roundN(strike.dirY, 1000),
+          vx: roundN(strike.vx, 100),
+          vy: roundN(strike.vy, 100),
+          distance: roundN(strike.distance, 10),
+          flightDuration: roundN(strike.flightDuration, 1000),
+          impactAt: roundN(strike.impactAt, 1000),
+          impactFadeDuration: strike.impactFadeDuration,
+          previewRadius: strike.previewRadius,
+          impactRadius: strike.impactRadius,
+          styleKey: strike.styleKey,
+          resolved: !!strike.resolved
+        }));
+      }
+      if (state._pirateRaids && state._pirateRaids.length > 0) {
+        gs.pirateRaids = state._pirateRaids.map(raid => ({
+          id: raid.id,
+          ownerId: raid.ownerId,
+          spawnedAt: roundN(raid.spawnedAt, 100),
+          duration: raid.duration,
+          portalDuration: raid.portalDuration,
+          hyperDuration: raid.hyperDuration,
+          seed: raid.seed,
+          styleKey: raid.styleKey,
+          paletteKey: raid.paletteKey,
+          targetX: roundN(raid.targetX, 10),
+          targetY: roundN(raid.targetY, 10),
+          zoneRadius: raid.zoneRadius,
+          portalX: roundN(raid.portalX, 10),
+          portalY: roundN(raid.portalY, 10),
+          portalDistance: roundN(raid.portalDistance, 10),
+          sideAngle: roundN(raid.sideAngle, 1000),
+          attackAngle: roundN(raid.attackAngle, 1000)
         }));
       }
       if (state._abilityStorms && state._abilityStorms.length > 0) {

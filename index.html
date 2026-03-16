@@ -8,7 +8,36 @@
 </head>
 <body>
   <!-- Background music -->
-  <audio id="bgMusic" preload="auto"></audio>
+  <audio id="bgMusic" preload="auto" autoplay playsinline></audio>
+  <div id="musicPlayerDock" class="music-player-dock" aria-label="Музыкальный плеер">
+    <div id="musicPlayer" class="music-player-bar">
+      <div class="mp-header-row">
+        <div class="mp-track-meta">
+          <span id="mpTrackName" class="mp-track">Загрузка...</span>
+          <span id="mpTrackSub" class="mp-track-sub">Плейлист готовится</span>
+        </div>
+        <div class="mp-controls">
+          <button type="button" id="mpPrev" class="mp-btn" title="Предыдущий трек">&#9664;&#9664;</button>
+          <button type="button" id="mpPlay" class="mp-btn" title="Играть или поставить на паузу">&#9654;</button>
+          <button type="button" id="mpNext" class="mp-btn" title="Следующий трек">&#9654;&#9654;</button>
+          <button type="button" id="mpShuffle" class="mp-btn mp-toggle-btn" title="Случайный порядок">Mix</button>
+          <button type="button" id="mpRepeat" class="mp-btn mp-toggle-btn" title="Повтор текущего трека">Loop</button>
+        </div>
+      </div>
+      <div class="mp-progress-row">
+        <span id="mpTimeNow" class="mp-time">0:00</span>
+        <div id="mpProgressTrack" class="mp-progress-track" title="Перемотка">
+          <div id="mpProgressFill" class="mp-progress-fill"></div>
+          <div id="mpProgressThumb" class="mp-progress-thumb"></div>
+        </div>
+        <span id="mpTimeDur" class="mp-time">0:00</span>
+      </div>
+      <div class="mp-bottom-row">
+        <label for="mpVolume" class="mp-volume-label">Громкость</label>
+        <input type="range" id="mpVolume" class="mp-vol" min="0" max="100" value="35" title="Громкость">
+      </div>
+    </div>
+  </div>
   <div id="menuSimBackdrop" class="menu-sim-backdrop" aria-hidden="true">
     <canvas id="menuSimCanvas" class="menu-sim-canvas"></canvas>
     <div class="menu-sim-vignette"></div>
@@ -24,7 +53,6 @@
         <button type="button" id="btnMulti" class="menu-btn">Мультиплеер</button>
         <button type="button" id="btnTestMap400" class="menu-btn secondary">Тест карта 400v400</button>
       </div>
-      <button type="button" id="btnMusicToggle" class="music-toggle" title="Вкл/Выкл музыку">&#9835; Музыка</button>
     </div>
   </div>
 
@@ -140,11 +168,14 @@
     <div id="dominationTimer" style="display:none"></div>
     <div id="lvlUpWrap" class="lvlup-wrap">
       <div class="lvlup-progress-wrap"><div id="lvlUpProgress" class="lvlup-progress"></div></div>
-      <button type="button" id="lvlUpBtn" class="lvlup-btn lvlup-btn-gray" title="Выбрать улучшение за уровень">LVL Up <span id="lvlUpCount">0</span></button>
-      <div id="lvlUpLevelText" class="lvlup-level-text">Ур. 1</div>
+      <div class="lvlup-meta-row">
+        <div id="lvlUpLevelText" class="lvlup-level-text">Ур. 1</div>
+        <div id="lvlUpHandText" class="lvlup-hand-text">Рука: 0</div>
+      </div>
       <div id="lvlUpXpText" class="lvlup-xp-text">(0)</div>
     </div>
-    <button type="button" id="abilitiesBtn" class="abilities-btn-stub" title="Способности">Способности</button>
+    <div id="topActiveBuffBar" class="top-active-buff-bar" style="display:none"></div>
+    <button type="button" id="abilitiesBtn" class="abilities-btn-stub" title="Способности" style="display:none">Способности</button>
     <div id="abilityAnnouncementLine" class="ability-announcement-line" aria-live="polite"></div>
   </div>
 
@@ -157,22 +188,8 @@
     </div>
   </div>
 
-  <!-- Top-right panel: Music + Leaderboard + Test + Speed + Toggles + Squads -->
+  <!-- Top-right panel: Leaderboard + Test + Speed + Toggles + Squads -->
   <div id="topRightPanel" class="topright-panel">
-    <div id="musicPlayer" class="music-player-bar">
-      <div class="mp-controls">
-        <button type="button" id="mpPrev" class="mp-btn" title="Пред. трек">&#9664;&#9664;</button>
-        <button type="button" id="mpPlay" class="mp-btn" title="Играть/Пауза">&#9654;</button>
-        <button type="button" id="mpNext" class="mp-btn" title="След. трек">&#9654;&#9654;</button>
-        <span id="mpTrackName" class="mp-track">—</span>
-        <input type="range" id="mpVolume" class="mp-vol" min="0" max="100" value="35" title="Громкость">
-      </div>
-      <div class="mp-progress-row">
-        <span id="mpTimeNow" class="mp-time">0:00</span>
-        <input type="range" id="mpProgress" class="mp-progress" min="0" max="1000" value="0" title="Перемотка">
-        <span id="mpTimeDur" class="mp-time">0:00</span>
-      </div>
-    </div>
     <div id="leaderboard" class="box leaderboard topright-leaderboard">
       <div class="subtitle">Лидеры</div>
       <table class="leader-table">
@@ -276,7 +293,9 @@
     <div id="testPanel" style="display:none;flex-direction:column;gap:6px;margin-top:6px;">
       <div style="color:#88bbff;font-size:12px;font-weight:700;text-align:center;margin-bottom:2px;">Тест-панель</div>
       <button id="testAddPop" style="background:#1a1d55;color:#ddeeff;border:1px solid #44aaff;border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12px;">+1000 энергии</button>
-      <button id="testAddLevel" style="background:#1a1d55;color:#ddeeff;border:1px solid #44aaff;border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12px;">+100 уровень</button>
+      <button id="testAddLevel" style="background:#1a1d55;color:#ddeeff;border:1px solid #44aaff;border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12px;">+10 уровней</button>
+      <select id="testAbilitySelect" style="background:#111633;color:#ddeeff;border:1px solid #44aaff;border-radius:6px;padding:5px 8px;font-size:12px;"></select>
+      <button id="testGiveAbilityCard" style="background:#1a1d55;color:#ddeeff;border:1px solid #44aaff;border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12px;">Дать карту способности</button>
       <button id="testNoCooldowns" style="background:#1a1d55;color:#ddeeff;border:1px solid #44aaff;border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12px;">Без перезарядок</button>
     </div>
   </div>
@@ -506,6 +525,25 @@
     </div>
   </div>
 
+  <div id="cardHud" class="card-hud" style="display:none">
+    <div class="card-hand-layout">
+      <div id="buffHandZone" class="card-zone buff-card-zone">
+        <div class="card-zone-header">
+          <span>Бафф-карты</span>
+          <span id="buffHandCount" class="card-zone-count">0/30</span>
+        </div>
+        <div id="buffHandCards" class="card-zone-body"></div>
+      </div>
+      <div id="abilityHandZone" class="card-zone ability-card-zone">
+        <div class="card-zone-header">
+          <span>Карты способностей</span>
+          <span id="abilityHandCount" class="card-zone-count">0/10</span>
+        </div>
+        <div id="abilityHandCards" class="card-zone-body"></div>
+      </div>
+    </div>
+  </div>
+
   </div>
   <!-- /gameWrap -->
 
@@ -546,9 +584,10 @@
   <script src="https://cdn.jsdelivr.net/npm/pixi.js@8.6.6/dist/pixi.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/pixi-filters@6.1.1/dist/pixi-filters.min.js"></script>
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <script src="card-system.js?v=2"></script>
   <script src="utils.js?v=17"></script>
   <script src="noise.js?v=17"></script>
-  <script src="net.js?v=17"></script>
+  <script src="net.js?v=18"></script>
   <script src="formations.js?v=17"></script>
   <script src="combat.js?v=17"></script>
   <script src="squad-logic.js?v=17"></script>
@@ -561,18 +600,33 @@
   <script src="resource-flow.js?v=17"></script>
   <script src="combat-vfx.js?v=17"></script>
   <script src="ability-vfx-common.js?v=17"></script>
+  <script src="pirate-raid-ability.js?v=1"></script>
+  <script src="meteor-swarm-ability.js?v=1"></script>
+  <script src="spatial-rift-ability.js?v=1"></script>
+  <script src="thermo-nuke-ability.js?v=1"></script>
+  <script src="grav-anchor-ability.js?v=1"></script>
+  <script src="nano-swarm-ability.js?v=1"></script>
   <script src="black-hole-renderer.js?v=17"></script>
   <script src="ion-storm-renderer.js?v=17"></script>
+  <script src="pirate-raid-renderer.js?v=1"></script>
+  <script src="meteor-renderer.js?v=21"></script>
+  <script src="meteor-swarm-renderer.js?v=1"></script>
+  <script src="spatial-rift-renderer.js?v=1"></script>
+  <script src="thermo-nuke-renderer.js?v=1"></script>
+  <script src="grav-anchor-renderer.js?v=1"></script>
+  <script src="nano-swarm-renderer.js?v=1"></script>
   <script src="time-rewind-renderer.js?v=17"></script>
   <script src="selection-and-orders.js?v=17"></script>
-  <script src="snapshot-sync.js?v=17"></script>
+  <script src="snapshot-sync.js?v=18"></script>
   <script src="socket-action-dispatch.js?v=17"></script>
   <script src="lobby-ui.js?v=17"></script>
   <script src="remote-client-runtime.js?v=17"></script>
   <script src="host-network-runtime.js?v=17"></script>
-  <script src="host-sim-runtime.js?v=17"></script>
-  <script src="visual-tick-runtime.js?v=17"></script>
-  <script src="client.js?v=17"></script>
+  <script src="host-sim-runtime.js?v=18"></script>
+  <script src="visual-tick-runtime.js?v=18"></script>
+  <script src="off-map-ambience-renderer.js?v=1"></script>
+  <script src="music-player.js?v=1"></script>
+  <script src="client.js?v=19"></script>
   <script src="test-mechanics.js?v=16"></script>
   <script>
   (function(){

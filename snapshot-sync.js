@@ -25,6 +25,9 @@
       turretLayer,
       destroyIonStormVisual,
       removeMeteorGfx,
+      destroyOrbitalStrikeVisual,
+      destroyThermoNukeVisual,
+      destroyPirateRaidVisual,
       makeMineVisual,
       updateMineVisual,
       resLayer,
@@ -344,9 +347,45 @@
       if (snap.meteors) {
         for (const m of state._activeMeteors) removeMeteorGfx(m);
         state._activeMeteors = snap.meteors.map((m) => ({ ...m, gfx: null, trajGfx: null }));
-      } else if (snap._fullSync) {
+      } else if (state._activeMeteors && state._activeMeteors.length) {
         for (const m of state._activeMeteors) removeMeteorGfx(m);
         state._activeMeteors = [];
+      }
+
+      if (snap.orbitalStrikes) {
+        for (const strike of state._orbitalStrikes || []) destroyOrbitalStrikeVisual(strike);
+        state._orbitalStrikes = snap.orbitalStrikes.map((strike) => ({
+          ...strike,
+          shots: (strike.shots || []).map((shot) => ({ ...shot })),
+          gfx: null
+        }));
+      } else if (state._orbitalStrikes && state._orbitalStrikes.length) {
+        for (const strike of state._orbitalStrikes || []) destroyOrbitalStrikeVisual(strike);
+        state._orbitalStrikes = [];
+      }
+
+      if (snap.thermoNukes) {
+        for (const strike of state._thermoNukes || []) destroyThermoNukeVisual(strike);
+        state._thermoNukes = snap.thermoNukes.map((strike) => ({
+          ...strike,
+          gfx: null,
+          trajGfx: null,
+          overlayGfx: null
+        }));
+      } else if (state._thermoNukes && state._thermoNukes.length) {
+        for (const strike of state._thermoNukes || []) destroyThermoNukeVisual(strike);
+        state._thermoNukes = [];
+      }
+
+      if (snap.pirateRaids) {
+        for (const raid of state._pirateRaids || []) destroyPirateRaidVisual(raid);
+        state._pirateRaids = snap.pirateRaids.map((raid) => ({
+          ...raid,
+          gfx: null
+        }));
+      } else if (state._pirateRaids && state._pirateRaids.length) {
+        for (const raid of state._pirateRaids || []) destroyPirateRaidVisual(raid);
+        state._pirateRaids = [];
       }
 
       if (snap.abilityStorms && !state._multiIsHost) {

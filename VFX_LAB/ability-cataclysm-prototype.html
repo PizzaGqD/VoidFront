@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ability Cataclysm Prototype 01</title>
+  <link rel="stylesheet" href="./vfx-lab.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <h2 id="variantTitle">Ability Cataclysm Prototype 01</h2>
+      <p id="variantSubtitle">Отдельная лаборатория для трех тяжелых способностей: пиратский налет через разлом, термоядерный импульс и НАНОРОЙ.</p>
+      <p>На странице можно быстро переключать способность, шесть направлений внутри нее и проверять общий язык телеграфа, полета, импакта и зоны поражения.</p>
+    </div>
+    <div class="controls">
+      <div class="control">
+        <label>Effect</label>
+        <select id="effect"></select>
+      </div>
+      <div class="control">
+        <label>Variant</label>
+        <select id="variant"></select>
+      </div>
+      <div class="control">
+        <label>Palette</label>
+        <select id="palette">
+          <option value="cyan">Cyan</option>
+          <option value="amber">Amber</option>
+          <option value="violet">Violet</option>
+          <option value="crimson">Crimson</option>
+          <option value="emerald">Emerald</option>
+        </select>
+      </div>
+      <div class="control">
+        <label>LOD</label>
+        <select id="lodMode">
+          <option value="auto">Auto</option>
+          <option value="near">Near</option>
+          <option value="mid">Mid</option>
+          <option value="far">Far</option>
+        </select>
+      </div>
+      <div class="control">
+        <label>Tempo</label>
+        <input id="tempo" type="range" min="35" max="140" value="88">
+      </div>
+      <div class="control">
+        <label>Radius</label>
+        <input id="radius" type="range" min="30" max="100" value="64">
+      </div>
+    </div>
+    <div class="actions">
+      <button type="button" id="cycleEffect">Cycle Effect</button>
+      <button type="button" id="cycleVariant">Cycle Variant</button>
+      <button type="button" id="triggerPulse">Trigger Pulse</button>
+    </div>
+  </header>
+
+  <nav class="nav">
+    <a href="./index.html">Overview</a>
+    <a href="./cards-prototype.html">Card Prototype 01</a>
+    <a href="./ability-arsenal-prototype.html">Ability Arsenal Prototype 01</a>
+    <a href="./ability-cataclysm-prototype.html" class="active">Cataclysm Prototype 01</a>
+    <a href="./zone-pressure-prototype.html">Zone Prototype 01</a>
+    <a href="./ships-prototype.html">Ships Prototype 01</a>
+    <a href="./mine-flow-prototype.html">Mine Flow Prototype 01</a>
+    <a href="./map-nebula-prototype.html">Nebula Prototype 01</a>
+    <a href="./pirate-base-prototype.html">Pirate Base Prototype 01</a>
+  </nav>
+
+  <main class="scene-wrap">
+    <canvas id="scene"></canvas>
+  </main>
+
+  <div id="statusLine" class="status-line">
+    Cataclysm lab isolates pirateRaid, thermoNuke and nanoSwarm so their silhouettes, telegraphs and kill-zones can be tuned before gameplay integration.
+  </div>
+
+  <section class="legend">
+    <article class="legend-card">
+      <h3>Gameplay Intent</h3>
+      <p id="legendGameplay">Каждый прототип смотрится сразу через боевую роль: налет пиратов как рейдерский вход, термоядерный импульс как wipe-инструмент, НАНОРОЙ как DoT-облако контроля.</p>
+    </article>
+    <article class="legend-card">
+      <h3>Variant Read</h3>
+      <p id="legendRead">Шесть вариантов внутри каждой способности не просто меняют цвет, а перестраивают форму разлома, язык ракеты, тип облака, плотность частиц и характер импакта.</p>
+    </article>
+    <article class="legend-card">
+      <h3>Prototype Focus</h3>
+      <p id="legendFocus">Основная цель: быстро выбрать лучший визуальный fantasy и читаемость зоны до подключения продовых PIXI-рендереров и боевой логики.</p>
+    </article>
+  </section>
+
+  <script src="./ability-cataclysm-prototype.js"></script>
+</body>
+</html>

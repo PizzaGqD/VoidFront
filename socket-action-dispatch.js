@@ -24,7 +24,10 @@
       useRaiderCapture,
       beginTimeRewindSequence,
       applyCard,
-      TIME_JUMP_REWIND_SEC
+      TIME_JUMP_REWIND_SEC,
+      activateBuffCardForPlayer,
+      castAbilityCardForPlayer,
+      executeAbilityAction
     } = deps;
 
     function getSquadLogic() {
@@ -60,7 +63,7 @@
           for (const lid of action.leaderIds || []) {
             const u = state.units.get(lid);
             if (!u || u.squadId == null) continue;
-            squadLogic.issueAttackUnitOrder(state, u.squadId, action.targetUnitId);
+            squadLogic.issueAttackUnitOrder(state, u.squadId, action.targetUnitId, mapWaypoints(action), action.commandQueue);
           }
           return;
         }
@@ -78,10 +81,11 @@
 
       if (action.type === "chaseCity") {
         if (squadLogic) {
+          const wp = mapWaypoints(action);
           for (const lid of action.leaderIds || []) {
             const u = state.units.get(lid);
             if (!u || u.squadId == null) continue;
-            squadLogic.issueSiegeOrder(state, u.squadId, action.targetCityId, [{ x: action.x, y: action.y }]);
+            squadLogic.issueSiegeOrder(state, u.squadId, action.targetCityId, wp, action.commandQueue);
           }
           return;
         }
@@ -107,11 +111,11 @@
 
       if (action.type === "attackPirateBase") {
         if (squadLogic) {
-          const wp = [{ x: action.x, y: action.y }];
+          const wp = mapWaypoints(action);
           for (const lid of action.leaderIds || []) {
             const u = state.units.get(lid);
             if (!u || u.squadId == null) continue;
-            squadLogic.issuePirateBaseOrder(state, u.squadId, wp);
+            squadLogic.issuePirateBaseOrder(state, u.squadId, wp, action.commandQueue);
           }
         }
         return;
@@ -139,8 +143,8 @@
           for (const lid of action.leaderIds || []) {
             const u = state.units.get(lid);
             if (!u || u.squadId == null) continue;
-            if (action.capture) squadLogic.issueCaptureOrder(state, u.squadId, action.mineId, wp[0]);
-            else squadLogic.issueMoveOrder(state, u.squadId, wp, action.angle);
+            if (action.capture) squadLogic.issueCaptureOrder(state, u.squadId, action.mineId, wp[0], wp, action.captureQueue, action.commandQueue);
+            else squadLogic.issueMoveOrder(state, u.squadId, wp, action.angle, action.commandQueue);
           }
           return;
         }
@@ -308,45 +312,17 @@
       }
 
       if (action.type === "useAbility") {
-        const def = ABILITY_DEFS.find((d) => d.id === action.abilityId);
-        if (def && action.pid != null && !def.oneTime) setAbilityCooldown(action.pid, action.abilityId, def.cooldown);
-        pushAbilityAnnouncement(action.pid, action.abilityId);
-        if (action.abilityId === "ionNebula") {
-          spawnIonNebulaLocal(action.x, action.y, action.pid);
-        } else if (action.abilityId === "meteor") {
-          spawnMeteorLocal(action.x, action.y, action.angle, action.pid);
-        } else if (action.abilityId === "blackHole") {
-          spawnBlackHole(action.x, action.y, action.pid);
-          const me = state.players.get(action.pid);
-          if (me && def) {
-            if (!state._abilityCooldownsByPlayer[me.id]) state._abilityCooldownsByPlayer[me.id] = {};
-            state._abilityCooldownsByPlayer[me.id].blackHole = state.t + CFG.BLACKHOLE_COOLDOWN;
-          }
-        } else if (action.abilityId === "activeShield") {
-          useActiveShield(action.pid);
-        } else if (action.abilityId === "pirateRaid") {
-          spawnPirateRaid(action.x, action.y, action.angle ?? 0);
-        } else if (action.abilityId === "gloriousBattleMarch") {
-          useGloriousBattleMarch(action.pid);
-        } else if (action.abilityId === "loan") {
-          useLoan(action.pid);
-        } else if (action.abilityId === "raiderCapture") {
-          useRaiderCapture(action.pid, action.targetCityId);
-        } else if (action.abilityId === "timeJump") {
-          if (!state._timeSnapshots || state._timeSnapshots.length === 0) return;
-          const targetT = Math.max(0, state.t - TIME_JUMP_REWIND_SEC);
-          let snap = null;
-          for (let i = state._timeSnapshots.length - 1; i >= 0; i--) {
-            if (state._timeSnapshots[i].t <= targetT) {
-              snap = state._timeSnapshots[i];
-              break;
-            }
-          }
-          if (snap) {
-            const eliminatedBeforeRewind = [...state.players.values()].filter((p) => p.eliminated).map((p) => p.id);
-            beginTimeRewindSequence(action.pid, snap, eliminatedBeforeRewind);
-          }
-        }
+        if (typeof executeAbilityAction === "function") executeAbilityAction(action);
+        return;
+      }
+
+      if (action.type === "activateBuffCard") {
+        if (typeof activateBuffCardForPlayer === "function") activateBuffCardForPlayer(action.pid, action.instanceId);
+        return;
+      }
+
+      if (action.type === "castAbilityCard") {
+        if (typeof castAbilityCardForPlayer === "function") castAbilityCardForPlayer(action);
         return;
       }
 

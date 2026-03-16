@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ability Arsenal Prototype 01</title>
+  <link rel="stylesheet" href="./vfx-lab.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <h2 id="variantTitle">Ability Arsenal Prototype 01</h2>
+      <p id="variantSubtitle">Одна лаборатория для новых направлений способностей: направленный метеор, метеоритный рой, орбитальный удар, рой дронов, сейсмобомба и поле телепортации.</p>
+      <p>На странице можно переключать тип эффекта и 6 стилевых направлений, чтобы быстро выбрать визуальный язык до интеграции в основную игру.</p>
+    </div>
+    <div class="controls">
+      <div class="control">
+        <label>Effect</label>
+        <select id="effect"></select>
+      </div>
+      <div class="control">
+        <label>Variant</label>
+        <select id="variant"></select>
+      </div>
+      <div class="control">
+        <label>Palette</label>
+        <select id="palette">
+          <option value="cyan">Cyan</option>
+          <option value="amber">Amber</option>
+          <option value="violet">Violet</option>
+          <option value="crimson">Crimson</option>
+          <option value="emerald">Emerald</option>
+        </select>
+      </div>
+      <div class="control">
+        <label>LOD</label>
+        <select id="lodMode">
+          <option value="auto">Auto</option>
+          <option value="near">Near</option>
+          <option value="mid">Mid</option>
+          <option value="far">Far</option>
+        </select>
+      </div>
+      <div class="control">
+        <label>Tempo</label>
+        <input id="tempo" type="range" min="35" max="140" value="88">
+      </div>
+      <div class="control">
+        <label>Radius</label>
+        <input id="radius" type="range" min="25" max="100" value="62">
+      </div>
+    </div>
+    <div class="actions">
+      <button type="button" id="cycleEffect">Cycle Effect</button>
+      <button type="button" id="cycleVariant">Cycle Variant</button>
+      <button type="button" id="triggerPulse">Trigger Pulse</button>
+    </div>
+  </header>
+
+  <nav class="nav">
+    <a href="./index.html">Overview</a>
+    <a href="./cards-prototype.html">Card Prototype 01</a>
+    <a href="./ability-arsenal-prototype.html" class="active">Ability Arsenal Prototype 01</a>
+    <a href="./ability-cataclysm-prototype.html">Cataclysm Prototype 01</a>
+    <a href="./zone-pressure-prototype.html">Zone Prototype 01</a>
+    <a href="./ships-prototype.html">Ships Prototype 01</a>
+    <a href="./mine-flow-prototype.html">Mine Flow Prototype 01</a>
+    <a href="./map-nebula-prototype.html">Nebula Prototype 01</a>
+    <a href="./pirate-base-prototype.html">Pirate Base Prototype 01</a>
+  </nav>
+
+  <main class="scene-wrap">
+    <canvas id="scene"></canvas>
+  </main>
+
+  <div id="statusLine" class="status-line">
+    Ability Arsenal Prototype mixes gameplay intent and VFX direction for six reworked abilities.
+  </div>
+
+  <section class="legend">
+    <article class="legend-card">
+      <h3>Gameplay Intent</h3>
+      <p id="legendGameplay">Здесь рядом с эффектом закреплено краткое правило: чтобы визуал сразу оценивался в контексте механики, а не как абстрактный арт.</p>
+    </article>
+    <article class="legend-card">
+      <h3>Variant Read</h3>
+      <p id="legendRead">Шесть общих стилевых направлений переиспользуются между способностями, чтобы можно было выбрать консистентный язык для whole ability suite.</p>
+    </article>
+    <article class="legend-card">
+      <h3>Prototype Focus</h3>
+      <p id="legendFocus">Основная цель: быстро выбрать направление анимации, трасс, импакта и читаемого targeting footprint без внедрения в боевую сцену.</p>
+    </article>
+  </section>
+
+  <script src="./ability-arsenal-prototype.js"></script>
+</body>
+</html>

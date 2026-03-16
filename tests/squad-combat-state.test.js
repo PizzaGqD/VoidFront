@@ -231,6 +231,229 @@ function testSiegeContinuesAfterShieldBreak() {
   console.log("  [OK] testSiegeContinuesAfterShieldBreak");
 }
 
+function testCaptureOrderContinuesToNextWaypoint() {
+  const state = makeState();
+  state.mines = new Map();
+  state.mines.set(1, {
+    id: 1,
+    x: 100,
+    y: 100,
+    ownerId: 1,
+    captureProgress: 1
+  });
+
+  const squad = createSquad(state, [
+    { id: 71, owner: 1, x: 100, y: 100, attackRange: 60 }
+  ], { order: { type: "idle", waypoints: [] } });
+
+  SQUADLOGIC.issueCaptureOrder(state, squad.id, 1, { x: 100, y: 100 }, [
+    { x: 100, y: 100 },
+    { x: 260, y: 100 }
+  ]);
+
+  step(state, 0.1, 1);
+
+  assert(squad.order.type === "move", "capture-continue: completed capture becomes move order");
+  assert(squad.order.waypoints.length === 1, "capture-continue: only follow-up waypoint remains");
+  assert(squad.order.waypoints[0].x === 260 && squad.order.waypoints[0].y === 100, "capture-continue: next waypoint is preserved");
+  console.log("  [OK] testCaptureOrderContinuesToNextWaypoint");
+}
+
+function testCaptureOrderStopsAtCaptureRadius() {
+  const state = makeState();
+  state.mines = new Map();
+  state.mines.set(2, {
+    id: 2,
+    x: 100,
+    y: 100,
+    ownerId: 2,
+    captureProgress: 1
+  });
+
+  const squad = createSquad(state, [
+    { id: 81, owner: 1, x: 0, y: 100, attackRange: 60 }
+  ], { order: { type: "idle", waypoints: [] } });
+
+  SQUADLOGIC.issueCaptureOrder(state, squad.id, 2, { x: 100, y: 100 }, [{ x: 100, y: 100 }]);
+  step(state, 0.1, 1);
+
+  const anchorDist = Math.hypot(squad.anchor.x - 100, squad.anchor.y - 100);
+  assert(anchorDist > 40 && anchorDist < 70, "capture-radius: anchor stays on capture ring, not mine center");
+  console.log("  [OK] testCaptureOrderStopsAtCaptureRadius");
+}
+
+function testCaptureOrderCompletesOnceMineIsOwned() {
+  const state = makeState();
+  state.mines = new Map();
+  state.mines.set(22, {
+    id: 22,
+    x: 100,
+    y: 100,
+    ownerId: 1,
+    captureProgress: 1,
+    _capturingOwner: 1
+  });
+
+  const squad = createSquad(state, [
+    { id: 82, owner: 1, x: 160, y: 100, attackRange: 60 }
+  ], { order: { type: "idle", waypoints: [] } });
+
+  SQUADLOGIC.issueCaptureOrder(
+    state,
+    squad.id,
+    22,
+    { x: 100, y: 100 },
+    [{ x: 100, y: 100 }],
+    null,
+    [{ type: "move", waypoints: [{ x: 240, y: 100 }], holdPoint: null, angle: 0, suppressPathPreview: false }]
+  );
+
+  step(state, 0.1, 1);
+
+  assert(squad.order.type === "move", "capture-owned: owned mine immediately completes capture order");
+  assert(squad.order.waypoints[0].x === 240 && squad.order.waypoints[0].y === 100, "capture-owned: next queued move activates right away");
+  console.log("  [OK] testCaptureOrderCompletesOnceMineIsOwned");
+}
+
+function testCaptureQueuePreservesFirstMineThenAdvances() {
+  const state = makeState();
+  state.mines = new Map();
+  state.mines.set(1, { id: 1, x: 100, y: 100, ownerId: 2, captureProgress: 1 });
+  state.mines.set(2, { id: 2, x: 260, y: 100, ownerId: 3, captureProgress: 1 });
+
+  const squad = createSquad(state, [
+    { id: 91, owner: 1, x: 100, y: 100, attackRange: 60 }
+  ], { order: { type: "idle", waypoints: [] } });
+
+  SQUADLOGIC.issueCaptureOrder(
+    state,
+    squad.id,
+    1,
+    { x: 100, y: 100 },
+    [{ x: 100, y: 100 }, { x: 260, y: 100 }],
+    [{ mineId: 2, point: { x: 260, y: 100 } }]
+  );
+
+  state.mines.get(1).ownerId = 1;
+  state.mines.get(1).captureProgress = 1;
+  step(state, 0.1, 1);
+
+  assert(squad.order.type === "capture", "capture-queue: next capture remains a capture order");
+  assert(squad.order.mineId === 2, "capture-queue: first mine completes before second becomes active");
+  assert(squad.order.waypoints.length === 1, "capture-queue: completed mine waypoint is removed");
+  assert(squad.order.waypoints[0].x === 260 && squad.order.waypoints[0].y === 100, "capture-queue: second mine waypoint becomes current");
+  console.log("  [OK] testCaptureQueuePreservesFirstMineThenAdvances");
+}
+
+function testMoveThenCaptureKeepsMoveFirst() {
+  const state = makeState();
+  state.mines = new Map();
+  state.mines.set(3, { id: 3, x: 260, y: 100, ownerId: 2, captureProgress: 1 });
+
+  const squad = createSquad(state, [
+    { id: 101, owner: 1, x: 100, y: 100, attackRange: 60 }
+  ], { order: { type: "idle", waypoints: [] } });
+
+  SQUADLOGIC.issueMoveOrder(
+    state,
+    squad.id,
+    [{ x: 180, y: 100 }],
+    0,
+    [{ type: "capture", mineId: 3, waypoints: [{ x: 260, y: 100 }], holdPoint: null, angle: null, suppressPathPreview: false }]
+  );
+
+  step(state, 0.1, 1);
+  assert(squad.order.type === "move", "move-capture: move stays active before first point is reached");
+  assert(squad.order.waypoints[0].x === 180, "move-capture: first move point remains current");
+
+  state.units.get(101).x = 180;
+  state.units.get(101).y = 100;
+  step(state, 0.1, 1);
+  assert(squad.order.type === "capture", "move-capture: capture becomes active after move completes");
+  assert(squad.order.mineId === 3, "move-capture: queued mine becomes active target");
+  console.log("  [OK] testMoveThenCaptureKeepsMoveFirst");
+}
+
+function testCaptureThenMoveContinuesAfterCapture() {
+  const state = makeState();
+  state.mines = new Map();
+  state.mines.set(4, { id: 4, x: 100, y: 100, ownerId: 1, captureProgress: 1 });
+
+  const squad = createSquad(state, [
+    { id: 111, owner: 1, x: 100, y: 100, attackRange: 60 }
+  ], { order: { type: "idle", waypoints: [] } });
+
+  SQUADLOGIC.issueCaptureOrder(
+    state,
+    squad.id,
+    4,
+    { x: 100, y: 100 },
+    [{ x: 100, y: 100 }],
+    null,
+    [{ type: "move", waypoints: [{ x: 220, y: 100 }], holdPoint: null, angle: 0, suppressPathPreview: false }]
+  );
+
+  step(state, 0.1, 1);
+  assert(squad.order.type === "move", "capture-move: move becomes active after capture completes");
+  assert(squad.order.waypoints[0].x === 220 && squad.order.waypoints[0].y === 100, "capture-move: follow-up move point is preserved");
+  console.log("  [OK] testCaptureThenMoveContinuesAfterCapture");
+}
+
+function testMoveThenAttackKeepsMoveFirst() {
+  const state = makeState();
+  createSquad(state, [
+    { id: 121, owner: 2, x: 260, y: 100, attackRange: 60 }
+  ], { order: { type: "idle", waypoints: [] } });
+
+  const squad = createSquad(state, [
+    { id: 122, owner: 1, x: 100, y: 100, attackRange: 60 }
+  ], { order: { type: "idle", waypoints: [] } });
+
+  SQUADLOGIC.issueMoveOrder(
+    state,
+    squad.id,
+    [{ x: 180, y: 100 }],
+    0,
+    [{ type: "attackUnit", targetUnitId: 121, waypoints: [{ x: 260, y: 100 }], holdPoint: null, angle: null, suppressPathPreview: true }]
+  );
+
+  step(state, 0.1, 1);
+  assert(squad.order.type === "move", "move-attack: move stays active before first point is reached");
+
+  state.units.get(122).x = 180;
+  state.units.get(122).y = 100;
+  step(state, 0.1, 1);
+  assert(squad.order.type === "attackUnit", "move-attack: queued attack becomes active after move completes");
+  assert(squad.order.targetUnitId === 121, "move-attack: queued target unit becomes active");
+  console.log("  [OK] testMoveThenAttackKeepsMoveFirst");
+}
+
+function testAttackThenMoveContinuesAfterTargetDies() {
+  const state = makeState();
+  createSquad(state, [
+    { id: 131, owner: 2, x: 260, y: 100, attackRange: 60, hp: 100 }
+  ], { order: { type: "idle", waypoints: [] } });
+
+  const squad = createSquad(state, [
+    { id: 132, owner: 1, x: 100, y: 100, attackRange: 60 }
+  ], { order: { type: "idle", waypoints: [] } });
+
+  SQUADLOGIC.issueAttackUnitOrder(
+    state,
+    squad.id,
+    131,
+    [{ x: 260, y: 100 }],
+    [{ type: "move", waypoints: [{ x: 320, y: 100 }], holdPoint: null, angle: 0, suppressPathPreview: false }]
+  );
+
+  state.units.get(131).hp = 0;
+  step(state, 0.1, 1);
+
+  assert(squad.order.type === "move", "attack-move: move becomes active after target dies");
+  assert(squad.order.waypoints[0].x === 320 && squad.order.waypoints[0].y === 100, "attack-move: follow-up move point is preserved");
+  console.log("  [OK] testAttackThenMoveContinuesAfterTargetDies");
+}
+
 function runAll() {
   console.log("squad-combat-state tests:");
   testLockStartsOnRangeEntry();
@@ -239,6 +462,14 @@ function runAll() {
   testQueuedOrderAppliesAfterCombatEnds();
   testResumeOrHoldStaysStableAfterCombat();
   testSiegeContinuesAfterShieldBreak();
+  testCaptureOrderContinuesToNextWaypoint();
+  testCaptureOrderStopsAtCaptureRadius();
+  testCaptureOrderCompletesOnceMineIsOwned();
+  testCaptureQueuePreservesFirstMineThenAdvances();
+  testMoveThenCaptureKeepsMoveFirst();
+  testCaptureThenMoveContinuesAfterCapture();
+  testMoveThenAttackKeepsMoveFirst();
+  testAttackThenMoveContinuesAfterTargetDies();
   console.log("All squad combat state tests passed.");
 }
 

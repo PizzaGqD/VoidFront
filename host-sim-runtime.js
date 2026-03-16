@@ -39,7 +39,9 @@
       stepAbilityCooldowns,
       stepLoanDebts,
       stepMeteors,
-      stepBgComets,
+      stepOrbitalStrikes,
+      stepThermoNukes,
+      stepPirateRaids,
       stepSurvivalWaves
     } = deps;
 
@@ -135,7 +137,9 @@
       stepAbilityCooldowns(dt);
       stepLoanDebts(dt);
       stepMeteors(dt);
-      stepBgComets(dt);
+      stepOrbitalStrikes(dt);
+      stepThermoNukes(dt);
+      stepPirateRaids(dt);
       stepSurvivalWaves(dt);
     }
 
