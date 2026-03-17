@@ -84,11 +84,44 @@ function testSideLaneMinePlacementsFollowNeighborPairs() {
   console.log("  [OK] testSideLaneMinePlacementsFollowNeighborPairs");
 }
 
+function testDuelFrontGraphCreatesDistinctLeftAndRightLanes() {
+  const state = makeState();
+  addPlayer(state, 1, -220, 0);
+  addPlayer(state, 2, 220, 0);
+
+  FrontPlanner.buildCenterObjectives(state);
+  const graph = FrontPlanner.buildFrontGraph(state);
+
+  assert(graph[1].leftTargetCoreId === 2, "duel left lane still targets the enemy core");
+  assert(graph[1].rightTargetCoreId === 2, "duel right lane still targets the enemy core");
+  assert(Array.isArray(graph[1].leftPath) && graph[1].leftPath.length >= 2, "duel left lane has an intermediate flank waypoint");
+  assert(Array.isArray(graph[1].rightPath) && graph[1].rightPath.length >= 2, "duel right lane has an intermediate flank waypoint");
+  assert(Math.round(graph[1].leftPath[0].y) !== Math.round(graph[1].rightPath[0].y), "duel left/right lanes split to opposite flanks");
+  console.log("  [OK] testDuelFrontGraphCreatesDistinctLeftAndRightLanes");
+}
+
+function testDuelSideLaneMinesCreateTwoFlanks() {
+  const entries = [
+    { id: 1, x: -220, y: 0 },
+    { id: 2, x: 220, y: 0 }
+  ];
+  const mines = FrontPlanner.buildSideLaneMinePlacements(entries, { x: 0, y: 0 });
+
+  assert(mines.length === 4, "duel map creates 2 side lanes with money/xp mine pairs");
+  const pairKeys = new Set(mines.map((mine) => mine.pairKey));
+  assert(pairKeys.size === 2, "duel side-lane mines are grouped into left/right flank pairs");
+  const ys = mines.map((mine) => Math.round(mine.y));
+  assert(ys.some((y) => y < 0) && ys.some((y) => y > 0), "duel mines appear on both flank lanes");
+  console.log("  [OK] testDuelSideLaneMinesCreateTwoFlanks");
+}
+
 function runAll() {
   console.log("front-graph tests:");
   testFrontGraphUsesRingNeighbors();
   testFrontGraphSkipsEliminatedCore();
   testSideLaneMinePlacementsFollowNeighborPairs();
+  testDuelFrontGraphCreatesDistinctLeftAndRightLanes();
+  testDuelSideLaneMinesCreateTwoFlanks();
   console.log("All front-graph tests passed.");
 }
 

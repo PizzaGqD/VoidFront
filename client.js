@@ -312,6 +312,7 @@
     return { overlap: minOv, nx: mAx * sign, ny: mAy * sign };
   }
   const UNIT_TYPE_ORDER = ["fighter","destroyer","cruiser","battleship","hyperDestroyer"];
+  const CORE_ROSTER_UNIT_TYPES = ["destroyer", "cruiser", "battleship"];
   const UNIT_TYPES = {};
   for (const key of UNIT_TYPE_ORDER) {
     const t = unitTypesB[key] || {};
@@ -565,12 +566,16 @@
     return state._frontControlEnabled !== false;
   }
 
+  function isCoreRosterUnitType(unitTypeKey) {
+    return CORE_ROSTER_UNIT_TYPES.includes(unitTypeKey);
+  }
+
   const INDIRECT_TRIPLET_BUNDLE_COSTS = {
     fighter: 50,
-    destroyer: 500,
-    cruiser: 2000,
-    battleship: 5000,
-    hyperDestroyer: 10000
+    destroyer: 150,
+    cruiser: 600,
+    battleship: 1700,
+    hyperDestroyer: 4000
   };
 
   function getPurchaseUnitsPerOrder(bundleUnits) {
@@ -6331,19 +6336,34 @@
   // ------------------------------------------------------------
   // Spawn initial players
   // ------------------------------------------------------------
-  // ── Fixed spawn positions (equidistant around center) ──
+  // ── Fixed spawn positions for duel / 4-player square ──
   function getFixedSpawnPositions(count) {
-    const cx = CFG.WORLD_W * 0.5, cy = CFG.WORLD_H * 0.5;
-    const radius = Math.min(CFG.WORLD_W, CFG.WORLD_H) * 0.38;
-    const out = [];
-    for (let i = 0; i < count; i++) {
-      const angle = (i / count) * Math.PI * 2 - Math.PI / 2;
-      out.push({
-        x: clamp(cx + Math.cos(angle) * radius, CFG.WORLD_W * 0.08, CFG.WORLD_W * 0.92),
-        y: clamp(cy + Math.sin(angle) * radius, CFG.WORLD_H * 0.08, CFG.WORLD_H * 0.92)
-      });
+    const cx = CFG.WORLD_W * 0.5;
+    const cy = CFG.WORLD_H * 0.5;
+    if (count <= 2) {
+      const halfSpan = Math.min(CFG.WORLD_W, CFG.WORLD_H) * 0.34;
+      return [
+        { x: clamp(cx - halfSpan, CFG.WORLD_W * 0.08, CFG.WORLD_W * 0.92), y: cy },
+        { x: clamp(cx + halfSpan, CFG.WORLD_W * 0.08, CFG.WORLD_W * 0.92), y: cy }
+      ];
     }
-    return out;
+    if (count === 4) {
+      const halfSide = Math.min(CFG.WORLD_W, CFG.WORLD_H) * 0.28;
+      return [
+        { x: cx - halfSide, y: cy - halfSide },
+        { x: cx + halfSide, y: cy - halfSide },
+        { x: cx + halfSide, y: cy + halfSide },
+        { x: cx - halfSide, y: cy + halfSide }
+      ].map((pos) => ({
+        x: clamp(pos.x, CFG.WORLD_W * 0.08, CFG.WORLD_W * 0.92),
+        y: clamp(pos.y, CFG.WORLD_H * 0.08, CFG.WORLD_H * 0.92)
+      }));
+    }
+    const radius = Math.min(CFG.WORLD_W, CFG.WORLD_H) * 0.34;
+    return Array.from({ length: Math.max(1, count) }, (_, i) => ({
+      x: clamp(cx + Math.cos((i / Math.max(1, count)) * Math.PI * 2 - Math.PI / 2) * radius, CFG.WORLD_W * 0.08, CFG.WORLD_W * 0.92),
+      y: clamp(cy + Math.sin((i / Math.max(1, count)) * Math.PI * 2 - Math.PI / 2) * radius, CFG.WORLD_H * 0.08, CFG.WORLD_H * 0.92)
+    }));
   }
 
   // ── Mine placement ──
@@ -8297,7 +8317,9 @@
       return;
     }
 
-    const botCount = Math.max(1, Math.min(5, state._soloBotCount ?? 2));
+    const desiredBotCount = state._soloGameMode === "quad" ? 3 : 1;
+    state._soloBotCount = desiredBotCount;
+    const botCount = desiredBotCount;
     const totalPlayers = 1 + botCount;
     const spawnPositions = getFixedSpawnPositions(totalPlayers);
     const playerSpawnIdx = Math.min(totalPlayers - 1, Math.max(0, state._soloSpawnIndex ?? 0));
@@ -8422,16 +8444,15 @@
 
     const filledSlotIndices = Object.keys(slotToPid).map(Number).sort((a, b) => a - b);
     const n = filledSlotIndices.length;
-    const allSpawns = getFixedSpawnPositions(CFG.MAX_PLAYERS);
+    const matchSpawnCount = n === 2 ? 2 : 4;
+    const allSpawns = getFixedSpawnPositions(matchSpawnCount);
 
     const positions = [];
     const mineEntries = [];
     for (let i = 0; i < filledSlotIndices.length; i++) {
       const slotIndex = filledSlotIndices[i];
       const pid = slotToPid[slotIndex];
-      const slotData = slots[slotIndex];
-      const spIdx = (slotData && slotData.spawnIndex != null) ? slotData.spawnIndex : i;
-      const pos = allSpawns[spIdx] || allSpawns[i] || allSpawns[0];
+      const pos = allSpawns[i] || allSpawns[0];
       positions.push(pos);
       mineEntries.push({ pos, ownerId: pid });
       const pl = makePlayer(pid, nameForId(pid), pos.x, pos.y, CFG.POP_START);
@@ -8446,14 +8467,6 @@
     const me = state.players.get(state.myPlayerId);
     centerOn(me.x, me.y);
 
-    for (let i = 0; i < CFG.MAX_PLAYERS; i++) {
-      if (!(slotToPid[i] != null)) {
-        const slotData = (slots || [])[i];
-        const spIdx = (slotData && slotData.spawnIndex != null) ? slotData.spawnIndex : i;
-        const pos = allSpawns[spIdx] || allSpawns[i] || allSpawns[0];
-        mineEntries.push({ pos, ownerId: null });
-      }
-    }
     placeMines(mineEntries, locRnd);
     placeNebulae();
   }
@@ -10849,7 +10862,7 @@
   // ------------------------------------------------------------
   const BOT_TICK = 1.5;
   const BOT_SPAWN_INTERVAL = (CFG.BOT_SEND_DELAY ?? 0.6) * 0.5;
-  const PIRATE_FULL_SQUAD = ["fighter", "fighter", "fighter", "fighter", "fighter", "destroyer", "destroyer", "cruiser"];
+  const PIRATE_FULL_SQUAD = ["destroyer", "destroyer", "destroyer", "destroyer", "cruiser", "cruiser", "cruiser", "battleship"];
   function botMergeSmallSquads(pid) {
     if (typeof SQUADLOGIC !== "undefined") {
       const squads = getSquads().filter(s => s.length > 0 && s[0].owner === pid);
@@ -11090,18 +11103,16 @@
         return credits >= getPurchaseCostWithModifiers(p.id, key, 1, 1).costPerPurchase;
       };
 
-      let unitToBuy = "fighter";
+      let unitToBuy = "destroyer";
       const isEconomist = p._botArchetype === "economist";
 
       if (myUnitCount < 3 || ownedMines < 2) {
-        unitToBuy = "fighter";
-      } else if (gameTime > 480 && affordType("hyperDestroyer") && Math.random() < 0.25) {
-        unitToBuy = "hyperDestroyer";
-      } else if (gameTime > 300 && affordType("battleship") && Math.random() < 0.3) {
+        unitToBuy = "destroyer";
+      } else if (gameTime > 360 && affordType("battleship") && Math.random() < 0.25) {
         unitToBuy = "battleship";
       } else if (gameTime > 150 && affordType("cruiser") && Math.random() < 0.35) {
         unitToBuy = "cruiser";
-      } else if (gameTime > 60 && affordType("destroyer") && Math.random() < (isEconomist ? 0.3 : 0.5)) {
+      } else if (affordType("destroyer") && Math.random() < (isEconomist ? 0.35 : 0.6)) {
         unitToBuy = "destroyer";
       }
 
@@ -11118,18 +11129,16 @@
         if (indirectLanes) {
           const affordableCount = Math.max(1, Math.floor(credits / Math.max(1, cost)));
           let burstCount = 1;
-          if (unitToBuy === "fighter") burstCount = Math.min(4, affordableCount);
-          else if (unitToBuy === "destroyer") burstCount = Math.min(3, affordableCount);
+          if (unitToBuy === "destroyer") burstCount = Math.min(3, affordableCount);
           else if (unitToBuy === "cruiser") burstCount = Math.min(2, affordableCount);
-          else if ((unitToBuy === "battleship" || unitToBuy === "hyperDestroyer") && affordableCount >= 2 && credits >= savingThreshold * 1.35) burstCount = 2;
+          else if (unitToBuy === "battleship" && affordableCount >= 2 && credits >= savingThreshold * 1.35) burstCount = 2;
           for (let i = 0; i < burstCount; i++) {
             if (!purchaseFrontTriplet(p.id, unitToBuy).ok) break;
           }
         } else {
           const affordableCount = Math.max(1, Math.floor(credits / cost));
           let burstCount = 1;
-          if (unitToBuy === "fighter") burstCount = Math.min(4, affordableCount);
-          else if (unitToBuy === "destroyer") burstCount = Math.min(2, affordableCount);
+          if (unitToBuy === "destroyer") burstCount = Math.min(2, affordableCount);
           else if (unitToBuy === "cruiser" && affordableCount >= 2 && Math.random() < 0.35) burstCount = 2;
           for (let i = 0; i < burstCount; i++) {
             purchaseUnit(p.id, unitToBuy, [{ x: tx, y: ty }], { sourceTag: "spawn" });
@@ -11608,6 +11617,7 @@
   function doPurchaseUnit(unitTypeKey) {
     const me = state.players.get(state.myPlayerId);
     if (!me) return false;
+    if (!isCoreRosterUnitType(unitTypeKey)) return false;
     if (state._multiSlots && !state._multiIsHost && state._socket) {
       state._socket.emit("playerAction", { type: "purchaseFrontTriplet", pid: state.myPlayerId, unitType: unitTypeKey });
       const optRes = purchaseFrontTriplet(me.id, unitTypeKey);
@@ -17291,8 +17301,8 @@
       arenas: [],
       time: 0
     };
-    const MENU_SIM_UNIT_TYPES = ["fighter", "destroyer", "cruiser"].map((key) => {
-      const type = UNIT_TYPES[key] || UNIT_TYPES.fighter;
+    const MENU_SIM_UNIT_TYPES = CORE_ROSTER_UNIT_TYPES.map((key) => {
+      const type = UNIT_TYPES[key] || UNIT_TYPES.destroyer;
       return {
         key,
         speed: type.speed * 2.35,
@@ -18172,7 +18182,7 @@
     state._pendingSnap = null;
     state._survivalMode = false;
     state._soloNoBotAi = true;
-    state._soloGameMode = "classic";
+    state._soloGameMode = "duel";
     state._quickStartScenario = null;
     state.myPlayerId = 1;
     state.botPlayerIds = null;
@@ -18193,7 +18203,7 @@
     state._soloColorIndex = savedPrefs.soloColorIndex;
     state._mapVariation = savedPrefs.mapVariation;
     state._customMapSeed = savedPrefs.customMapSeed;
-    state._soloGameMode = savedPrefs.soloGameMode;
+    state._soloGameMode = savedPrefs.soloGameMode === "quad" ? "quad" : "duel";
     state._quickStartScenario = savedPrefs.quickStartScenario;
 
     state._soloNoBotAi = true;
@@ -18373,27 +18383,8 @@
       }
       const botRow = document.getElementById("soloBotCountRow");
       const botPicker = document.getElementById("soloBotCountPicker");
-      if (botRow) botRow.style.display = "block";
-      if (botPicker) {
-        botPicker.innerHTML = "";
-        const current = Math.max(1, Math.min(4, state._soloBotCount ?? 2));
-        for (let n = 1; n <= 4; n++) {
-          const btn = document.createElement("button");
-          btn.type = "button";
-          btn.className = "menu-btn " + (n === current ? "primary" : "secondary");
-          btn.style.minWidth = "44px";
-          btn.textContent = String(n);
-          btn.addEventListener("click", () => {
-            state._soloBotCount = n;
-            botPicker.querySelectorAll("button").forEach((b, j) => {
-              const v = j + 1;
-              b.className = "menu-btn " + (v === n ? "primary" : "secondary");
-              b.style.minWidth = "44px";
-            });
-          });
-          botPicker.appendChild(btn);
-        }
-      }
+      if (botRow) botRow.style.display = "none";
+      if (botPicker) botPicker.innerHTML = "";
     } else {
       const row = document.getElementById("soloColorRow");
       if (row) row.style.display = "none";
@@ -18411,7 +18402,7 @@
     if (btnTestMap400) btnTestMap400.addEventListener("click", () => {
       state._menuMode = "single";
       state._quickStartScenario = "stress400";
-      state._soloGameMode = "standard";
+      state._soloGameMode = "duel";
       state._mapVariation = 1;
       state._soloBotCount = 1;
       state._customMapSeed = null;

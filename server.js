@@ -5,7 +5,7 @@ const path = require("path");
 const os = require("os");
 
 const PORT = process.env.PORT || 3040;
-const SLOTS = 6;
+const SLOTS = 4;
 const COLOR_COUNT = 36;
 
 // ─── LAN / VPN detection ──────────────────────────────────────────
@@ -602,6 +602,11 @@ io.on("connection", (socket) => {
     const room = getRoom(roomId);
     if (!room) return;
     if (room.hostId !== socket.id) return;
+    const occupiedCount = room.slots.filter((s) => s.id || s.isBot).length;
+    if (occupiedCount !== 2 && occupiedCount !== 4) {
+      socket.emit("startRejected", "Матч можно запускать только в формате 1v1 или 1v1v1v1.");
+      return;
+    }
     const slots = slotSummary(room);
     const seed = (payload && typeof payload.seed === "number")
       ? payload.seed

@@ -218,6 +218,21 @@
     return { targetCoreId, waypoints: out };
   }
 
+  function buildDuelLaneWaypoint(a, b, side, center) {
+    const pivot = center || { x: 0, y: 0 };
+    const dx = (b.x || 0) - (a.x || 0);
+    const dy = (b.y || 0) - (a.y || 0);
+    const len = Math.hypot(dx, dy) || 1;
+    const nx = -dy / len;
+    const ny = dx / len;
+    const sign = side === "left" ? -1 : 1;
+    const laneOffset = Math.min(260, len * 0.32);
+    return {
+      x: pivot.x + nx * laneOffset * sign,
+      y: pivot.y + ny * laneOffset * sign
+    };
+  }
+
   function closestPointOnSegment(point, a, b) {
     const dx = (b.x || 0) - (a.x || 0);
     const dy = (b.y || 0) - (a.y || 0);
@@ -319,6 +334,47 @@
   }
 
   function buildSideLaneMinePlacements(entries, center) {
+    const ordered = sortCoreEntriesByAngle(entries, center);
+    if (ordered.length === 2) {
+      const a = ordered[0];
+      const b = ordered[1];
+      const leftLane = buildDuelLaneWaypoint(a, b, "left", center);
+      const rightLane = buildDuelLaneWaypoint(a, b, "right", center);
+      return [
+        {
+          x: leftLane.x,
+          y: leftLane.y,
+          resourceType: "money",
+          laneRole: "mid",
+          pairKey: a.id + ":" + b.id + ":left",
+          triggerTo: { x: leftLane.x, y: leftLane.y }
+        },
+        {
+          x: leftLane.x + 36,
+          y: leftLane.y,
+          resourceType: "xp",
+          laneRole: "mid",
+          pairKey: a.id + ":" + b.id + ":left",
+          triggerTo: { x: leftLane.x, y: leftLane.y }
+        },
+        {
+          x: rightLane.x,
+          y: rightLane.y,
+          resourceType: "money",
+          laneRole: "mid",
+          pairKey: a.id + ":" + b.id + ":right",
+          triggerTo: { x: rightLane.x, y: rightLane.y }
+        },
+        {
+          x: rightLane.x - 36,
+          y: rightLane.y,
+          resourceType: "xp",
+          laneRole: "mid",
+          pairKey: a.id + ":" + b.id + ":right",
+          triggerTo: { x: rightLane.x, y: rightLane.y }
+        }
+      ];
+    }
     const pairs = buildAdjacentCorePairs(entries, center);
     const out = [];
     for (const pair of pairs) {
@@ -413,6 +469,35 @@
     const center = getWorldCenter(state);
     const allCores = sortCoreEntriesByAngle(getAllCorePlayers(state), center);
     const liveCores = allCores.filter((core) => !core.eliminated);
+
+    if (allCores.length === 2) {
+      const nextGraph = {};
+      for (let i = 0; i < allCores.length; i++) {
+        const core = allCores[i];
+        if (!core || core.eliminated) continue;
+        const enemy = allCores[(i + 1) % allCores.length];
+        if (!enemy) continue;
+        const leftLane = buildDuelLaneWaypoint(core, enemy, "left", center);
+        const rightLane = buildDuelLaneWaypoint(core, enemy, "right", center);
+        nextGraph[core.id] = {
+          coreId: core.id,
+          leftTargetCoreId: enemy.id,
+          rightTargetCoreId: enemy.id,
+          leftPath: [
+            { x: leftLane.x, y: leftLane.y },
+            { x: enemy.x || 0, y: enemy.y || 0, coreId: enemy.id, eliminated: !!enemy.eliminated }
+          ],
+          rightPath: [
+            { x: rightLane.x, y: rightLane.y },
+            { x: enemy.x || 0, y: enemy.y || 0, coreId: enemy.id, eliminated: !!enemy.eliminated }
+          ],
+          enemyCoreIds: enemy && !enemy.eliminated ? [enemy.id] : [],
+          centerMode: state.centerObjectives && state.centerObjectives.securedByPlayerId === core.id ? "fanout" : "secure"
+        };
+      }
+      state.frontGraph = nextGraph;
+      return nextGraph;
+    }
 
     const nextGraph = {};
     for (let i = 0; i < allCores.length; i++) {

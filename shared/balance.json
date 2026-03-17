@@ -2,8 +2,8 @@
   "world": {
     "width": 7200,
     "height": 4320,
-    "maxPlayers": 6,
-    "comment": "World size in px. 7200x4320 gives ~16:9 aspect (+20%)."
+    "maxPlayers": 4,
+    "comment": "World size in px. 4-player square layout max. Duel mode uses the same center-focused battlefield with only two opposite spawns."
   },
   "camera": {
     "startZoom": 0.22,
@@ -44,7 +44,7 @@
       "popPenaltyPerUnit": 1,
       "sizeMultiplier": 1.0,
       "orbitTarget": false,
-      "comment": "EARLY. Fastest unit. Cheap scout/harasser. DPS=2.4, cost/DPS=16.7. Fragile (45 hp). Mass effectively early, but melts vs AoE/cruisers."
+      "comment": "ABILITY-ONLY. Reserved for summons and special events rather than the core shipyard roster."
     },
     "destroyer": {
       "name": "Эсминец",
@@ -59,7 +59,7 @@
       "popPenaltyPerUnit": 10,
       "sizeMultiplier": 2.5,
       "orbitTarget": false,
-      "comment": "MID. Workhorse. 2x range of fighter. DPS=11.76, cost/DPS=38.3. Available ~2-3 min. Slower than fighters, so doesn't chase scouts."
+      "comment": "CORE T1. Mainline ship and default opener. Reliable pressure, moderate range, and the cheapest permanent core unit."
     },
     "cruiser": {
       "name": "Крейсер",
@@ -74,7 +74,7 @@
       "popPenaltyPerUnit": 50,
       "sizeMultiplier": 4.0,
       "orbitTarget": false,
-      "comment": "MID-LATE. Area denial. 3x range of fighter. DPS=25.2, cost/DPS=71.4. Kills fighter groups. Available ~8-10 min."
+      "comment": "CORE T2. Mid-game control ship. Longer range, stronger area pressure, and the main answer to stacked lines."
     },
     "battleship": {
       "name": "Линкор",
@@ -89,7 +89,7 @@
       "popPenaltyPerUnit": 150,
       "sizeMultiplier": 6.0,
       "orbitTarget": false,
-      "comment": "LATE. Siege breaker. 4 targets at long range. DPS=48.4, cost/DPS=103.3. Available ~15 min. Needs escort (slow)."
+      "comment": "CORE T3. Slow siege anchor for decisive pushes and center breaks. Strong but expensive."
     },
     "hyperDestroyer": {
       "name": "ГиперЛинкор",
@@ -104,7 +104,7 @@
       "popPenaltyPerUnit": 450,
       "sizeMultiplier": 8.0,
       "orbitTarget": false,
-      "comment": "ENDGAME. Game-ender. 6 targets, massive range. DPS=97.2, cost/DPS=123.5. Available ~25 min. Very slow, high pop penalty."
+      "comment": "RESERVED. Not part of the current core roster; kept only for legacy/special content while the game is trimmed to 3 main ship classes."
     }
   },
   "mines": {
@@ -126,7 +126,7 @@
   },
   "eCredits": {
     "startingAmount": 200,
-    "comment": "200 = 5 fighters or save for destroyer in ~2 min. Economy is mine-driven."
+    "comment": "200 lets players open immediately with destroyers. Economy remains mine-driven."
   },
   "turret": {
     "spacing": 55,
@@ -139,7 +139,7 @@
   "formation": {
     "horizontalSpacing": 14,
     "verticalSpacing": 18,
-    "comment": "Visual formation grid. Mixed types: fighters front, destroyers mid, capitals rear."
+    "comment": "Visual formation grid. Mixed types: destroyers front, cruisers mid, battleships rear."
   },
   "terrain": {
     "influenceNumRays": 96,

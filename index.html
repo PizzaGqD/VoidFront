@@ -81,10 +81,8 @@
   <div id="soloLobbyScreen" class="menu-overlay menu-screen" style="display:none">
     <div class="menu-box" style="max-width:420px">
       <p class="menu-subtitle">Одиночка — настройки</p>
-      <p class="muted" style="margin-bottom:10px">Выберите точку спавна на карте (1–6). Боты займут остальные.</p>
+      <p class="muted" style="margin-bottom:10px">Режимы: дуэль 1v1 или квадратная схватка 1v1v1v1. Выберите стартовую позицию для текущего формата.</p>
       <div id="soloSpawnPicker" class="row" style="gap:8px; flex-wrap:wrap; margin-bottom:14px"></div>
-      <p class="muted" style="margin-bottom:6px">Тип карты:</p>
-      <div id="soloMapVariationPicker" class="row" style="gap:8px; flex-wrap:wrap; margin-bottom:14px"></div>
       <p class="muted" style="margin-bottom:6px">Seed карты (число или пусто для случайной):</p>
       <div class="row" style="gap:8px; margin-bottom:14px">
         <input type="text" id="soloMapSeedInput" placeholder="случайный" style="width:120px;padding:6px 10px;border-radius:6px;border:1px solid #445;background:#181a3a;color:#ddd;font-size:13px">
@@ -129,7 +127,7 @@
           <span id="lobbyHostBadge" class="pill" style="display:none">Хост</span>
           <button type="button" id="lobbyLeave" class="menu-btn secondary">Выйти</button>
         </div>
-        <p class="muted">6 слотов. Хост запускает игру. Можно заполнить слоты ботами.</p>
+        <p class="muted">4 слота максимум. Матч запускается только в формате 1v1 или 1v1v1v1.</p>
         <div class="lobby-url-row">
           <label class="muted">Адрес для подключения:</label>
           <div class="lobby-url-box">
@@ -157,7 +155,7 @@
       <div class="lobby-map">
         <div class="lobby-map-title">Карта спавнов</div>
         <canvas id="lobbySpawnMap" width="280" height="280"></canvas>
-        <p class="muted" style="font-size:11px;margin-top:6px;text-align:center">Позиция выбирается в строке слота</p>
+        <p class="muted" style="font-size:11px;margin-top:6px;text-align:center">Расположение фиксировано: дуэль напротив, 4 игрока квадратом</p>
       </div>
     </div>
   </div>
@@ -397,23 +395,11 @@
     <div class="box">
       <div class="subtitle">Верфь — покупка кораблей</div>
       <div id="unitShop" class="unit-shop">
-        <div class="unit-buy-col" data-type="fighter">
-          <button type="button" class="unit-buy-btn" data-type="fighter" title="Корвет — быстрый разведчик">
-            <span class="unit-buy-icon">▲<sup>·</sup></span>
-            <span class="unit-buy-name">Корвет</span>
-            <span class="unit-buy-cost">50 €</span>
-            <span class="unit-count-badge" style="font-size:9px;opacity:0.5;display:block;">0/300</span>
-          </button>
-          <div class="unit-batch-row">
-            <button type="button" class="unit-batch-btn" data-type="fighter" data-count="10">x10</button>
-            <button type="button" class="unit-batch-btn" data-type="fighter" data-count="100">x100</button>
-          </div>
-        </div>
         <div class="unit-buy-col" data-type="destroyer">
           <button type="button" class="unit-buy-btn" data-type="destroyer" title="Эсминец">
             <span class="unit-buy-icon">▲<sup>··</sup></span>
             <span class="unit-buy-name">Эсминец</span>
-            <span class="unit-buy-cost">500 €</span>
+            <span class="unit-buy-cost">150 €</span>
             <span class="unit-count-badge" style="font-size:9px;opacity:0.5;display:block;">0/100</span>
           </button>
           <div class="unit-batch-row">
@@ -425,7 +411,7 @@
           <button type="button" class="unit-buy-btn" data-type="cruiser" title="Крейсер">
             <span class="unit-buy-icon">▲<sup>···</sup></span>
             <span class="unit-buy-name">Крейсер</span>
-            <span class="unit-buy-cost">2000 €</span>
+            <span class="unit-buy-cost">600 €</span>
             <span class="unit-count-badge" style="font-size:9px;opacity:0.5;display:block;">0/50</span>
           </button>
           <div class="unit-batch-row">
@@ -437,26 +423,15 @@
           <button type="button" class="unit-buy-btn" data-type="battleship" title="Линкор">
             <span class="unit-buy-icon">▲<sup>····</sup></span>
             <span class="unit-buy-name">Линкор</span>
-            <span class="unit-buy-cost">5000 €</span>
+            <span class="unit-buy-cost">1700 €</span>
             <span class="unit-count-badge" style="font-size:9px;opacity:0.5;display:block;">0/10</span>
           </button>
           <div class="unit-batch-row">
             <button type="button" class="unit-batch-btn" data-type="battleship" data-count="10">x10</button>
           </div>
         </div>
-        <div class="unit-buy-col" data-type="hyperDestroyer">
-          <button type="button" class="unit-buy-btn" data-type="hyperDestroyer" title="ГиперЛинкор">
-            <span class="unit-buy-icon">▲<sup>······</sup></span>
-            <span class="unit-buy-name">ГиперЛинкор</span>
-            <span class="unit-buy-cost">10000 €</span>
-            <span class="unit-count-badge" style="font-size:9px;opacity:0.5;display:block;">0/10</span>
-          </button>
-          <div class="unit-batch-row">
-            <button type="button" class="unit-batch-btn" data-type="hyperDestroyer" data-count="10">x10</button>
-          </div>
-        </div>
       </div>
-      <div class="muted">Клик по типу — спавн у планеты. ЛКМ по карте — точки маршрута.</div>
+      <div class="muted">Core roster: Эсминцы, Крейсеры, Линкоры. Призывные и редкие юниты позже будут приходить только через способности.</div>
       <div class="row">
         <button id="rallyPointBtn">Точка сбора</button>
         <button id="resetCamBtn">Камера</button>

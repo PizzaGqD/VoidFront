@@ -30,6 +30,31 @@
       }
     }
 
+    function getSoloModeConfig(modeId) {
+      return modeId === "quad"
+        ? { id: "quad", label: "1v1v1v1", playerCount: 4, botCount: 3 }
+        : { id: "duel", label: "1v1", playerCount: 2, botCount: 1 };
+    }
+
+    function getPreviewSpawnPositions(count, worldW, worldH) {
+      const cx = worldW * 0.5;
+      const cy = worldH * 0.5;
+      if (count <= 2) {
+        const halfSpan = Math.min(worldW, worldH) * 0.34;
+        return [
+          { x: cx - halfSpan, y: cy },
+          { x: cx + halfSpan, y: cy }
+        ];
+      }
+      const halfSide = Math.min(worldW, worldH) * 0.28;
+      return [
+        { x: cx - halfSide, y: cy - halfSide },
+        { x: cx + halfSide, y: cy - halfSide },
+        { x: cx + halfSide, y: cy + halfSide },
+        { x: cx - halfSide, y: cy + halfSide }
+      ];
+    }
+
     function renderLobby() {
       const slotsEl = document.getElementById("lobbySlots");
       const hostBadge = document.getElementById("lobbyHostBadge");
@@ -41,6 +66,17 @@
       roomCodeEl.style.display = "inline-block";
       hostBadge.style.display = state._isHost ? "inline-block" : "none";
       startBtn.style.display = state._isHost ? "inline-block" : "none";
+      const occupiedSlots = slots
+        .map((slot, index) => ({ slot: slot || {}, index }))
+        .filter((entry) => !!(entry.slot.id || entry.slot.isBot));
+      const occupiedCount = occupiedSlots.length;
+      const canStart = occupiedCount === 2 || occupiedCount === 4;
+      if (startBtn) {
+        startBtn.disabled = !canStart;
+        startBtn.style.opacity = canStart ? "1" : "0.5";
+        startBtn.textContent = occupiedCount === 4 ? "Начать 1v1v1v1" : "Начать 1v1";
+        startBtn.title = canStart ? "" : "Нужно ровно 2 или 4 занятых слота.";
+      }
       const urlEl = document.getElementById("lobbyServerUrl");
       const urlHintEl = document.getElementById("lobbyUrlHint");
       const url = state._serverUrl || window.location.origin;
@@ -52,15 +88,6 @@
         }
       }
 
-      const spawnBySlot = new Map();
-      const spawnTaken = new Map();
-      for (let i = 0; i < slots.length; i++) {
-        const s = slots[i] || {};
-        if (!s.id && !s.isBot) continue;
-        const sp = s.spawnIndex != null ? s.spawnIndex : i;
-        spawnBySlot.set(i, sp);
-        spawnTaken.set(sp, i);
-      }
       const requestedEditSlot = state._colorEditSlot != null ? state._colorEditSlot : state._mySlot;
       const targetSlot = (requestedEditSlot != null && slots[requestedEditSlot] && (slots[requestedEditSlot].id || slots[requestedEditSlot].isBot))
         ? requestedEditSlot
@@ -102,31 +129,6 @@
           div.appendChild(badge);
         }
 
-        if (occupied) {
-          const curSpawn = spawnBySlot.get(i) ?? i;
-          const sel = document.createElement("select");
-          sel.className = "slot-spawn-select";
-          sel.title = "Позиция спавна";
-          for (let sp = 0; sp < slots.length; sp++) {
-            const opt = document.createElement("option");
-            opt.value = sp;
-            opt.textContent = "Поз. " + (sp + 1);
-            const takenBy = spawnTaken.get(sp);
-            if (takenBy != null && takenBy !== i) opt.disabled = true;
-            if (sp === curSpawn) opt.selected = true;
-            sel.appendChild(opt);
-          }
-          const canChange = state._isHost || i === state._mySlot;
-          sel.disabled = !canChange;
-          const slotIdx = i;
-          sel.addEventListener("change", () => {
-            const newSp = parseInt(sel.value, 10);
-            if (state._isHost && slotIdx !== state._mySlot) socket.emit("setSlotSpawn", slotIdx, newSp);
-            else socket.emit("setSpawn", newSp);
-          });
-          div.appendChild(sel);
-        }
-
         if (state._isHost && i > 0) {
           const btn = document.createElement("button");
           btn.type = "button";
@@ -143,17 +145,12 @@
 
       const spawnMapEl = document.getElementById("lobbySpawnMap");
       if (spawnMapEl) {
-        const SPAWN_COUNT = slots.length || 6;
         const W = (typeof CFG !== "undefined" ? CFG.WORLD_W : 7200) || 7200;
         const H = (typeof CFG !== "undefined" ? CFG.WORLD_H : 4320) || 4320;
         const wCx = W * 0.5;
         const wCy = H * 0.5;
-        const wR = Math.min(W, H) * 0.38;
-        const spawns = [];
-        for (let i = 0; i < SPAWN_COUNT; i++) {
-          const angle = (i / SPAWN_COUNT) * Math.PI * 2 - Math.PI / 2;
-          spawns.push({ x: wCx + Math.cos(angle) * wR, y: wCy + Math.sin(angle) * wR });
-        }
+        const spawnCount = occupiedCount === 2 ? 2 : 4;
+        const spawns = getPreviewSpawnPositions(spawnCount, W, H);
         const cw = spawnMapEl.width;
         const ch = spawnMapEl.height;
         const ctx = spawnMapEl.getContext("2d");
@@ -168,18 +165,19 @@
         const offY = (ch - H * scale) / 2;
 
         ctx.beginPath();
-        ctx.arc(offX + wCx * scale, offY + wCy * scale, wR * scale, 0, Math.PI * 2);
-        ctx.strokeStyle = "rgba(100,150,255,0.15)";
-        ctx.lineWidth = 1;
+        ctx.arc(offX + wCx * scale, offY + wCy * scale, Math.min(W, H) * 0.08 * scale, 0, Math.PI * 2);
+        ctx.strokeStyle = "rgba(100,150,255,0.18)";
+        ctx.lineWidth = 1.5;
         ctx.stroke();
 
         const DOT_R = 16;
         for (let i = 0; i < spawns.length; i++) {
           const px = offX + spawns[i].x * scale;
           const py = offY + spawns[i].y * scale;
-          const ownerSlot = spawnTaken.get(i);
-          const occupied = ownerSlot != null;
-          const slotData = occupied ? (slots[ownerSlot] || {}) : null;
+          const ownerEntry = occupiedSlots[i] || null;
+          const ownerSlot = ownerEntry ? ownerEntry.index : null;
+          const occupied = !!ownerEntry;
+          const slotData = ownerEntry ? ownerEntry.slot : null;
           const color = occupied ? "#" + (LOBBY_COLORS[slotData.colorIndex || 0] || 0x888888).toString(16).padStart(6, "0") : "#334";
           const borderColor = occupied ? "rgba(255,255,255,0.5)" : "#556";
 
@@ -209,7 +207,7 @@
           ctx.font = "bold 13px sans-serif";
           ctx.textAlign = "center";
           ctx.textBaseline = "middle";
-          ctx.fillText(String(i + 1), px, py + 1);
+          ctx.fillText(String((ownerSlot != null ? ownerSlot : i) + 1), px, py + 1);
 
           if (occupied && slotData) {
             const label = slotData.name || (slotData.isBot ? "Бот" : "");
@@ -221,32 +219,8 @@
           }
         }
 
-        const canEditSpawn = targetSlot != null && (state._isHost || targetSlot === state._mySlot);
-        spawnMapEl.style.cursor = canEditSpawn ? "pointer" : "default";
-        spawnMapEl.onclick = canEditSpawn ? (ev) => {
-          const rect = spawnMapEl.getBoundingClientRect();
-          const mx = ev.clientX - rect.left;
-          const my = ev.clientY - rect.top;
-          let hitSpawn = -1;
-          let bestDist2 = (DOT_R + 8) * (DOT_R + 8);
-          for (let i = 0; i < spawns.length; i++) {
-            const px = offX + spawns[i].x * scale;
-            const py = offY + spawns[i].y * scale;
-            const dx = mx - px;
-            const dy = my - py;
-            const d2 = dx * dx + dy * dy;
-            if (d2 <= bestDist2) {
-              const takenBy = spawnTaken.get(i);
-              if (takenBy == null || takenBy === targetSlot) {
-                bestDist2 = d2;
-                hitSpawn = i;
-              }
-            }
-          }
-          if (hitSpawn < 0) return;
-          if (state._isHost && targetSlot !== state._mySlot) socket.emit("setSlotSpawn", targetSlot, hitSpawn);
-          else socket.emit("setSpawn", hitSpawn);
-        } : null;
+        spawnMapEl.style.cursor = "default";
+        spawnMapEl.onclick = null;
       }
 
       const pickerEl = document.getElementById("colorPicker");
@@ -365,56 +339,35 @@
       const soloLobbyBack = document.getElementById("soloLobbyBack");
       const soloLobbyStart = document.getElementById("soloLobbyStart");
       const soloSpawnPicker = document.getElementById("soloSpawnPicker");
-      if (soloLobbyBack) soloLobbyBack.addEventListener("click", () => showScreen("nicknameScreen"));
-      if (soloLobbyStart) soloLobbyStart.addEventListener("click", () => {
-        const nick = state._myNickname || (typeof window !== "undefined" && window._myNickname) || "Игрок";
-        state._quickStartScenario = null;
-        startGameSingle(nick);
-      });
-      if (soloSpawnPicker) {
-        const total = 6;
+      const renderSoloSpawnPicker = () => {
+        if (!soloSpawnPicker) return;
+        soloSpawnPicker.innerHTML = "";
+        const mode = getSoloModeConfig(state._soloGameMode);
+        const total = mode.playerCount;
+        const current = Math.max(0, Math.min(total - 1, state._soloSpawnIndex ?? 0));
+        state._soloSpawnIndex = current;
         for (let i = 0; i < total; i++) {
           const btn = document.createElement("button");
           btn.type = "button";
-          btn.className = "menu-btn " + (i === (state._soloSpawnIndex ?? 0) ? "primary" : "secondary");
+          btn.className = "menu-btn " + (i === current ? "primary" : "secondary");
           btn.style.minWidth = "44px";
           btn.textContent = String(i + 1);
           btn.addEventListener("click", () => {
             state._soloSpawnIndex = i;
-            soloSpawnPicker.querySelectorAll("button").forEach((b, j) => {
-              b.className = "menu-btn " + (j === i ? "primary" : "secondary");
-              b.style.minWidth = "44px";
-            });
+            renderSoloSpawnPicker();
           });
           soloSpawnPicker.appendChild(btn);
         }
-      }
-
-      const MAP_TYPES = [
-        { id: 1, label: "Стандарт", desc: "Сбалансированная карта" },
-        { id: 2, label: "Тесная", desc: "Плотная, ранние конфликты" },
-        { id: 3, label: "Открытая", desc: "Большие расстояния, редкие ресурсы" },
-        { id: 4, label: "Узкие фронты", desc: "Проходы и узкости" },
-        { id: 5, label: "Хаос", desc: "Случайные кластеры, непредсказуемо" }
-      ];
-      const soloMapVariationPicker = document.getElementById("soloMapVariationPicker");
-      if (soloMapVariationPicker) {
-        for (const mt of MAP_TYPES) {
-          const btn = document.createElement("button");
-          btn.type = "button";
-          btn.className = "menu-btn " + (mt.id === (state._mapVariation ?? 1) ? "primary" : "secondary");
-          btn.style.minWidth = "80px";
-          btn.textContent = mt.label;
-          btn.title = mt.desc;
-          btn.addEventListener("click", () => {
-            state._mapVariation = mt.id;
-            soloMapVariationPicker.querySelectorAll("button").forEach((b, j) => {
-              b.className = "menu-btn " + (MAP_TYPES[j].id === mt.id ? "primary" : "secondary");
-            });
-          });
-          soloMapVariationPicker.appendChild(btn);
-        }
-      }
+      };
+      if (soloLobbyBack) soloLobbyBack.addEventListener("click", () => showScreen("nicknameScreen"));
+      if (soloLobbyStart) soloLobbyStart.addEventListener("click", () => {
+        const nick = state._myNickname || (typeof window !== "undefined" && window._myNickname) || "Игрок";
+        state._quickStartScenario = null;
+        state._mapVariation = 1;
+        state._soloBotCount = getSoloModeConfig(state._soloGameMode).botCount;
+        startGameSingle(nick);
+      });
+      renderSoloSpawnPicker();
 
       const seedInput = document.getElementById("soloMapSeedInput");
       const rerollBtn = document.getElementById("soloMapReroll");
@@ -434,8 +387,11 @@
 
       const soloModePicker = document.getElementById("soloModePicker");
       if (soloModePicker) {
-        const modes = [{ id: "standard", label: "Стандарт" }, { id: "survival", label: "Выживание" }];
-        const current = state._soloGameMode || "standard";
+        const modes = [
+          { id: "duel", label: "1v1" },
+          { id: "quad", label: "1v1v1v1" }
+        ];
+        const current = state._soloGameMode || "duel";
         modes.forEach((m, j) => {
           const btn = document.createElement("button");
           btn.type = "button";
@@ -443,9 +399,11 @@
           btn.textContent = m.label;
           btn.addEventListener("click", () => {
             state._soloGameMode = m.id;
+            state._soloBotCount = getSoloModeConfig(m.id).botCount;
             soloModePicker.querySelectorAll("button").forEach((b, i) => {
               b.className = "menu-btn " + (modes[i].id === m.id ? "primary" : "secondary");
             });
+            renderSoloSpawnPicker();
           });
           soloModePicker.appendChild(btn);
         });
@@ -523,6 +481,9 @@
       socket.on("slots", (payload) => {
         applyRoomSnapshot(payload);
         if (lobbyScreenEl && lobbyScreenEl.style.display === "flex") renderLobby();
+      });
+      socket.on("startRejected", (message) => {
+        alert(message || "Матч можно запускать только в формате 1v1 или 1v1v1v1.");
       });
       socket.on("chat", (msg) => {
         const safeText = (msg.text || "").replace(/</g, "&lt;");
@@ -604,6 +565,12 @@
       const startBtn = document.getElementById("lobbyStart");
       if (startBtn) {
         startBtn.addEventListener("click", () => {
+          const slots = state._lobbySlots || [];
+          const occupiedCount = slots.filter((s) => s && (s.id || s.isBot)).length;
+          if (occupiedCount !== 2 && occupiedCount !== 4) {
+            alert("Матч можно запускать только в формате 1v1 или 1v1v1v1.");
+            return;
+          }
           if (socket && state._isHost) socket.emit("start", { seed: (Date.now() >>> 0) + Math.floor(Math.random() * 0xffff) });
         });
       }

@@ -141,13 +141,13 @@ function testSenderTripleSpawnStaysScopedToOwnPlayer() {
   dispatch.handlePlayerAction({
     type: "purchaseFrontTriplet",
     coreId: 1,
-    unitType: "fighter",
+    unitType: "destroyer",
     _senderPlayerId: 2
   });
 
   assert(calls.length === 1, "triple spawn action is forwarded once");
   assert(calls[0].pid === 2, "host resolves purchaseFrontTriplet to sender pid");
-  assert(calls[0].unitType === "fighter", "requested unit type is preserved");
+  assert(calls[0].unitType === "destroyer", "requested unit type is preserved for the core roster");
   console.log("  [OK] testSenderTripleSpawnStaysScopedToOwnPlayer");
 }
 

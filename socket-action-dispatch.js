@@ -31,6 +31,8 @@
       executeAbilityAction
     } = deps;
 
+    const CORE_ROSTER_UNIT_TYPES = new Set(["destroyer", "cruiser", "battleship"]);
+
     function getSquadLogic() {
       return typeof SQUADLOGIC !== "undefined" ? SQUADLOGIC : null;
     }
@@ -90,6 +92,10 @@
       return { ...action, pid: senderPid };
     }
 
+    function normalizeCorePurchaseUnitType(unitType) {
+      return CORE_ROSTER_UNIT_TYPES.has(unitType) ? unitType : "destroyer";
+    }
+
     function handlePlayerAction(action) {
       if (!state._multiIsHost) return;
       const senderPid = resolveSenderPid(action);
@@ -101,7 +107,7 @@
       if (action.type === "spawn") {
         const scoped = normalizePlayerScopedAction(action);
         if (!scoped) return;
-        const res = purchaseUnit(scoped.pid, scoped.unitType || "fighter", scoped.waypoints);
+        const res = purchaseUnit(scoped.pid, normalizeCorePurchaseUnitType(scoped.unitType), scoped.waypoints);
         console.log("[MP-ACTION] spawn result:", JSON.stringify(res));
         return;
       }
@@ -109,7 +115,7 @@
       if (action.type === "purchaseFrontTriplet") {
         const scoped = normalizePlayerScopedAction(action);
         if (!scoped || typeof purchaseFrontTriplet !== "function") return;
-        const res = purchaseFrontTriplet(scoped.pid, scoped.unitType || "fighter");
+        const res = purchaseFrontTriplet(scoped.pid, normalizeCorePurchaseUnitType(scoped.unitType));
         console.log("[MP-ACTION] purchaseFrontTriplet result:", JSON.stringify(res));
         return;
       }
@@ -117,7 +123,7 @@
       if (action.type === "purchase") {
         const scoped = normalizePlayerScopedAction(action);
         if (!scoped) return;
-        const res = purchaseUnit(scoped.pid, scoped.unitType || "fighter", scoped.waypoints);
+        const res = purchaseUnit(scoped.pid, normalizeCorePurchaseUnitType(scoped.unitType), scoped.waypoints);
         console.log("[MP-ACTION] purchase result:", JSON.stringify(res));
         return;
       }
