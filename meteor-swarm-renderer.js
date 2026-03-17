@@ -284,10 +284,10 @@
     var radius = preview.radius || 120;
     var shots = preview.shots || [];
 
-    g.beginFill(PALETTE.dark, 0.11 + pulse * 0.04);
+    g.beginFill(PALETTE.dark, 0.040 + pulse * 0.018);
     g.drawCircle(preview.x, preview.y, radius);
     g.endFill();
-    g.beginFill(PALETTE.core, 0.07 + pulse * 0.03);
+    g.beginFill(PALETTE.core, 0.028 + pulse * 0.014);
     g.drawCircle(preview.x, preview.y, radius * 0.82);
     g.endFill();
 

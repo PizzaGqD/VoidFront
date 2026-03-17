@@ -445,7 +445,7 @@
     var level = getZoomLevel(opts && opts.zoom != null ? opts.zoom : 0.22);
     var detail = getMeteorDetail(level);
     if (preview.phase === "point") {
-      g.beginFill(PALETTE.line, 0.12);
+      g.beginFill(PALETTE.line, 0.045);
       g.drawCircle(preview.mouseX, preview.mouseY, preview.aoeRadius);
       g.endFill();
       g.lineStyle(4.25, PALETTE.trim, 0.92);
@@ -461,7 +461,7 @@
     var geom = drawCorridor(g, preview.x, preview.y, preview.angle, preview.aoeRadius, detail, timeSec, preview.worldW, preview.worldH, true);
     var impactX = preview.impactX != null ? preview.impactX : preview.x;
     var impactY = preview.impactY != null ? preview.impactY : preview.y;
-    g.beginFill(PALETTE.line, 0.12);
+    g.beginFill(PALETTE.line, 0.045);
     g.drawCircle(impactX, impactY, preview.aoeRadius);
     g.endFill();
     g.lineStyle(4.0, PALETTE.trim, 0.90);

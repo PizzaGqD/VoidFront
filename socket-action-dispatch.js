@@ -6,6 +6,7 @@
       state,
       CFG,
       purchaseUnit,
+      purchaseFrontTriplet,
       shieldRadius,
       getUnitAtkRange,
       getSquadStateFromUnits,
@@ -34,40 +35,105 @@
       return typeof SQUADLOGIC !== "undefined" ? SQUADLOGIC : null;
     }
 
+    function getFrontPlanner() {
+      return typeof FrontPlanner !== "undefined" ? FrontPlanner : null;
+    }
+
     function mapWaypoints(action) {
       return Array.isArray(action.waypoints) && action.waypoints.length > 0
         ? action.waypoints.map((w) => ({ x: w.x, y: w.y }))
         : [{ x: action.x, y: action.y }];
     }
 
+    function resolveSenderPid(action) {
+      if (!action || !state._multiSlots) return null;
+      if (action._senderPlayerId != null) return action._senderPlayerId | 0;
+      if (action._senderSlot != null && state._slotToPid) {
+        const pid = state._slotToPid[action._senderSlot];
+        return pid != null ? pid : ((action._senderSlot | 0) + 1);
+      }
+      return null;
+    }
+
+    function getOwnedLeaderIds(action, senderPid) {
+      const out = [];
+      for (const leaderId of action.leaderIds || []) {
+        const u = state.units.get(leaderId);
+        if (!u || u.owner !== senderPid) continue;
+        if ((u.leaderId || u.id) !== u.id) continue;
+        out.push(u.id);
+      }
+      return out;
+    }
+
+    function getOwnedUnits(action, senderPid) {
+      return (action.unitIds || [])
+        .map((id) => state.units.get(id))
+        .filter((u) => !!u && u.owner === senderPid);
+    }
+
+    function getOwnedSquadIds(action, senderPid) {
+      const out = [];
+      for (const squadId of action.squadIds || []) {
+        const sq = state.squads && state.squads.get(squadId);
+        if (sq && sq.ownerId === senderPid) out.push(squadId);
+      }
+      return out;
+    }
+
+    function normalizePlayerScopedAction(action) {
+      const senderPid = resolveSenderPid(action);
+      if (senderPid == null) {
+        console.warn("[MP-ACTION] rejected: missing sender metadata", action && action.type);
+        return null;
+      }
+      return { ...action, pid: senderPid };
+    }
+
     function handlePlayerAction(action) {
       if (!state._multiIsHost) return;
-      console.log("[MP-ACTION] host received action:", action.type, "pid=", action.pid, "from remote");
+      const senderPid = resolveSenderPid(action);
+      console.log("[MP-ACTION] host received action:", action.type, "senderPid=", senderPid, "from remote");
 
       const squadLogic = getSquadLogic();
+      const frontPlanner = getFrontPlanner();
 
       if (action.type === "spawn") {
-        const res = purchaseUnit(action.pid, action.unitType || "fighter", action.waypoints);
+        const scoped = normalizePlayerScopedAction(action);
+        if (!scoped) return;
+        const res = purchaseUnit(scoped.pid, scoped.unitType || "fighter", scoped.waypoints);
         console.log("[MP-ACTION] spawn result:", JSON.stringify(res));
         return;
       }
 
+      if (action.type === "purchaseFrontTriplet") {
+        const scoped = normalizePlayerScopedAction(action);
+        if (!scoped || typeof purchaseFrontTriplet !== "function") return;
+        const res = purchaseFrontTriplet(scoped.pid, scoped.unitType || "fighter");
+        console.log("[MP-ACTION] purchaseFrontTriplet result:", JSON.stringify(res));
+        return;
+      }
+
       if (action.type === "purchase") {
-        const res = purchaseUnit(action.pid, action.unitType || "fighter", action.waypoints);
+        const scoped = normalizePlayerScopedAction(action);
+        if (!scoped) return;
+        const res = purchaseUnit(scoped.pid, scoped.unitType || "fighter", scoped.waypoints);
         console.log("[MP-ACTION] purchase result:", JSON.stringify(res));
         return;
       }
 
       if (action.type === "chase") {
+        const leaderIds = getOwnedLeaderIds(action, senderPid);
+        if (!leaderIds.length) return;
         if (squadLogic) {
-          for (const lid of action.leaderIds || []) {
+          for (const lid of leaderIds) {
             const u = state.units.get(lid);
             if (!u || u.squadId == null) continue;
             squadLogic.issueAttackUnitOrder(state, u.squadId, action.targetUnitId, mapWaypoints(action), action.commandQueue);
           }
           return;
         }
-        for (const lid of action.leaderIds || []) {
+        for (const lid of leaderIds) {
           const u = state.units.get(lid);
           if (!u) continue;
           u.chaseTargetUnitId = action.targetUnitId;
@@ -80,9 +146,11 @@
       }
 
       if (action.type === "chaseCity") {
+        const leaderIds = getOwnedLeaderIds(action, senderPid);
+        if (!leaderIds.length) return;
         if (squadLogic) {
           const wp = mapWaypoints(action);
-          for (const lid of action.leaderIds || []) {
+          for (const lid of leaderIds) {
             const u = state.units.get(lid);
             if (!u || u.squadId == null) continue;
             squadLogic.issueSiegeOrder(state, u.squadId, action.targetCityId, wp, action.commandQueue);
@@ -91,7 +159,7 @@
         }
         const city = state.players.get(action.targetCityId);
         const minStopR = city ? shieldRadius(city) + 6 : 26;
-        for (const lid of action.leaderIds || []) {
+        for (const lid of leaderIds) {
           const u = state.units.get(lid);
           if (!u) continue;
           u.chaseTargetCityId = action.targetCityId;
@@ -110,9 +178,11 @@
       }
 
       if (action.type === "attackPirateBase") {
+        const leaderIds = getOwnedLeaderIds(action, senderPid);
+        if (!leaderIds.length) return;
         if (squadLogic) {
           const wp = mapWaypoints(action);
-          for (const lid of action.leaderIds || []) {
+          for (const lid of leaderIds) {
             const u = state.units.get(lid);
             if (!u || u.squadId == null) continue;
             squadLogic.issuePirateBaseOrder(state, u.squadId, wp, action.commandQueue);
@@ -122,8 +192,10 @@
       }
 
       if (action.type === "focusFire") {
+        const leaderIds = getOwnedLeaderIds(action, senderPid);
+        if (!leaderIds.length) return;
         if (squadLogic) {
-          for (const lid of action.leaderIds || []) {
+          for (const lid of leaderIds) {
             const u = state.units.get(lid);
             if (!u || u.squadId == null) continue;
             const sq = state.squads.get(u.squadId);
@@ -138,9 +210,11 @@
       }
 
       if (action.type === "move") {
+        const leaderIds = getOwnedLeaderIds(action, senderPid);
+        if (!leaderIds.length) return;
         const wp = mapWaypoints(action);
         if (squadLogic) {
-          for (const lid of action.leaderIds || []) {
+          for (const lid of leaderIds) {
             const u = state.units.get(lid);
             if (!u || u.squadId == null) continue;
             if (action.capture) squadLogic.issueCaptureOrder(state, u.squadId, action.mineId, wp[0], wp, action.captureQueue, action.commandQueue);
@@ -148,7 +222,7 @@
           }
           return;
         }
-        for (const lid of action.leaderIds || []) {
+        for (const lid of leaderIds) {
           const u = state.units.get(lid);
           if (!u) continue;
           u.targetFormationAngle = action.angle;
@@ -166,7 +240,7 @@
       }
 
       if (action.type === "formation") {
-        const squad = (action.unitIds || []).map((id) => state.units.get(id)).filter(Boolean);
+        const squad = getOwnedUnits(action, senderPid);
         if (squadLogic) {
           if (squad.length > 0) {
             const squadState = getSquadStateFromUnits(squad);
@@ -189,10 +263,10 @@
       }
 
       if (action.type === "mergeSquad") {
+        const ownedSquadIds = getOwnedSquadIds(action, senderPid);
         if (squadLogic) {
-          const squadIds = Array.isArray(action.squadIds) ? action.squadIds : [];
-          const merged = squadIds.length >= 2
-            ? squadLogic.mergeSquads(state, squadIds, action.formationType || "line", action.formationRows || 3, action.formationPigWidth || 1)
+          const merged = ownedSquadIds.length >= 2
+            ? squadLogic.mergeSquads(state, ownedSquadIds, action.formationType || "line", action.formationRows || 3, action.formationPigWidth || 1)
             : null;
           if (merged) {
             const waypoints = Array.isArray(action.waypoints) && action.waypoints.length > 0
@@ -203,7 +277,7 @@
           }
           return;
         }
-        const units = (action.unitIds || []).map((id) => state.units.get(id)).filter(Boolean);
+        const units = getOwnedUnits(action, senderPid);
         if (units.length >= 2) {
           const leader = units[0];
           const formationType = action.formationType || "pig";
@@ -242,7 +316,7 @@
       }
 
       if (action.type === "splitSquad") {
-        const allUnits = (action.unitIds || []).map((id) => state.units.get(id)).filter(Boolean);
+        const allUnits = getOwnedUnits(action, senderPid);
         if (squadLogic) {
           if (allUnits.length >= 2) {
             const squadState = getSquadStateFromUnits(allUnits);
@@ -303,7 +377,7 @@
       if (action.type === "splitSquadByType") {
         if (squadLogic) {
           const squad = state.squads.get(action.squadId);
-          if (squad) {
+          if (squad && squad.ownerId === senderPid) {
             const out = squadLogic.splitSquadByType(state, squad.id);
             for (const nextSquad of out) squadLogic.recalculateFormation(state, nextSquad.id, { getFormationOffsets }, true);
           }
@@ -312,24 +386,32 @@
       }
 
       if (action.type === "useAbility") {
-        if (typeof executeAbilityAction === "function") executeAbilityAction(action);
+        const scoped = normalizePlayerScopedAction(action);
+        if (!scoped) return;
+        if (typeof executeAbilityAction === "function") executeAbilityAction(scoped);
         return;
       }
 
       if (action.type === "activateBuffCard") {
-        if (typeof activateBuffCardForPlayer === "function") activateBuffCardForPlayer(action.pid, action.instanceId);
+        const scoped = normalizePlayerScopedAction(action);
+        if (!scoped) return;
+        if (typeof activateBuffCardForPlayer === "function") activateBuffCardForPlayer(scoped.pid, scoped.instanceId);
         return;
       }
 
       if (action.type === "castAbilityCard") {
-        if (typeof castAbilityCardForPlayer === "function") castAbilityCardForPlayer(action);
+        const scoped = normalizePlayerScopedAction(action);
+        if (!scoped) return;
+        if (typeof castAbilityCardForPlayer === "function") castAbilityCardForPlayer(scoped);
         return;
       }
 
       if (action.type === "cardChoice") {
-        const pl = action.pid != null ? state.players.get(action.pid) : null;
-        if (pl && action.card && typeof pl.pendingCardPicks === "number" && pl.pendingCardPicks > 0) {
-          applyCard(pl, action.card);
+        const scoped = normalizePlayerScopedAction(action);
+        if (!scoped) return;
+        const pl = state.players.get(scoped.pid);
+        if (pl && scoped.card && typeof pl.pendingCardPicks === "number" && pl.pendingCardPicks > 0) {
+          applyCard(pl, scoped.card);
           pl.pendingCardPicks--;
         }
       }

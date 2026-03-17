@@ -57,7 +57,40 @@ function makeState(unitCount) {
   return {
     t: 100, nextUnitId: unitCount + 1, nextResId: 10,
     timeScale: 1, players, units, turrets, res,
-    bullets: [], storm: null
+    bullets: [], storm: null,
+    coreFrontPolicies: {
+      0: {
+        left: { weight: 30, mode: "push" },
+        center: { weight: 40, mode: "hold" },
+        right: { weight: 30, mode: "push" }
+      }
+    },
+    frontGraph: {
+      0: {
+        leftTargetCoreId: 2,
+        rightTargetCoreId: 3,
+        enemyCoreIds: [2, 3],
+        centerMode: "fanout"
+      }
+    },
+    squadFrontAssignments: {
+      7: {
+        squadId: 7,
+        ownerId: 0,
+        frontType: "center",
+        targetCoreId: 2
+      }
+    },
+    centerObjectives: {
+      centerX: 500,
+      centerY: 500,
+      richMineId: 10,
+      centerMineIds: [10, 11, 12],
+      pirateBaseIds: ["pb1"],
+      livePirateBaseIds: ["pb1"],
+      securedByPlayerId: null,
+      requiredMineCount: 3
+    }
   };
 }
 
@@ -127,6 +160,10 @@ function testFullSnapshot() {
   assert(snap.nextResId != null, "full: nextResId present");
   assert(snap.timeScale != null, "full: timeScale present");
   assert(snap.resDelta === undefined, "full: resDelta omitted (has full resources)");
+  assert(snap.coreFrontPolicies[0].center.mode === "hold", "full: front policies present");
+  assert(snap.frontGraph[0].centerMode === "fanout", "full: front graph present");
+  assert(snap.squadFrontAssignments[7].targetCoreId === 2, "full: squad front assignments present");
+  assert(snap.centerObjectives.richMineId === 10, "full: center objectives present");
 
   const u = snap.units[0];
   assert(!Array.isArray(u), "full: unit is object (not compact)");
@@ -216,7 +253,10 @@ function testSequenceNumbers() {
 function testJsonRoundtrip() {
   const ser = new NET.SnapshotSerializer();
   const state = makeState(2);
-  const snap = ser.serialize(state);
+  let snap;
+  for (let i = 0; i < NET.FULL_SYNC_EVERY; i++) {
+    snap = ser.serialize(state);
+  }
 
   const rt = JSON.parse(JSON.stringify(snap));
   assert(rt._seq === snap._seq, "roundtrip: _seq preserved");
@@ -228,6 +268,8 @@ function testJsonRoundtrip() {
     assert(rt.units[0][0] === snap.units[0][0], "roundtrip: compact unit id");
     assert(rt.units[0][5] === snap.units[0][5], "roundtrip: compact unit hp");
   }
+  assert(rt.coreFrontPolicies["0"].center.mode === "hold", "roundtrip: front policy preserved");
+  assert(rt.centerObjectives.centerMineIds.length === 3, "roundtrip: center objectives preserved");
 
   console.log("  [OK] testJsonRoundtrip");
 }

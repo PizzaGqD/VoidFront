@@ -37,6 +37,26 @@
     }
   }
 
+  function drawSimpleShape(g, unitType, fillCol, s) {
+    var pts;
+    if (unitType === "fighter") {
+      pts = [s * 1.12, 0, -s * 0.38, -s * 0.40, -s * 0.18, 0, -s * 0.38, s * 0.40];
+    } else if (unitType === "destroyer") {
+      pts = [s * 0.98, 0, s * 0.20, -s * 0.48, -s * 0.72, 0, s * 0.20, s * 0.48];
+    } else if (unitType === "cruiser") {
+      pts = [s * 0.95, 0, s * 0.44, -s * 0.50, -s * 0.18, -s * 0.58, -s * 0.82, 0, -s * 0.18, s * 0.58, s * 0.44, s * 0.50];
+    } else if (unitType === "battleship") {
+      pts = [s * 1.05, 0, s * 0.32, -s * 0.58, -s * 0.42, -s * 0.66, -s * 0.90, -s * 0.22, -s * 0.90, s * 0.22, -s * 0.42, s * 0.66, s * 0.32, s * 0.58];
+    } else if (unitType === "hyperDestroyer") {
+      pts = [s * 1.16, 0, s * 0.36, -s * 0.62, -s * 0.06, -s * 0.82, -s * 0.86, -s * 0.38, -s * 1.00, 0, -s * 0.86, s * 0.38, -s * 0.06, s * 0.82, s * 0.36, s * 0.62];
+    } else {
+      pts = [s, 0, -s * 0.6, -s * 0.42, -s * 0.6, s * 0.42];
+    }
+    drawPoly(g, pts, fillCol, 0.78, null, 0, 0);
+    g.circle(s * 0.12, 0, Math.max(1.1, s * 0.10));
+    g.fill({ color: 0xffffff, alpha: 0.62 });
+  }
+
   function getHullSpec(unitType) {
     if (unitType === "fighter") {
       return {
@@ -107,9 +127,7 @@
     var spec = getHullSpec(unitType);
 
     if (!detail.fullShape) {
-      drawPoly(g, [s * 1.15, 0, -s * 0.45, -s * 0.44, -s * 0.45, s * 0.44], fillCol, 0.76, null, 0, 0);
-      g.circle(s * 0.10, 0, Math.max(1.1, s * 0.11));
-      g.fill({ color: 0xffffff, alpha: 0.65 });
+      drawSimpleShape(g, unitType, fillCol, s);
       return;
     }
 

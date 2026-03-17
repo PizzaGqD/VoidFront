@@ -19,6 +19,7 @@
     waypointReachRadius: 28,
     mineCaptureDoneRadius: 55,
     autoJoinDistanceThreshold: 300,
+    routeJoinDistanceThreshold: 720,
     zoneMergeOverlap: 0.5,
     facingLerpSpeed: 3.0,
     steeringPush: 0.6,
@@ -87,6 +88,10 @@
     return out;
   }
 
+  function isFrontLaneTag(tag) {
+    return typeof tag === "string" && tag.startsWith("front:");
+  }
+
   function buildCaptureQueueOrders(captureQueue) {
     return cloneCaptureQueue(captureQueue).map((entry) => ({
       type: "capture",
@@ -114,6 +119,7 @@
   function ensureRuntime(state) {
     if (!state.squads) state.squads = new Map();
     if (!state.engagementZones) state.engagementZones = new Map();
+    if (!state._zoneBySquadId) state._zoneBySquadId = new Map();
     if (state.nextSquadId == null) state.nextSquadId = 1;
     if (state.nextEngagementZoneId == null) state.nextEngagementZoneId = 1;
   }
@@ -289,7 +295,7 @@
 
     state.squads.set(squadId, squad);
 
-    if (opts.allowAutoJoinRecentSpawn) {
+    if (opts.allowAutoJoinRecentSpawn && !isFrontLaneTag(opts.sourceTag)) {
       const merged = tryAutoJoin(state, squad);
       if (merged) return merged;
     }
@@ -332,13 +338,25 @@
     for (const other of state.squads.values()) {
       if (other.id === squad.id || other.ownerId !== squad.ownerId) continue;
       if (other.sourceTag !== squad.sourceTag) continue;
-      if ((other.autoGroupUntil ?? -Infinity) < now) continue;
       if (other.combat.mode !== "idle") continue;
       if (!areOrdersCompatible(other, squad)) continue;
+      const recentJoin = (other.autoGroupUntil ?? -Infinity) >= now;
+      if (!recentJoin) {
+        const frontLaneTag = typeof squad.sourceTag === "string" && squad.sourceTag.startsWith("front:");
+        if (!frontLaneTag) continue;
+        const otherCenter = getSquadCenter(state, other);
+        const squadCenter = getSquadCenter(state, squad);
+        if (d(otherCenter.x, otherCenter.y, squadCenter.x, squadCenter.y) > config.routeJoinDistanceThreshold) continue;
+      }
       if (!best || (other.createdAt ?? 0) < (best.createdAt ?? 0)) best = other;
     }
     if (!best) return null;
     return absorbSquad(state, best, squad);
+  }
+
+  function mergeRouteCompatibleSquads(state) {
+    ensureRuntime(state);
+    return false;
   }
 
   function destroySquad(state, squadId) {
@@ -369,6 +387,7 @@
       formationType: formationType || "line",
       formationRows: formationRows ?? 3,
       formationWidth: formationWidth ?? 1,
+      sourceTag: first?.sourceTag || null,
       order: { type: "idle", waypoints: [] }
     });
   }
@@ -390,7 +409,7 @@
     const out = [];
     for (const key of [...byType.keys()].sort()) {
       const ns = createSquad(state, byType.get(key), {
-        formationType: form.type, formationRows: form.rows, formationWidth: form.width, order: existing
+        formationType: form.type, formationRows: form.rows, formationWidth: form.width, sourceTag: sq.sourceTag || null, order: existing
       });
       if (ns) out.push(ns);
     }
@@ -676,34 +695,118 @@
 
   // ─── Engagement Zones ─────────────────────────────────────────────
 
+  const ENGAGEMENT_HASH_CELL = 320;
+
+  function buildSquadCombatInfos(state, helpers) {
+    const infos = [];
+    const byId = new Map();
+    for (const sq of state.squads.values()) {
+      if (!sq) continue;
+      const units = getSquadUnits(state, sq);
+      if (!units.length) continue;
+      let sx = 0;
+      let sy = 0;
+      let maxAttackRange = 0;
+      let hpSum = 0;
+      for (const u of units) {
+        sx += u.x;
+        sy += u.y;
+        hpSum += u.hp || 0;
+        const atkRange = (helpers.getUnitAtkRange ? helpers.getUnitAtkRange(u) : (u.attackRange || 60)) * config.engageRangeFactor;
+        if (atkRange > maxAttackRange) maxAttackRange = atkRange;
+      }
+      const centerX = sx / units.length;
+      const centerY = sy / units.length;
+      let radius = 0;
+      for (const u of units) {
+        const hitRadius = helpers.getUnitHitRadius ? helpers.getUnitHitRadius(u) : 10;
+        const unitRadius = d(centerX, centerY, u.x, u.y) + hitRadius;
+        if (unitRadius > radius) radius = unitRadius;
+      }
+      const info = {
+        squad: sq,
+        id: sq.id,
+        ownerId: sq.ownerId,
+        units,
+        unitCount: units.length,
+        centerX,
+        centerY,
+        radius,
+        maxAttackRange,
+        pairRadius: radius + maxAttackRange + config.zoneJoinPadding,
+        hpSum
+      };
+      infos.push(info);
+      byId.set(info.id, info);
+    }
+    return { infos, byId };
+  }
+
+  function buildEngagementSpatialHash(infos) {
+    const buckets = new Map();
+    for (const info of infos) {
+      const cx = Math.floor(info.centerX / ENGAGEMENT_HASH_CELL);
+      const cy = Math.floor(info.centerY / ENGAGEMENT_HASH_CELL);
+      const key = cx + ":" + cy;
+      let bucket = buckets.get(key);
+      if (!bucket) {
+        bucket = [];
+        buckets.set(key, bucket);
+      }
+      bucket.push(info);
+    }
+    return buckets;
+  }
+
+  function forEachNearbySquadInfo(info, buckets, visit) {
+    const cx = Math.floor(info.centerX / ENGAGEMENT_HASH_CELL);
+    const cy = Math.floor(info.centerY / ENGAGEMENT_HASH_CELL);
+    const radiusCells = Math.max(1, Math.ceil((info.pairRadius || ENGAGEMENT_HASH_CELL) / ENGAGEMENT_HASH_CELL));
+    for (let dx = -radiusCells; dx <= radiusCells; dx++) {
+      for (let dy = -radiusCells; dy <= radiusCells; dy++) {
+        const bucket = buckets.get((cx + dx) + ":" + (cy + dy));
+        if (!bucket) continue;
+        for (const other of bucket) visit(other);
+      }
+    }
+  }
+
   function buildEngagementZones(state, helpers) {
     ensureRuntime(state);
-    const squads = [...state.squads.values()].filter((sq) => getSquadUnits(state, sq).length > 0);
+    const squadData = buildSquadCombatInfos(state, helpers);
+    const squads = squadData.infos;
+    const squadInfoById = squadData.byId;
+    const spatialHash = buildEngagementSpatialHash(squads);
 
     const pairSet = new Set();
 
-    for (let i = 0; i < squads.length; i++) {
-      for (let j = i + 1; j < squads.length; j++) {
-        const sA = squads[i], sB = squads[j];
-        if (sA.ownerId === sB.ownerId) continue;
-        if (unitPairInRange(state, sA, sB, helpers)) {
-          pairSet.add(sA.id + ":" + sB.id);
+    for (const info of squads) {
+      forEachNearbySquadInfo(info, spatialHash, (other) => {
+        if (!other || other.id <= info.id) return;
+        if (info.ownerId === other.ownerId) return;
+        const maxCenterReach = (info.pairRadius || 0) + (other.pairRadius || 0);
+        if (d(info.centerX, info.centerY, other.centerX, other.centerY) > maxCenterReach) return;
+        if (unitPairInRange(info, other, helpers)) {
+          pairSet.add(info.id + ":" + other.id);
         }
-      }
+      });
     }
 
     const squadToZone = new Map();
 
     for (const zone of state.engagementZones.values()) {
-      const alive = (zone.squadIds || []).filter((sid) => {
-        const s = state.squads.get(sid);
-        return s && getSquadUnits(state, s).length > 0;
-      });
+      const alive = [];
+      const seenAlive = new Set();
+      for (const sid of zone.squadIds || []) {
+        if (seenAlive.has(sid) || !squadInfoById.has(sid)) continue;
+        seenAlive.add(sid);
+        alive.push(sid);
+      }
       let hasConflict = false;
       const owners = new Set();
       for (const sid of alive) {
-        const sq = state.squads.get(sid);
-        if (sq) owners.add(sq.ownerId);
+        const info = squadInfoById.get(sid);
+        if (info) owners.add(info.ownerId);
       }
       if (owners.size >= 2) hasConflict = true;
 
@@ -756,27 +859,25 @@
 
     for (const sq of squads) {
       if (squadToZone.has(sq.id)) continue;
-      if (sq._zoneImmunityUntil && state.t < sq._zoneImmunityUntil) continue;
+      if (sq.squad && sq.squad._zoneImmunityUntil && state.t < sq.squad._zoneImmunityUntil) continue;
       for (const zone of state.engagementZones.values()) {
         if (zone.squadIds.includes(sq.id)) continue;
-        const zoneOwners = new Set(zone.squadIds.map((sid) => state.squads.get(sid)?.ownerId));
+        const zoneOwners = new Set(zone.squadIds.map((sid) => squadInfoById.get(sid)?.ownerId).filter((ownerId) => ownerId != null));
         if (zoneOwners.has(sq.ownerId) && zoneOwners.size < 2) continue;
 
-        const sqUnits = getSquadUnits(state, sq);
+        const sqUnits = sq.units;
         let touching = false;
-        const joinR = (zone.displayRadius || zone.radius || 70) + 20;
+        const joinR = (zone.displayRadius || zone.radius || 70) + config.zoneJoinPadding;
 
-        for (const u of sqUnits) {
-          if (zone.anchorX != null && d(u.x, u.y, zone.anchorX, zone.anchorY) <= joinR) {
-            touching = true; break;
-          }
+        if (zone.anchorX != null && d(sq.centerX, sq.centerY, zone.anchorX, zone.anchorY) <= joinR + sq.radius) {
+          touching = true;
         }
 
         if (!touching) {
           const zUnits = [];
           for (const sid of zone.squadIds) {
-            const s = state.squads.get(sid);
-            if (s && s.ownerId !== sq.ownerId) zUnits.push(...getSquadUnits(state, s));
+            const other = squadInfoById.get(sid);
+            if (other && other.ownerId !== sq.ownerId) zUnits.push(...other.units);
           }
           for (const a of sqUnits) {
             const aR = (helpers.getUnitAtkRange ? helpers.getUnitAtkRange(a) : 60) * config.engageRangeFactor;
@@ -795,13 +896,15 @@
       }
     }
 
+    state._zoneBySquadId = squadToZone;
     for (const zone of state.engagementZones.values()) {
-      updateZoneGeometry(state, zone);
+      updateZoneGeometry(state, zone, squadInfoById);
     }
   }
 
-  function unitPairInRange(state, sqA, sqB, helpers) {
-    const uA = getSquadUnits(state, sqA), uB = getSquadUnits(state, sqB);
+  function unitPairInRange(infoA, infoB, helpers) {
+    const uA = infoA.units;
+    const uB = infoB.units;
     for (const a of uA) {
       const aR = (helpers.getUnitAtkRange ? helpers.getUnitAtkRange(a) : 60) * config.engageRangeFactor;
       for (const b of uB) {
@@ -811,12 +914,20 @@
     return false;
   }
 
-  const ZONE_MIN_R = 168;
-  const ZONE_RADIUS_UPDATE_INTERVAL = 1.0;
+  const COMBAT_ZONE_RADIUS_SCALE = 0.6;
+  const ZONE_MIN_R = Math.round(168 * COMBAT_ZONE_RADIUS_SCALE);
+  const ZONE_RADIUS_UPDATE_INTERVAL = 0.2;
 
-  function updateZoneGeometry(state, zone) {
+  function updateZoneGeometry(state, zone, squadInfoById) {
     let sx = 0, sy = 0, cnt = 0, rad = 0;
     for (const sid of zone.squadIds) {
+      const info = squadInfoById && squadInfoById.get(sid);
+      if (info) {
+        sx += info.centerX * info.unitCount;
+        sy += info.centerY * info.unitCount;
+        cnt += info.unitCount;
+        continue;
+      }
       for (const u of getSquadUnits(state, state.squads.get(sid))) {
         sx += u.x; sy += u.y; cnt++;
       }
@@ -834,14 +945,19 @@
     if (needsRadiusUpdate) {
       zone._lastRadiusUpdate = state.t;
       for (const sid of zone.squadIds) {
+        const info = squadInfoById && squadInfoById.get(sid);
+        if (info) {
+          rad = Math.max(rad, d(zone.anchorX, zone.anchorY, info.centerX, info.centerY) + info.radius);
+          continue;
+        }
         for (const u of getSquadUnits(state, state.squads.get(sid))) {
           rad = Math.max(rad, d(zone.anchorX, zone.anchorY, u.x, u.y));
         }
       }
-      const zoneMaxR = ZONE_MIN_R * 2;
+      const zoneMaxR = Math.round(ZONE_MIN_R * 2);
       const shipScale = Math.min(1, cnt / 30);
       const dynamicMax = ZONE_MIN_R + (zoneMaxR - ZONE_MIN_R) * shipScale;
-      const desiredRadius = Math.min(dynamicMax, Math.max(ZONE_MIN_R, rad + 30));
+      const desiredRadius = Math.min(dynamicMax, Math.max(ZONE_MIN_R, (rad + 30) * COMBAT_ZONE_RADIUS_SCALE));
       zone.radius = desiredRadius;
     }
 
@@ -856,6 +972,12 @@
     const owners = new Set();
     const powerByOwner = new Map();
     for (const sid of zone.squadIds) {
+      const info = squadInfoById && squadInfoById.get(sid);
+      if (info) {
+        owners.add(info.ownerId);
+        powerByOwner.set(info.ownerId, (powerByOwner.get(info.ownerId) || 0) + info.hpSum);
+        continue;
+      }
       const sq = state.squads.get(sid);
       if (!sq) continue;
       owners.add(sq.ownerId);
@@ -925,6 +1047,13 @@
   }
 
   function findZoneForSquad(state, squadId) {
+    if (state._zoneBySquadId && typeof state._zoneBySquadId.get === "function") {
+      const zoneId = state._zoneBySquadId.get(squadId);
+      if (zoneId != null) {
+        const zone = state.engagementZones.get(zoneId);
+        if (zone) return zone;
+      }
+    }
     for (const zone of state.engagementZones.values()) {
       if (zone.squadIds.includes(squadId)) return zone;
     }
@@ -1178,10 +1307,29 @@
     } else if (order.type === "siege") {
       const city = order.targetCityId != null ? state.players.get(order.targetCityId) : null;
       if (!city || city.eliminated) {
-        const nextQueuedOrder = getNextQueuedOrder(order);
-        squad.order = nextQueuedOrder || { type: "idle", waypoints: [] };
-        applyCompatibility(state, squad);
-        return;
+        if (order.waypoints && order.waypoints.length > 0) {
+          const wp = order.waypoints[0];
+          desX = wp.x; desY = wp.y;
+          desFacing = Math.atan2(wp.y - center.y, wp.x - center.x);
+          if (d(center.x, center.y, wp.x, wp.y) <= config.waypointReachRadius) {
+            order.waypoints.shift();
+            if (order.waypoints.length > 0) {
+              desX = order.waypoints[0].x;
+              desY = order.waypoints[0].y;
+              desFacing = Math.atan2(desY - center.y, desX - center.x);
+            } else {
+              const nextQueuedOrder = getNextQueuedOrder(order);
+              squad.order = nextQueuedOrder || { type: "idle", waypoints: [] };
+              applyCompatibility(state, squad);
+              return;
+            }
+          }
+        } else {
+          const nextQueuedOrder = getNextQueuedOrder(order);
+          squad.order = nextQueuedOrder || { type: "idle", waypoints: [] };
+          applyCompatibility(state, squad);
+          return;
+        }
       } else if (order.waypoints && order.waypoints.length > 0) {
         const wp = order.waypoints[0];
         desX = wp.x; desY = wp.y;
@@ -1606,6 +1754,7 @@
     clearCombatForSquad,
     mergeSquads,
     splitSquadByType,
+    mergeRouteCompatibleSquads,
     buildEngagementZones,
     updateSquadCombatState,
     updateCombat,

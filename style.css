@@ -739,6 +739,48 @@ input[type="range"] { flex: 1; }
   font-size: 11px;
 }
 
+.front-control-box {
+  font-size: 13px;
+}
+.front-control-summary {
+  margin-bottom: 8px;
+}
+.front-control-row {
+  padding: 8px;
+  margin-top: 8px;
+  border-radius: 10px;
+  background: rgba(20, 28, 52, 0.55);
+  border: 1px solid rgba(120, 160, 255, 0.12);
+}
+.front-control-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.front-control-name {
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+.front-mode-btn {
+  min-width: 58px;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+.front-control-row input[type="range"] {
+  width: 100%;
+  margin: 0;
+}
+.front-control-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: 12px;
+}
+
 /* HUD Sections */
 .hud-section {
   margin-bottom: 6px;

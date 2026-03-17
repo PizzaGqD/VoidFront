@@ -19,6 +19,17 @@
       return (state._myNickname || window._myNickname || "Игрок").trim().slice(0, 24) || "Игрок";
     }
 
+    function applyRoomSnapshot(payload) {
+      const data = Array.isArray(payload) ? { slots: payload } : (payload || {});
+      state._lobbySlots = Array.isArray(data.slots) ? data.slots : [];
+      state._hostSlot = Number.isInteger(data.hostSlot) ? data.hostSlot : null;
+      if (state._mySlot != null && state._hostSlot != null && state._hostSlot >= 0) {
+        state._isHost = state._hostSlot === state._mySlot;
+      } else if (state._hostSlot == null || state._hostSlot < 0) {
+        state._isHost = false;
+      }
+    }
+
     function renderLobby() {
       const slotsEl = document.getElementById("lobbySlots");
       const hostBadge = document.getElementById("lobbyHostBadge");
@@ -302,6 +313,7 @@
             state._lobbySlots = data.slots;
             state._mySlot = data.mySlot;
             state._isHost = data.isHost;
+            state._hostSlot = Number.isInteger(data.hostSlot) ? data.hostSlot : null;
             state._roomId = data.roomId;
             renderLobby();
             showScreen("lobbyScreen");
@@ -455,6 +467,7 @@
           state._lobbySlots = data.slots;
           state._mySlot = data.mySlot;
           state._isHost = data.isHost;
+          state._hostSlot = Number.isInteger(data.hostSlot) ? data.hostSlot : null;
           state._roomId = data.roomId;
           renderLobby();
           showScreen("lobbyScreen");
@@ -507,8 +520,8 @@
           urlEl.title = url;
         }
       });
-      socket.on("slots", (slots) => {
-        state._lobbySlots = slots;
+      socket.on("slots", (payload) => {
+        applyRoomSnapshot(payload);
         if (lobbyScreenEl && lobbyScreenEl.style.display === "flex") renderLobby();
       });
       socket.on("chat", (msg) => {

@@ -17,20 +17,23 @@
    * @param {number} color - faction color hex
    * @param {number} zoom - current camera zoom
    */
-  function drawTurretShape(g, x, y, nx, ny, color, zoom) {
+  function drawTurretShape(g, x, y, nx, ny, color, zoom, opts) {
+    var options = opts || {};
     var palette = FACTION_VIS.getFactionPalette(color);
     var detail = LOD.getDetail("turret", zoom);
-    var sz = detail.shape === "dot" ? 4.5 : 8.5;
+    var scale = Math.max(0.7, options.scale || 1);
+    var barrelMul = Math.max(0.75, options.barrelMul || 1);
+    var sz = (detail.shape === "dot" ? 4.5 : 8.5) * scale;
 
     if (detail.shape === "dot") {
       g.beginFill(palette.core, 0.16);
-      g.drawCircle(x, y, 6.2);
+      g.drawCircle(x, y, 6.2 * scale);
       g.endFill();
       g.beginFill(palette.core, 0.85);
       g.drawCircle(x, y, sz);
       g.endFill();
       g.beginFill(0xffffff, 0.85);
-      g.drawCircle(x, y, 1.6);
+      g.drawCircle(x, y, Math.max(1.6, 1.6 * scale));
       g.endFill();
       return;
     }
@@ -62,9 +65,9 @@
     g.closePath();
     g.endFill();
 
-    g.lineStyle(1.8, palette.solid, 0.58);
+    g.lineStyle(1.8 * Math.max(0.9, scale * 0.9), palette.solid, 0.58);
     g.moveTo(x, y);
-    g.lineTo(x + nx * sz * 2.35, y + ny * sz * 2.35);
+    g.lineTo(x + nx * sz * 2.35 * barrelMul, y + ny * sz * 2.35 * barrelMul);
 
     g.lineStyle(1.0, palette.edge, 0.28);
     g.moveTo(x + nx * sz * 1.4, y + ny * sz * 1.4);
@@ -74,7 +77,7 @@
     g.closePath();
 
     g.beginFill(0xffffff, 0.88);
-    g.drawCircle(x + nx * sz * 0.10, y + ny * sz * 0.10, 1.8);
+    g.drawCircle(x + nx * sz * 0.10, y + ny * sz * 0.10, Math.max(1.8, 1.8 * scale));
     g.endFill();
   }
 

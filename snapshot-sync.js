@@ -77,8 +77,10 @@
           pl = makePlayer(p.id, p.name, p.x, p.y, p.pop ?? CFG.POP_START);
           if (p.color != null) pl.color = p.color;
           state.players.set(pl.id, pl);
-          makeCityVisual(pl);
-          makeZoneVisual(pl);
+          if (!p.eliminated) {
+            makeCityVisual(pl);
+            makeZoneVisual(pl);
+          }
         }
         const pKeys = isFull ? PLAYER_FULL_SYNC_KEYS : PLAYER_LIGHT_SYNC_KEYS;
         for (const k of pKeys) {
@@ -133,6 +135,42 @@
         }
         makeCityVisual(pl);
         makeZoneVisual(pl);
+      }
+
+      for (const pl of state.players.values()) {
+        if (pl.eliminated) {
+          if (pl.cityGfx) {
+            cityLayer.removeChild(pl.cityGfx);
+            pl.cityGfx = null;
+          }
+          if (pl.zoneGfx) {
+            zonesLayer.removeChild(pl.zoneGfx);
+            pl.zoneGfx = null;
+          }
+          if (pl.zoneGlow) {
+            zonesLayer.removeChild(pl.zoneGlow);
+            pl.zoneGlow = null;
+          }
+          if (pl.zoneLightGfx) {
+            zoneEffectsLayer.removeChild(pl.zoneLightGfx);
+            pl.zoneLightGfx = null;
+          }
+          if (pl.shieldGfx) {
+            cityLayer.removeChild(pl.shieldGfx);
+            pl.shieldGfx = null;
+          }
+          if (pl.popLabel && pl.popLabel.parent) {
+            pl.popLabel.parent.removeChild(pl.popLabel);
+            pl.popLabel = null;
+          }
+          if (pl.label && pl.label.parent) {
+            pl.label.parent.removeChild(pl.label);
+            pl.label = null;
+          }
+          continue;
+        }
+        if (!pl.cityGfx) makeCityVisual(pl);
+        if (!pl.zoneGfx) makeZoneVisual(pl);
       }
 
       for (const id of [...state.players.keys()]) {
@@ -537,6 +575,14 @@
       if (snap.battleMarchUntil) state._battleMarchUntil = { ...snap.battleMarchUntil };
       if (snap.hyperFlashes) state._hyperFlashes = snap.hyperFlashes;
       if (snap.nextEngagementZoneId != null) state.nextEngagementZoneId = snap.nextEngagementZoneId;
+      if (snap.coreFrontPolicies) state.coreFrontPolicies = JSON.parse(JSON.stringify(snap.coreFrontPolicies));
+      else if (isFull) state.coreFrontPolicies = {};
+      if (snap.frontGraph) state.frontGraph = JSON.parse(JSON.stringify(snap.frontGraph));
+      else if (isFull) state.frontGraph = {};
+      if (snap.squadFrontAssignments) state.squadFrontAssignments = JSON.parse(JSON.stringify(snap.squadFrontAssignments));
+      else if (isFull) state.squadFrontAssignments = {};
+      if (snap.centerObjectives) state.centerObjectives = JSON.parse(JSON.stringify(snap.centerObjectives));
+      else if (isFull) state.centerObjectives = { centerX: 0, centerY: 0, richMineId: null, centerMineIds: [], pirateBaseIds: [], livePirateBaseIds: [], securedByPlayerId: null, requiredMineCount: 0 };
 
       if (snap.squads && typeof SQUADLOGIC !== "undefined") {
         if (!state.squads) state.squads = new Map();

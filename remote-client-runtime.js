@@ -13,7 +13,8 @@
       stepBulletsVisual,
       stepMineGemsRemote,
       stepMineGems,
-      inView
+      inView,
+      refreshResourceVisual
     } = deps;
 
     function step(dt) {
@@ -66,7 +67,10 @@
         NET.Interp.tickRes(r, NET.ZONE_SYNC_INTERVAL_MS, state.players);
         if (r.gfx) {
           r.gfx.visible = inView(r.x, r.y);
-          if (r.gfx.visible) r.gfx.position.set(r.x, r.y);
+          if (r.gfx.visible) {
+            r.gfx.position.set(r.x, r.y);
+            if (typeof refreshResourceVisual === "function") refreshResourceVisual(r, r._visualVx || 0, r._visualVy || 0);
+          }
         }
       }
     }

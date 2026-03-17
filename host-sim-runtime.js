@@ -10,6 +10,7 @@
       rebuildZoneGrid,
       botThink,
       requireSquadLogic,
+      getFrontPlannerGlobal,
       queryHash,
       getUnitAtkRange,
       getUnitEngagementRange,
@@ -45,17 +46,56 @@
       stepSurvivalWaves
     } = deps;
 
+    function shouldRunPhase(counterKey, interval) {
+      const every = Math.max(1, interval || 1);
+      if (every <= 1) {
+        state[counterKey] = 0;
+        return true;
+      }
+      if (state[counterKey] == null) {
+        state[counterKey] = 0;
+        return true;
+      }
+      state[counterKey] += 1;
+      if (state[counterKey] >= every) {
+        state[counterKey] = 0;
+        return true;
+      }
+      return false;
+    }
+
+    function getThrottleProfile() {
+      const units = state.units ? state.units.size : 0;
+      const squads = state.squads ? state.squads.size : 0;
+      const bullets = state.bullets ? state.bullets.length : 0;
+      const superExtremeLoad = units >= 500 || squads >= 460 || bullets >= 140;
+      const extremeLoad = units >= 520 || squads >= 460 || bullets >= 120;
+      const heavyLoad = units >= 320 || squads >= 220 || bullets >= 70;
+      return {
+        cityInterval: extremeLoad ? 3 : (heavyLoad ? 2 : 1),
+        plannerInterval: superExtremeLoad ? 4 : (extremeLoad ? 3 : (heavyLoad ? 2 : 1)),
+        engagementInterval: extremeLoad ? 3 : (heavyLoad ? 2 : 1),
+        combatInterval: superExtremeLoad ? 2 : 1
+      };
+    }
+
     function step(dt) {
-      perfStartStep("stepCities");
-      stepCities(dt);
-      perfEndStep("stepCities");
-      if (state._frameCtr % 4 === 0) rebuildZoneGrid();
+      const throttle = getThrottleProfile();
+      state._cityStepAccumDt = (state._cityStepAccumDt || 0) + dt;
+      if (shouldRunPhase("_cityStepCounter", throttle.cityInterval)) {
+        perfStartStep("stepCities");
+        stepCities(state._cityStepAccumDt || dt);
+        perfEndStep("stepCities");
+        state._cityStepAccumDt = 0;
+        if (state._frameCtr % 4 === 0) rebuildZoneGrid();
+      }
 
       perfStartStep("botThink");
       if (state._frameCtr % 2 === 0) botThink(dt);
       perfEndStep("botThink");
 
       const squadLogic = requireSquadLogic("authoritative combat pipeline");
+      const frontPlanner = getFrontPlannerGlobal ? getFrontPlannerGlobal() : null;
       const combatPipelineHelpers = {
         queryHash,
         getUnitAtkRange,
@@ -70,18 +110,35 @@
       perfStartStep("syncSquads");
       squadLogic.syncSquadsFromState(state);
       perfEndStep("syncSquads");
-      perfStartStep("buildEngagementZones");
-      squadLogic.buildEngagementZones(state, combatPipelineHelpers);
-      perfEndStep("buildEngagementZones");
+      const postSyncThrottle = getThrottleProfile();
+      if (frontPlanner && typeof frontPlanner.step === "function" && shouldRunPhase("_frontPlannerCounter", postSyncThrottle.plannerInterval)) {
+        perfStartStep("frontPlanner");
+        frontPlanner.step(state, dt, {
+          squadLogic,
+          getFormationOffsets
+        });
+        perfEndStep("frontPlanner");
+      }
+      if (shouldRunPhase("_engagementZoneCounter", postSyncThrottle.engagementInterval)) {
+        perfStartStep("buildEngagementZones");
+        squadLogic.buildEngagementZones(state, combatPipelineHelpers);
+        perfEndStep("buildEngagementZones");
+      }
       perfStartStep("updateSquadCombatState");
       squadLogic.updateSquadCombatState(state, combatPipelineHelpers);
       perfEndStep("updateSquadCombatState");
-      perfStartStep("updateCombat");
-      squadLogic.updateCombat(state, dt, combatPipelineHelpers);
-      perfEndStep("updateCombat");
-      perfStartStep("updateResumeOrders");
-      squadLogic.updateResumeOrders(state, dt, combatPipelineHelpers);
-      perfEndStep("updateResumeOrders");
+      state._combatUpdateAccumDt = (state._combatUpdateAccumDt || 0) + dt;
+      state._resumeUpdateAccumDt = (state._resumeUpdateAccumDt || 0) + dt;
+      if (shouldRunPhase("_combatUpdateCounter", postSyncThrottle.combatInterval)) {
+        perfStartStep("updateCombat");
+        squadLogic.updateCombat(state, state._combatUpdateAccumDt || dt, combatPipelineHelpers);
+        perfEndStep("updateCombat");
+        state._combatUpdateAccumDt = 0;
+        perfStartStep("updateResumeOrders");
+        squadLogic.updateResumeOrders(state, state._resumeUpdateAccumDt || dt, combatPipelineHelpers);
+        perfEndStep("updateResumeOrders");
+        state._resumeUpdateAccumDt = 0;
+      }
 
       perfStartStep("stepUnits");
       stepUnits(dt);

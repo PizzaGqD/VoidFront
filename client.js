@@ -376,6 +376,7 @@
     MINE_YIELD_PER_SEC: minesB.yieldPerSecond ?? 0.5,
     MINE_ENERGY_PER_SEC: minesB.energyPerSecond ?? 0.3,
     MINE_BASE_YIELD_VALUE: minesB.baseYieldValue ?? 1,
+    MINE_XP_YIELD_MUL: minesB.xpYieldMultiplier ?? 1,
     MINE_RICH_MULTIPLIER: minesB.richMultiplier ?? 2.0,
     MINE_GEM_SPEED: minesB.gemSpeed ?? 200,
     MINE_GEM_INTERCEPT_R: minesB.gemInterceptRadius ?? 30,
@@ -452,6 +453,22 @@
 
   CFG.INFLUENCE_R = (pop) => CFG.INFLUENCE_BASE_R + CFG.INFLUENCE_POP_FACTOR * pop;
 
+  function toSimSeconds(realSeconds) {
+    return Math.max(0, (realSeconds || 0) * (CFG.GAME_SPEED || 1));
+  }
+
+  function fromSimSeconds(simSeconds) {
+    return Math.max(0, (simSeconds || 0) / Math.max(0.0001, CFG.GAME_SPEED || 1));
+  }
+
+  function scaleTimingFields(target, keys) {
+    if (!target || !Array.isArray(keys)) return target;
+    for (const key of keys) {
+      if (typeof target[key] === "number") target[key] = toSimSeconds(target[key]);
+    }
+    return target;
+  }
+
   const PLAYER_NAMES = { 1: "You", 2: "Kindred", 3: "Yoshi", 4: "Bobby", 5: "Garfield", 6: "Raven", 7: "Blitz" };
   const PLAYER_COLORS = { 1: 0xff8800, 2: 0xcc2222, 3: 0xddcc00, 4: 0x4488ff, 5: 0x22aa44, 6: 0xaa44cc, 7: 0x44cccc };
 
@@ -487,13 +504,29 @@
   const squadControlOne = document.getElementById("squadControlOne");
   const squadControlMulti = document.getElementById("squadControlMulti");
   const squadStripEl = document.getElementById("squadStripRight") || document.getElementById("squadStrip");
+  const frontControlBox = document.getElementById("frontControlBox");
+  const frontControlSummaryEl = document.getElementById("frontControlSummary");
+  const frontWeightInputs = {
+    left: document.getElementById("frontWeightLeft"),
+    center: document.getElementById("frontWeightCenter"),
+    right: document.getElementById("frontWeightRight")
+  };
+  const frontWeightValueEls = {
+    left: document.getElementById("frontWeightLeftVal"),
+    center: document.getElementById("frontWeightCenterVal"),
+    right: document.getElementById("frontWeightRightVal")
+  };
+  const frontTargetEls = {
+    left: document.getElementById("frontTargetLeft"),
+    center: document.getElementById("frontTargetCenter"),
+    right: document.getElementById("frontTargetRight")
+  };
   const rallyPointBtn = document.getElementById("rallyPointBtn");
   const rallyPointHintEl = document.getElementById("rallyPointHint");
 
-  if (rallyPointBtn) rallyPointBtn.addEventListener("click", () => {
-    state.rallyPointMode = true;
-    if (rallyPointHintEl) rallyPointHintEl.textContent = "Кликните по карте — куда по умолчанию идут отряды.";
-  });
+  if (rallyPointBtn) rallyPointBtn.style.display = "none";
+  if (rallyPointHintEl) rallyPointHintEl.style.display = "none";
+  bindFrontControlBox();
 
   // sendCountEl removed -- using unit shop buttons now
 
@@ -527,6 +560,70 @@
   function isUnitInAuthoritativeCombat(u) {
     return isAuthoritativeSquadInCombat(getAuthoritativeSquadStateForUnit(u));
   }
+
+  function isIndirectControlEnabled() {
+    return state._frontControlEnabled !== false;
+  }
+
+  const INDIRECT_TRIPLET_BUNDLE_COSTS = {
+    fighter: 50,
+    destroyer: 500,
+    cruiser: 2000,
+    battleship: 5000,
+    hyperDestroyer: 10000
+  };
+
+  function getPurchaseUnitsPerOrder(bundleUnits) {
+    return Math.max(1, bundleUnits | 0);
+  }
+
+  function getBaseUnitPurchaseCost(unitTypeKey, bundleUnits = 1) {
+    const type = UNIT_TYPES[unitTypeKey];
+    if (!type) return 0;
+    const unitsPerOrder = getPurchaseUnitsPerOrder(bundleUnits);
+    if (isIndirectControlEnabled() && unitsPerOrder === 3 && INDIRECT_TRIPLET_BUNDLE_COSTS[unitTypeKey] != null) {
+      return INDIRECT_TRIPLET_BUNDLE_COSTS[unitTypeKey];
+    }
+    return type.cost || 0;
+  }
+
+  function getPurchaseCostWithModifiers(ownerId, unitTypeKey, purchaseCount = 1, bundleUnits = 1) {
+    const player = ownerId != null ? state.players.get(ownerId) : null;
+    const costMul = player && player.unitCostMul != null ? player.unitCostMul : 1;
+    const costPerPurchase = Math.max(1, Math.round(getBaseUnitPurchaseCost(unitTypeKey, bundleUnits) * costMul));
+    return {
+      costPerPurchase,
+      totalCost: costPerPurchase * Math.max(1, purchaseCount | 0)
+    };
+  }
+
+  function getFrontPlannerApi() {
+    return typeof FrontPlanner !== "undefined" ? FrontPlanner : null;
+  }
+
+  function getFrontControlCoreId() {
+    return state.myPlayerId != null ? state.myPlayerId : 1;
+  }
+
+  function getAutoFrontSpecs(coreId) {
+    const planner = getFrontPlannerApi();
+    if (planner && planner.getSpawnFrontSpecs) return planner.getSpawnFrontSpecs(state, coreId);
+    const me = state.players.get(coreId);
+    const center = state.centerObjectives || { centerX: me ? me.x : 0, centerY: me ? me.y : 0 };
+    return ["left", "center", "right"].map((frontType) => ({
+      frontType,
+      sourceTag: "front:" + frontType,
+      waypoints: frontType === "center"
+        ? [{ x: center.centerX || 0, y: center.centerY || 0 }]
+        : [{ x: me ? me.x + (frontType === "left" ? -220 : 220) : 0, y: me ? me.y : 0 }]
+    }));
+  }
+
+  function updateFrontControlBox() {
+    if (frontControlBox) frontControlBox.style.display = "none";
+  }
+
+  function bindFrontControlBox() {}
 
   function applyFormationToSquad(squad, formationType, formationRows, dirX, dirY, formationPigWidth) {
     const leader = squad.find(u => (u.leaderId || u.id) === (squad[0].leaderId || squad[0].id)) || squad[0];
@@ -796,8 +893,12 @@
   if (splitByTypeBtnOne) splitByTypeBtnOne.addEventListener("click", doSplitSquadByType);
 
   function updateSquadControlBox() {
-    const squads = getSelectedSquads();
     if (!squadControlBox) return;
+    if (isIndirectControlEnabled()) {
+      squadControlBox.style.display = "none";
+      return;
+    }
+    const squads = getSelectedSquads();
     if (squads.length === 0) {
       squadControlBox.style.display = "none";
       return;
@@ -830,6 +931,10 @@
 
   function updateSquadStrip() {
     if (!squadStripEl) return;
+    if (isIndirectControlEnabled()) {
+      squadStripEl.innerHTML = "";
+      return;
+    }
     const squads = getSquads().filter(s => s.length > 0 && s[0].owner === state.myPlayerId);
     squadStripEl.innerHTML = "";
     squads.forEach((squad, idx) => {
@@ -956,20 +1061,20 @@
     if (state._lastCollectSoundAt != null && (state.t - state._lastCollectSoundAt) < COLLECT_SOUND_THROTTLE) return;
     state._lastCollectSoundAt = state.t;
     const t0 = audioCtx.currentTime;
-    const notes = [880, 1108];
-    const gain = 0.055;
+    const notes = [1180, 1480];
+    const gain = 0.034;
     for (let i = 0; i < notes.length; i++) {
       const osc = audioCtx.createOscillator();
       const g = audioCtx.createGain();
-      osc.type = "sine";
-      const start = t0 + i * 0.04;
+      osc.type = i === 0 ? "triangle" : "sine";
+      const start = t0 + i * 0.022;
       osc.frequency.setValueAtTime(notes[i], start);
       g.gain.setValueAtTime(0.0001, start);
-      g.gain.exponentialRampToValueAtTime(gain, start + 0.01);
-      g.gain.exponentialRampToValueAtTime(0.0001, start + 0.06);
+      g.gain.exponentialRampToValueAtTime(gain, start + 0.008);
+      g.gain.exponentialRampToValueAtTime(0.0001, start + 0.048);
       osc.connect(g).connect(audioCtx.destination);
       osc.start(start);
-      osc.stop(start + 0.07);
+      osc.stop(start + 0.055);
     }
   }
 
@@ -1042,6 +1147,8 @@
   // ── Procedural SFX (laser, explosion) — audible only when camera close to action ──
   let _audioCtx = null;
   const SOUND_HEAR_RADIUS = 550;
+  const LASER_SFX_MIN_ZOOM = 0.18;
+  const LASER_SFX_MAX_ZOOM = 0.48;
   const LASER_SFX_MIN_GAP_SEC = 0.02;
   const LASER_SFX_WINDOW_SEC = 0.12;
   const LASER_SFX_MAX_IN_WINDOW = 6;
@@ -1060,9 +1167,16 @@
     const cx = (v.x + v.x2) / 2, cy = (v.y + v.y2) / 2;
     return Math.hypot(wx - cx, wy - cy) < SOUND_HEAR_RADIUS;
   }
+  function getLaserZoomVolume() {
+    const zoom = cam.zoom || CFG.CAMERA_START_ZOOM || 0.22;
+    const mix = Math.max(0, Math.min(1, (zoom - LASER_SFX_MIN_ZOOM) / Math.max(0.001, LASER_SFX_MAX_ZOOM - LASER_SFX_MIN_ZOOM)));
+    return mix * mix;
+  }
   function playLaserSound(fromX, fromY, toX, toY) {
     const mx = (fromX + toX) / 2, my = (fromY + toY) / 2;
     if (!isNearCamera(mx, my)) return;
+    const zoomVolume = getLaserZoomVolume();
+    if (zoomVolume <= 0.001) return;
     try {
       const ctx = ensureAudioCtx();
       if (ctx.state === "suspended") ctx.resume();
@@ -1084,7 +1198,7 @@
       osc.type = "triangle";
       osc.frequency.setValueAtTime(startFreq, now);
       osc.frequency.exponentialRampToValueAtTime(endFreq, now + 0.05);
-      gain.gain.setValueAtTime(0.05 * burstMix, now);
+      gain.gain.setValueAtTime(0.05 * burstMix * zoomVolume, now);
       gain.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
       osc.start(now); osc.stop(now + 0.05);
     } catch (_) {}
@@ -1094,19 +1208,26 @@
     try {
       const ctx = ensureAudioCtx();
       if (ctx.state === "suspended") ctx.resume();
-      const buf = ctx.createBuffer(1, ctx.sampleRate * 0.15, ctx.sampleRate);
-      const d = buf.getChannelData(0);
-      for (let i = 0; i < d.length; i++) {
-        const t = i / ctx.sampleRate;
-        d[i] = (Math.random() * 2 - 1) * Math.exp(-t * 25);
-      }
-      const src = ctx.createBufferSource();
-      src.buffer = buf;
+      const now = ctx.currentTime;
+      const oscA = ctx.createOscillator();
+      const oscB = ctx.createOscillator();
       const gain = ctx.createGain();
-      src.connect(gain); gain.connect(ctx.destination);
-      gain.gain.setValueAtTime(0.15, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
-      src.start(ctx.currentTime);
+      oscA.type = "triangle";
+      oscB.type = "sine";
+      oscA.frequency.setValueAtTime(540, now);
+      oscA.frequency.exponentialRampToValueAtTime(410, now + 0.085);
+      oscB.frequency.setValueAtTime(820, now);
+      oscB.frequency.exponentialRampToValueAtTime(620, now + 0.06);
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.exponentialRampToValueAtTime(0.028, now + 0.008);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.095);
+      oscA.connect(gain);
+      oscB.connect(gain);
+      gain.connect(ctx.destination);
+      oscA.start(now);
+      oscB.start(now);
+      oscA.stop(now + 0.10);
+      oscB.stop(now + 0.08);
     } catch (_) {}
   }
 
@@ -1218,6 +1339,8 @@
   const mapLayer = new PIXI.Container();
   const nebulaLayer = new PIXI.Container();
   const gridLayer = new PIXI.Container();
+  const frontLaneLayer = new PIXI.Container();
+  const mineLayer = new PIXI.Container();
   const nebulaFxLayer = new PIXI.Container();
   const zonesLayer = new PIXI.Container();
   const resLayer = new PIXI.Container();
@@ -1250,8 +1373,12 @@
   const combatDebugGfx = new PIXI.Graphics();
   const combatDebugLayer = new PIXI.Container();
   combatDebugLayer.addChild(combatDebugGfx);
+  const frontLaneGfx = new PIXI.Graphics();
+  const frontLaneTextLayer = new PIXI.Container();
+  frontLaneLayer.addChild(frontLaneGfx);
+  frontLaneLayer.addChild(frontLaneTextLayer);
   const combatDebugLabels = new Map(); // squad:<id> -> PIXI.Text
-  world.addChild(mapLayer, nebulaLayer, gridLayer, nebulaFxLayer, zonesLayer, zoneEffectsLayer, turretLayer, activityZoneLayer, abilityFxLayer, shipTrailsLayer, unitsLayer, resLayer, cityLayer, shieldHitEffectsLayer, squadLabelsLayer, combatLayer, floatingDamageLayer, bulletsLayer, ghostLayer, combatDebugLayer);
+  world.addChild(mapLayer, nebulaLayer, gridLayer, frontLaneLayer, mineLayer, nebulaFxLayer, zonesLayer, zoneEffectsLayer, turretLayer, activityZoneLayer, abilityFxLayer, shipTrailsLayer, unitsLayer, resLayer, cityLayer, shieldHitEffectsLayer, squadLabelsLayer, combatLayer, floatingDamageLayer, bulletsLayer, ghostLayer, combatDebugLayer);
   nebulaLayer.visible = false;
   nebulaFxLayer.visible = false;
   world.addChild(fogLayer);
@@ -1373,6 +1500,31 @@
   function inView(x, y) {
     const v = state._vp;
     return v && x >= v.x && x <= v.x2 && y >= v.y && y <= v.y2;
+  }
+
+  function rectInView(x1, y1, x2, y2, pad = 0) {
+    const v = state._vp;
+    if (!v) return true;
+    return !(x2 < (v.x - pad) || x1 > (v.x2 + pad) || y2 < (v.y - pad) || y1 > (v.y2 + pad));
+  }
+
+  function pointsBoundsInView(points, pad = 0) {
+    if (!Array.isArray(points) || points.length === 0) return false;
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const point of points) {
+      if (!point) continue;
+      const x = point.x || 0;
+      const y = point.y || 0;
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x > maxX) maxX = x;
+      if (y > maxY) maxY = y;
+    }
+    if (!Number.isFinite(minX)) return false;
+    return rectInView(minX, minY, maxX, maxY, pad);
   }
 
   // ---- Shared spatial hash (rebuilt once per frame) ----
@@ -2781,6 +2933,7 @@
     targetPoints: [],
     rallyPoint: null,
     rallyPointMode: false,
+    _frontControlEnabled: true,
     formationPreview: null,
     orderPreview: null,
     floatingDamage: [],
@@ -2792,6 +2945,10 @@
     engagementZones: new Map(),
     nextSquadId: 1,
     nextEngagementZoneId: 1,
+    coreFrontPolicies: {},
+    frontGraph: {},
+    squadFrontAssignments: {},
+    centerObjectives: { centerX: 0, centerY: 0, richMineId: null, centerMineIds: [], pirateBaseIds: [], livePirateBaseIds: [], securedByPlayerId: null, requiredMineCount: 0 },
     smoothedFronts: {},
     squadBinds: {},
     persistentBattles: {},
@@ -2805,6 +2962,7 @@
   // ------------------------------------------------------------
   const PERF_LOG_INTERVAL = 8;
   const PERF_FRAME_SAMPLES = 120;
+  const PERF_TARGET_30_MS = 1000 / 30;
   let perfAcc = 0;
   let perfFrameTimes = [];
   let perfStepStart = {};
@@ -2836,12 +2994,51 @@
     const mem = typeof performance !== "undefined" && performance.memory
       ? (performance.memory.usedJSHeapSize / 1048576).toFixed(1) + " MB"
       : "n/a";
+    const zoom = cam.zoom || CFG.CAMERA_START_ZOOM || 0.22;
+    const vp = state._vp || getViewport();
+    const viewportW = vp ? Math.max(0, vp.x2 - vp.x) : (app.screen.width / Math.max(0.001, zoom));
+    const viewportH = vp ? Math.max(0, vp.y2 - vp.y) : (app.screen.height / Math.max(0.001, zoom));
+    let visibleUnits = 0;
+    let visibleTurrets = 0;
+    let visibleBullets = 0;
+    let visibleRes = 0;
+    let visibleMines = 0;
+    let visibleMineGems = 0;
+    let visibleCities = 0;
+    let visiblePirateBases = 0;
+    let livePlayers = 0;
+    for (const u of state.units.values()) if (inView(u.x || 0, u.y || 0)) visibleUnits++;
+    for (const t of state.turrets.values()) if (t && t.hp > 0 && inView(t.x || 0, t.y || 0)) visibleTurrets++;
+    for (const b of state.bullets) {
+      const bx = b.x || b.fromX || 0;
+      const by = b.y || b.fromY || 0;
+      if (inView(bx, by)) visibleBullets++;
+    }
+    for (const r of state.res.values()) if (inView(r.x || 0, r.y || 0)) visibleRes++;
+    for (const mine of state.mines.values()) if (inView(mine.x || 0, mine.y || 0)) visibleMines++;
+    for (const gem of state.mineGems || []) if (gem && gem.alive && inView(gem.x || 0, gem.y || 0)) visibleMineGems++;
+    for (const p of state.players.values()) {
+      if (p && !p.eliminated && p.id > 0) livePlayers++;
+      if (p && !p.eliminated && inView(p.x || 0, p.y || 0)) visibleCities++;
+    }
+    for (const pb of state.pirateBases || []) {
+      if (pb && pb.hp > 0 && inView(pb.x || 0, pb.y || 0)) visiblePirateBases++;
+    }
 
-    const stepStr = Object.keys(perfStepAcc)
+    const sortedSteps = Object.keys(perfStepAcc)
       .filter(k => perfStepAcc[k] > 0)
-      .sort((a, b) => perfStepAcc[b] - perfStepAcc[a])
+      .sort((a, b) => perfStepAcc[b] - perfStepAcc[a]);
+    const stepStr = sortedSteps
       .map(k => k + "=" + (perfStepAcc[k] / 1000).toFixed(2) + "s")
       .join(" ");
+    const renderTime = (perfStepAcc.visuals || 0) + (perfStepAcc.zones || 0);
+    const totalStepTime = sortedSteps.reduce((sum, key) => sum + (perfStepAcc[key] || 0), 0);
+    const simTime = Math.max(0, totalStepTime - renderTime);
+    const hotspot = sortedSteps.length ? sortedSteps[0] : "—";
+    const approxFps = avg > 0 ? Math.round(1000 / Math.max(0.001, avg)) : 0;
+    const overBudgetMs = avg - PERF_TARGET_30_MS;
+    const budgetState = overBudgetMs > 0 ? ("+" + overBudgetMs.toFixed(1) + "ms over") : (Math.abs(overBudgetMs).toFixed(1) + "ms headroom");
+    const bottleneck = renderTime >= simTime ? "render" : "sim";
     const pktSamples = state._netPacketStats && Array.isArray(state._netPacketStats.samples)
       ? state._netPacketStats.samples.slice(-30)
       : [];
@@ -2855,6 +3052,18 @@
       bullets,
       floating,
       resources: res,
+      zoom,
+      visibleUnits,
+      visibleTurrets,
+      visibleBullets,
+      visibleResources: visibleRes,
+      visibleMines,
+      visibleMineGems,
+      visibleCities,
+      visiblePirateBases,
+      mineFlowPackets: (state.mineFlowPackets || []).length,
+      squads: state.squads ? state.squads.size : 0,
+      engagementZones: state.engagementZones ? state.engagementZones.size : 0,
       avgPacketBytes,
       samples: n,
       at: state.t
@@ -2862,9 +3071,13 @@
     perfStepAcc = {};
 
     const line = `[perf] t=${(state.t / 60).toFixed(1)}min | frame avg=${(avg).toFixed(1)}ms max=${(max).toFixed(0)}ms | units=${units} bullets=${bullets} floatDmg=${floating} res=${res} heap=${mem} | ${stepStr || "—"}`;
+    const sceneLine = `[perf:scene] zoom=${zoom.toFixed(3)} screen=${app.screen.width}x${app.screen.height} vp=${Math.round(viewportW)}x${Math.round(viewportH)} zones=${state.zonesEnabled ? "on" : "off"} players=${livePlayers}/${state.players.size} squads=${state.squads ? state.squads.size : 0} fights=${state.engagementZones ? state.engagementZones.size : 0} packets=${(state.mineFlowPackets || []).length} | visible units=${visibleUnits} turrets=${visibleTurrets} bullets=${visibleBullets} res=${visibleRes} mineGems=${visibleMineGems} mines=${visibleMines} cities=${visibleCities} pirateBases=${visiblePirateBases}`;
+    const goalLine = `[perf:goal30] fps≈${approxFps} target=30 ${budgetState} | bottleneck=${bottleneck} hotspot=${hotspot} render=${(renderTime / 1000).toFixed(2)}s sim=${(simTime / 1000).toFixed(2)}s`;
     state.perfLog.push(line);
     if (state.perfLog.length > 50) state.perfLog.shift();
     console.log(line);
+    console.log(sceneLine);
+    console.log(goalLine);
 
     const perfEl = document.getElementById("perfLog");
     if (perfEl) {
@@ -2876,7 +3089,7 @@
   function makePlayer(id, name, x, y, popStart) {
     const terrain = getTerrainType(x, y);
     const onWater = terrain === "deepWater" || terrain === "shallowWater";
-    const startPop = (popStart ?? CFG.POP_START) + (onWater ? 30 : 0);
+    const startPop = Math.max(1, popStart ?? CFG.POP_START);
     const color = colorForId(id);
     const displayName = name ?? nameForId(id);
     const poly = computeInfluencePolygon(x, y, startPop);
@@ -3361,6 +3574,16 @@
     return result;
   }
 
+  function grantLevelCardDrops(p, sourceLabel) {
+    if (!p) return 0;
+    let drops = 0;
+    for (let i = 0; i < 2; i++) {
+      if (drawRandomCardForPlayer(p, sourceLabel)) drops++;
+    }
+    if (Math.random() < 0.15 && drawRandomCardForPlayer(p, sourceLabel + ":bonus")) drops++;
+    return drops;
+  }
+
   function grantSpecificCardToPlayer(p, cardId, sourceLabel) {
     if (!p || !cardId) return null;
     ensurePlayerCardState(p);
@@ -3427,23 +3650,66 @@
     return nearest;
   }
 
+  function getNearestEnemyMine(pid) {
+    const owner = state.players.get(pid);
+    if (!owner) return null;
+    let best = null;
+    let bestD = Infinity;
+    for (const mine of state.mines.values()) {
+      if (!mine || mine.ownerId == null || mine.ownerId === pid) continue;
+      const mineOwner = state.players.get(mine.ownerId);
+      if (!mineOwner || mineOwner.eliminated) continue;
+      const d = Math.hypot((mine.x || 0) - (owner.x || 0), (mine.y || 0) - (owner.y || 0));
+      if (d < bestD) {
+        bestD = d;
+        best = mine;
+      }
+    }
+    return best;
+  }
+
+  function getLaneRaidPointAgainstEnemy(pid, enemy) {
+    if (!enemy) return null;
+    const center = state.centerObjectives || {};
+    const points = getLanePointsForPlayerFront(enemy, "center", {
+      x: center.centerX || 0,
+      y: center.centerY || 0
+    });
+    const sample = sampleLanePolylinePoint(points, 0.52);
+    return sample ? { x: sample.x, y: sample.y } : null;
+  }
+
   function buildBotAbilityAction(pid, cardDef) {
+    const source = state.players.get(pid);
     const target = getNearestEnemyPlayer(pid);
     const abilityDef = getAbilityDefById(cardDef.abilityId);
     if (!abilityDef) return null;
     const action = { pid, abilityId: abilityDef.id };
+    if (abilityDef.id === "resourceRaid") {
+      const mine = getNearestEnemyMine(pid);
+      if (!mine) return null;
+      action.x = mine.x;
+      action.y = mine.y;
+      return action;
+    }
+    if (abilityDef.id === "pirateRaid") {
+      const raidPoint = getLaneRaidPointAgainstEnemy(pid, target);
+      if (!raidPoint) return null;
+      action.x = raidPoint.x;
+      action.y = raidPoint.y;
+      return action;
+    }
     if (abilityDef.targeting === "city") {
       if (!target) return null;
       action.targetCityId = target.id;
       return action;
     }
     if (abilityDef.targeting === "point") {
-      action.x = target ? target.x : (state.players.get(pid)?.x || 0);
-      action.y = target ? target.y : (state.players.get(pid)?.y || 0);
+      action.x = target ? target.x : (source?.x || 0);
+      action.y = target ? target.y : (source?.y || 0);
       return action;
     }
     if (abilityDef.targeting === "angle") {
-      const source = state.players.get(pid);
       const tx = target ? target.x : (source?.x || 0) + 100;
       const ty = target ? target.y : (source?.y || 0);
       action.x = tx;
@@ -3485,21 +3751,30 @@
       const activated = activateBuffCardForPlayer(p.id, nextBuff.instanceId);
       if (!activated || !activated.ok) break;
     }
-    while (p.abilityHand.length > 0) {
-      const nextAbility = p.abilityHand[0];
-      const cardDef = nextAbility ? getCardDefById(nextAbility.cardId) : null;
-      const action = cardDef ? buildBotAbilityAction(p.id, cardDef) : null;
-      if (!action) break;
-      const casted = castAbilityCardForPlayer({
-        pid: p.id,
-        instanceId: nextAbility.instanceId,
-        x: action.x,
-        y: action.y,
-        angle: action.angle,
-        targetCityId: action.targetCityId,
-        shouldBroadcast: false
-      });
-      if (!casted || !casted.ok) break;
+    let castAttempts = 0;
+    while (p.abilityHand.length > 0 && castAttempts < 24) {
+      let castedAny = false;
+      const handSnapshot = [...p.abilityHand];
+      for (const nextAbility of handSnapshot) {
+        const cardDef = nextAbility ? getCardDefById(nextAbility.cardId) : null;
+        const action = cardDef ? buildBotAbilityAction(p.id, cardDef) : null;
+        if (!action) continue;
+        const casted = castAbilityCardForPlayer({
+          pid: p.id,
+          instanceId: nextAbility.instanceId,
+          x: action.x,
+          y: action.y,
+          angle: action.angle,
+          targetCityId: action.targetCityId,
+          shouldBroadcast: false
+        });
+        if (casted && casted.ok) {
+          castedAny = true;
+          break;
+        }
+      }
+      if (!castedAny) break;
+      castAttempts++;
     }
     emitCardStateForPlayer(p.id);
   }
@@ -3742,7 +4017,9 @@
   const PATROL_BASE_SHOTS = 2;
 
   function getTurretOrbitRadius(p) {
-    return getPlanetRadius(p) + Math.max(22, getPlanetRadius(p) * 1.55);
+    const base = getPlanetRadius(p) + Math.max(22, getPlanetRadius(p) * 1.55);
+    const rangeMul = p && p.turretRangeMul != null ? p.turretRangeMul : 1;
+    return base * (1 + Math.max(0, rangeMul - 1) * 0.65);
   }
 
   function getTurretOrbitState(p, t) {
@@ -3912,11 +4189,22 @@
   }
 
   function redrawZone(p) {
+    const zoneRadius = (p && p.influenceR) || (CFG.INFLUENCE_BASE_R || 240);
+    const visible = rectInView((p.x || 0) - zoneRadius, (p.y || 0) - zoneRadius, (p.x || 0) + zoneRadius, (p.y || 0) + zoneRadius, 140);
+    if (p.zoneGfx) p.zoneGfx.visible = visible;
+    if (p.zoneGlow) p.zoneGlow.visible = visible;
+    if (p.zoneShellGfx) p.zoneShellGfx.visible = visible;
+    if (!visible) return;
+    const zoom = cam.zoom || CFG.CAMERA_START_ZOOM || 0.22;
+    if (state._zoneRenderPlayersCacheFrame !== state._frameCtr) {
+      state._zoneRenderPlayersCacheFrame = state._frameCtr;
+      state._zoneRenderPlayersCache = [...state.players.values()];
+    }
     ZoneRenderer.redraw(p, {
       INFLUENCE_ARMY_MARGIN: CFG.INFLUENCE_ARMY_MARGIN,
-      zoom: cam.zoom,
+      zoom,
       time: state.t,
-      players: [...state.players.values()]
+      players: state._zoneRenderPlayersCache || []
     });
   }
 
@@ -4041,7 +4329,12 @@
       }
       if (alive) {
         t.gfx.clear();
-        DefenseRenderer.drawTurretShape(t.gfx, t.x, t.y, t.nx || 0, t.ny || -1, color, cam.zoom);
+        const hpScale = Math.max(1, Math.sqrt(Math.max(1, p.turretHpMul != null ? p.turretHpMul : 1)));
+        const barrelMul = Math.max(1, p.turretDmgMul != null ? p.turretDmgMul : 1);
+        DefenseRenderer.drawTurretShape(t.gfx, t.x, t.y, t.nx || 0, t.ny || -1, color, cam.zoom, {
+          scale: hpScale,
+          barrelMul
+        });
       } else {
         t.gfx.clear();
         t.gfx.visible = true;
@@ -4076,7 +4369,7 @@
         t.labelGfx.visible = false;
         t._skullGfx.visible = true;
         t._skullGfx.position.set(t.x, t.y);
-        const remain = Math.max(0, Math.ceil(60 - (state.t - t._diedAt)));
+        const remain = Math.max(0, Math.ceil(fromSimSeconds(toSimSeconds(60) - (state.t - t._diedAt))));
         const m = Math.floor(remain / 60);
         const s = remain % 60;
         t._respawnTxt.text = m + ":" + (s < 10 ? "0" : "") + s;
@@ -4172,7 +4465,7 @@
     }
 
     for (const t of state.turrets.values()) {
-      if (t.hp <= 0 && t._diedAt && state.t - t._diedAt >= 60) {
+      if (t.hp <= 0 && t._diedAt && state.t - t._diedAt >= toSimSeconds(60)) {
         const p = state.players.get(t.owner);
         if (p && p.pop > 0) {
           const turretHpMul = (p.turretHpMul != null ? p.turretHpMul : 1) * getLevelBonusMul(p);
@@ -4227,8 +4520,61 @@
     }
   }
 
+  function getAdaptiveShipRenderState() {
+    if (state._shipRenderStateFrame === state._frameCtr && state._shipRenderStateCache) return state._shipRenderStateCache;
+    const zoom = cam.zoom || CFG.CAMERA_START_ZOOM || 0.22;
+    const unitCount = state.units ? state.units.size : 0;
+    let effectiveZoom = zoom;
+    if (unitCount >= 520 && zoom < 0.78) effectiveZoom = Math.min(zoom, 0.10);
+    else if (unitCount >= 420 && zoom < 0.62) effectiveZoom = Math.min(zoom, 0.22);
+    else if (unitCount >= 320 && zoom < 0.46) effectiveZoom = Math.min(zoom, 0.28);
+    state._shipRenderStateFrame = state._frameCtr;
+    state._shipRenderStateCache = {
+      zoom: effectiveZoom,
+      detail: LOD.getDetail("ship", effectiveZoom),
+      level: LOD.getLevel(effectiveZoom)
+    };
+    return state._shipRenderStateCache;
+  }
+
+  function getAdaptiveShipRenderZoom() {
+    return getAdaptiveShipRenderState().zoom;
+  }
+
+  function getAdaptiveShipVisualDetail() {
+    return getAdaptiveShipRenderState().detail;
+  }
+
+  function getAdaptiveShipLodLevel() {
+    return getAdaptiveShipRenderState().level;
+  }
+
+  function getShipVisualRedrawInterval(selected, hovered, flashing) {
+    if (selected || hovered || flashing) return 1;
+    const unitCount = state.units ? state.units.size : 0;
+    if (unitCount >= 520) return 10;
+    if (unitCount >= 420) return 8;
+    if (unitCount >= 300) return 6;
+    return 4;
+  }
+
+  function syncUnitShipFilters(u, shipDetail) {
+    if (!u || !u.gfx) return;
+    const glowEnabled = !!(shipDetail && shipDetail.glow);
+    if (u._lastShipGlowEnabled === glowEnabled) return;
+    u._lastShipGlowEnabled = glowEnabled;
+    if (glowEnabled) {
+      const type = UNIT_TYPES[u.unitType] || UNIT_TYPES.fighter;
+      const glowDist = Math.max(2.5, type.sizeMultiplier * 1.5 + 1.5);
+      const glow = makeGlow(u.color || 0x888888, glowDist, 0.45);
+      u.gfx.filters = glow ? [glow] : [];
+    } else {
+      u.gfx.filters = [];
+    }
+  }
+
   function drawShipShape(g, unitType, col, highlight) {
-    ShipRenderer.drawShape(g, unitType, col, highlight, cam.zoom);
+    ShipRenderer.drawShape(g, unitType, col, highlight, getAdaptiveShipRenderZoom());
   }
 
   function makeUnitVisual(u) {
@@ -4237,18 +4583,13 @@
     const g = new PIXI.Graphics();
     drawShipShape(g, u.unitType || "fighter", col);
 
-    const type = UNIT_TYPES[u.unitType] || UNIT_TYPES.fighter;
-    const shipDetail = LOD.getDetail("ship", cam.zoom);
-    if (shipDetail.glow) {
-      const glowDist = Math.max(2.5, type.sizeMultiplier * 1.5 + 1.5);
-      const glow = makeGlow(col, glowDist, 0.45);
-      if (glow) g.filters = [glow];
-    }
-
     g.position.set(u.x, u.y);
     unitsLayer.addChild(g);
     u.gfx = g;
-    u._lastShipLodLevel = LOD.getLevel(cam.zoom);
+    const shipDetail = getAdaptiveShipVisualDetail();
+    u._lastShipLodLevel = getAdaptiveShipLodLevel();
+    u._lastShipGlowEnabled = null;
+    syncUnitShipFilters(u, shipDetail);
   }
 
   function updateUnitVisualsOnly() {
@@ -4263,18 +4604,11 @@
       if (vis) {
         u.gfx.position.set(u.x, u.y);
         const spd = Math.hypot(u.vx || 0, u.vy || 0);
-        const shipDetail = LOD.getDetail("ship", cam.zoom);
-        const shipLodLevel = LOD.getLevel(cam.zoom);
+        const shipDetail = getAdaptiveShipVisualDetail();
+        const shipLodLevel = getAdaptiveShipLodLevel();
         if (u._lastShipLodLevel !== shipLodLevel) {
           u._lastShipLodLevel = shipLodLevel;
-          const type = UNIT_TYPES[u.unitType] || UNIT_TYPES.fighter;
-          if (shipDetail.glow) {
-            const glowDist = Math.max(2.5, type.sizeMultiplier * 1.5 + 1.5);
-            const glow = makeGlow(u.color || 0x888888, glowDist, 0.45);
-            u.gfx.filters = glow ? [glow] : [];
-          } else {
-            u.gfx.filters = [];
-          }
+          syncUnitShipFilters(u, shipDetail);
           u.gfx.clear();
           drawShipShape(u.gfx, u.unitType || "fighter", u.color || 0x888888);
         }
@@ -4289,9 +4623,11 @@
         while (_dRot < -Math.PI) _dRot += Math.PI * 2;
         const _ts = (u.unitType === "fighter" ? 8 : 3) * (state._lastDt || 0.016);
         u.gfx.rotation += Math.abs(_dRot) < _ts ? _dRot : Math.sign(_dRot) * _ts;
-        if ((vfc + u.id) % 8 === 0) {
-          const sel = state.selectedUnitIds.has(u.id);
-          const flashing = u._hitFlashT != null && (state.t - u._hitFlashT) < 0.3;
+        const sel = state.selectedUnitIds.has(u.id);
+        const flashing = u._hitFlashT != null && (state.t - u._hitFlashT) < 0.3;
+        const hovered = state._hoverTarget && state._hoverTarget.id === u.id;
+        const redrawInterval = getShipVisualRedrawInterval(sel, hovered, flashing);
+        if ((vfc + u.id) % redrawInterval === 0) {
           const col = flashing ? 0xff2222 : (sel ? 0xffffff : (u.color || 0x888888));
           u.gfx.clear();
           drawShipShape(u.gfx, u.unitType || "fighter", u.color || 0x888888, col);
@@ -4303,7 +4639,7 @@
   function updateShipTrails() {
     destroyChildren(shipTrailsLayer);
     const g = new PIXI.Graphics();
-    const shipDetail = LOD.getDetail("ship", cam.zoom);
+    const shipDetail = getAdaptiveShipVisualDetail();
     if (!shipDetail.trails) {
       shipTrailsLayer.addChild(g);
       return;
@@ -4393,18 +4729,10 @@
     const squads = getSquads();
     for (const squad of squads) {
       if (squad.length === 0) continue;
-      let cx = 0, cy = 0, hp = 0, maxHp = 0, dps = 0, effectiveHp = 0, effectiveDps = 0;
+      let cx = 0, cy = 0;
       for (const u of squad) {
         cx += u.x;
         cy += u.y;
-        hp += u.hp;
-        const utL = UNIT_TYPES[u.unitType] || UNIT_TYPES.fighter;
-        maxHp += u.maxHp || utL.hp;
-        const unitDps = (u.dmg || utL.damage) * utL.attackRate;
-        dps += unitDps;
-        const mul = u._territoryMul ?? (() => { const zo = getZoneOwnerFast(u.x, u.y); return zo === u.owner ? 1.1 : (zo !== 0 && zo !== u.owner ? 0.9 : 1); })();
-        effectiveHp += u.hp * mul;
-        effectiveDps += unitDps * mul;
       }
       cx /= squad.length;
       cy /= squad.length;
@@ -4416,112 +4744,82 @@
       const maxAtkR = Math.max(...squad.map(u => getUnitAtkRange(u)));
       const maxEngR = Math.max(...squad.map(u => getUnitEngagementRange(u)));
       const spreadR = Math.max(0, ...squad.map(u => Math.hypot(u.x - cx, u.y - cy)));
+      const hovered = !!(state._hoverWorld && squad.some((u) => Math.hypot((u.x || 0) - state._hoverWorld.x, (u.y || 0) - state._hoverWorld.y) <= Math.max(26, getUnitHitRadius(u) + 4)));
       const findUnitAt = (px, py) => squad.reduce((b, u) => {
         const d = (u.x - px) ** 2 + (u.y - py) ** 2;
         return d < b.d ? { u, d } : b;
       }, { u: squad[0], d: Infinity }).u;
 
-      const rg = new PIXI.Graphics();
-      if (squad.length >= 3) {
-        const hullPts = convexHull(squad.map(u => ({ x: u.x, y: u.y })));
-        if (maxAtkR > 5 && hullPts.length >= 3) {
-          const smoothPts = [];
-          for (let hi = 0; hi < hullPts.length; hi++) {
-            const hp = hullPts[hi];
-            const hpNext = hullPts[(hi + 1) % hullPts.length];
-            const r = getUnitAtkRange(findUnitAt(hp.x, hp.y));
-            const rNext = getUnitAtkRange(findUnitAt(hpNext.x, hpNext.y));
-            smoothPts.push({ x: hp.x, y: hp.y, r });
-            const mx = (hp.x + hpNext.x) / 2, my = (hp.y + hpNext.y) / 2;
-            smoothPts.push({ x: mx, y: my, r: (r + rNext) / 2 });
-          }
-          rg.lineStyle(2, col, 0.4);
-          rg.beginFill(col, 0.08);
-          for (let i = 0; i < smoothPts.length; i++) {
-            const p = smoothPts[i];
-            const dx = p.x - cx, dy = p.y - cy;
-            const dl = Math.hypot(dx, dy) || 1;
-            const ox = p.x + (dx / dl) * p.r, oy = p.y + (dy / dl) * p.r;
-            if (i === 0) rg.moveTo(ox, oy);
-            else rg.lineTo(ox, oy);
-          }
-          rg.closePath();
-          rg.endFill();
-
-          if (maxEngR < maxAtkR - 1) {
-            const engSmooth = [];
+      if (hovered) {
+        const rg = new PIXI.Graphics();
+        if (squad.length >= 3) {
+          const hullPts = convexHull(squad.map(u => ({ x: u.x, y: u.y })));
+          if (maxAtkR > 5 && hullPts.length >= 3) {
+            const smoothPts = [];
             for (let hi = 0; hi < hullPts.length; hi++) {
               const hp = hullPts[hi];
               const hpNext = hullPts[(hi + 1) % hullPts.length];
-              const r = getUnitEngagementRange(findUnitAt(hp.x, hp.y));
-              const rNext = getUnitEngagementRange(findUnitAt(hpNext.x, hpNext.y));
-              engSmooth.push({ x: hp.x, y: hp.y, r });
+              const r = getUnitAtkRange(findUnitAt(hp.x, hp.y));
+              const rNext = getUnitAtkRange(findUnitAt(hpNext.x, hpNext.y));
+              smoothPts.push({ x: hp.x, y: hp.y, r });
               const mx = (hp.x + hpNext.x) / 2, my = (hp.y + hpNext.y) / 2;
-              engSmooth.push({ x: mx, y: my, r: (r + rNext) / 2 });
+              smoothPts.push({ x: mx, y: my, r: (r + rNext) / 2 });
             }
-            rg.lineStyle(1.5, 0xff8800, 0.35);
-            rg.beginFill(0xff8800, 0.03);
-            for (let i = 0; i < engSmooth.length; i++) {
-              const p = engSmooth[i];
+            rg.lineStyle(2, col, 0.4);
+            rg.beginFill(col, 0.08);
+            for (let i = 0; i < smoothPts.length; i++) {
+              const p = smoothPts[i];
               const dx = p.x - cx, dy = p.y - cy;
               const dl = Math.hypot(dx, dy) || 1;
               const ox = p.x + (dx / dl) * p.r, oy = p.y + (dy / dl) * p.r;
-              if (i === 0) rg.moveTo(ox, oy); else rg.lineTo(ox, oy);
+              if (i === 0) rg.moveTo(ox, oy);
+              else rg.lineTo(ox, oy);
             }
             rg.closePath();
             rg.endFill();
+
+            if (maxEngR < maxAtkR - 1) {
+              const engSmooth = [];
+              for (let hi = 0; hi < hullPts.length; hi++) {
+                const hp = hullPts[hi];
+                const hpNext = hullPts[(hi + 1) % hullPts.length];
+                const r = getUnitEngagementRange(findUnitAt(hp.x, hp.y));
+                const rNext = getUnitEngagementRange(findUnitAt(hpNext.x, hpNext.y));
+                engSmooth.push({ x: hp.x, y: hp.y, r });
+                const mx = (hp.x + hpNext.x) / 2, my = (hp.y + hpNext.y) / 2;
+                engSmooth.push({ x: mx, y: my, r: (r + rNext) / 2 });
+              }
+              rg.lineStyle(1.5, 0xff8800, 0.35);
+              rg.beginFill(0xff8800, 0.03);
+              for (let i = 0; i < engSmooth.length; i++) {
+                const p = engSmooth[i];
+                const dx = p.x - cx, dy = p.y - cy;
+                const dl = Math.hypot(dx, dy) || 1;
+                const ox = p.x + (dx / dl) * p.r, oy = p.y + (dy / dl) * p.r;
+                if (i === 0) rg.moveTo(ox, oy); else rg.lineTo(ox, oy);
+              }
+              rg.closePath();
+              rg.endFill();
+            }
+          }
+        } else {
+          rg.lineStyle(2, col, 0.4);
+          rg.beginFill(col, 0.08);
+          rg.drawCircle(cx, cy, spreadR + maxAtkR);
+          rg.endFill();
+
+          if (maxEngR < maxAtkR - 1) {
+            rg.lineStyle(1.5, 0xff8800, 0.35);
+            rg.beginFill(0xff8800, 0.03);
+            rg.drawCircle(cx, cy, spreadR + maxEngR);
+            rg.endFill();
           }
         }
-      } else {
-        rg.lineStyle(2, col, 0.4);
-        rg.beginFill(col, 0.08);
-        rg.drawCircle(cx, cy, spreadR + maxAtkR);
-        rg.endFill();
-
-        if (maxEngR < maxAtkR - 1) {
-          rg.lineStyle(1.5, 0xff8800, 0.35);
-          rg.beginFill(0xff8800, 0.03);
-          rg.drawCircle(cx, cy, spreadR + maxEngR);
-          rg.endFill();
-        }
+        squadLabelsLayer.addChild(rg);
       }
-      squadLabelsLayer.addChild(rg);
 
-      const barW = Math.min(60, Math.max(24, squad.length * 6));
-      const barH = 5;
       const barY = cy - 22;
-      const hpFrac = maxHp > 0 ? Math.min(1, hp / maxHp) : 1;
-
-      const g = new PIXI.Graphics();
-      g.lineStyle(1.5, 0x000000, 0.9);
-      g.beginFill(0x222222, 0.7);
-      g.drawRoundedRect(cx - barW / 2, barY, barW, barH, 2);
-      g.endFill();
-      g.lineStyle(0);
-      const hpColor = hpFrac > 0.5 ? col : (hpFrac > 0.25 ? 0xffaa00 : 0xff3333);
-      g.beginFill(hpColor, 0.9);
-      g.drawRoundedRect(cx - barW / 2 + 1, barY + 1, Math.max(0, (barW - 2) * hpFrac), barH - 2, 1);
-      g.endFill();
-      g.lineStyle(1.5, col, 0.7);
-      g.drawRoundedRect(cx - barW / 2, barY, barW, barH, 2);
-      squadLabelsLayer.addChild(g);
-
-      const leaderId = squad[0].leaderId || squad[0].id;
-      const bindNum = Object.keys(state.squadBinds).find(k => state.squadBinds[k] === leaderId);
-      const bindStr = bindNum ? ` [${bindNum}]` : "";
-      const strength = Math.round(effectiveHp + effectiveDps * 4);
-      const strengthTxt = new PIXI.Text("Сила " + strength, {
-        fontFamily: "ui-sans-serif, Arial",
-        fontSize: 16,
-        fontWeight: "bold",
-        fill: 0xffffff,
-        stroke: 0x000000,
-        strokeThickness: 4
-      });
-      strengthTxt.anchor.set(0.5, 1);
-      strengthTxt.position.set(cx, barY - 2);
-      squadLabelsLayer.addChild(strengthTxt);
-      if (isPirateSquad) {
+      if (isPirateSquad && hovered) {
         const pirateFlagTxt = new PIXI.Text("🏴‍☠️", {
           fontFamily: "Segoe UI Emoji, Apple Color Emoji, Noto Color Emoji, Arial",
           fontSize: 16,
@@ -4533,16 +4831,6 @@
         pirateFlagTxt.position.set(cx, barY - 34);
         squadLabelsLayer.addChild(pirateFlagTxt);
       }
-      const detailTxt = new PIXI.Text("Урон/с: " + Math.round(dps) + ", ХП: " + Math.round(hp) + bindStr, {
-        fontFamily: "ui-sans-serif, Arial",
-        fontSize: 10,
-        fill: 0xcccccc,
-        stroke: 0x000000,
-        strokeThickness: 3
-      });
-      detailTxt.anchor.set(0.5, 1);
-      detailTxt.position.set(cx, barY - 20);
-      squadLabelsLayer.addChild(detailTxt);
     }
   }
 
@@ -4733,6 +5021,7 @@
         const cx = zone.anchorX;
         const cy = zone.anchorY;
         const r = zone.displayRadius || zone.radius || 70;
+        if (!rectInView(cx - r, cy - r, cx + r, cy + r, 120)) continue;
 
         const others = [];
         if (mergedIndices.has(zi)) {
@@ -4781,6 +5070,7 @@
         const cx = zone.anchorX;
         const cy = zone.anchorY;
         const r = zone.displayRadius || zone.radius || 70;
+        if (!rectInView(cx - r, cy - r - 90, cx + r, cy + r + 30, 120)) continue;
 
         if (!factions.length) continue;
         const totalPower = factions.reduce((sum, seg) => sum + seg.power, 0) || 1;
@@ -5000,6 +5290,7 @@
         }
       }
       cx /= list.length; cy /= list.length;
+      if (!rectInView(cx - 180, cy - 140, cx + 180, cy + 90, 120)) continue;
       const factions = Object.entries(factionHp).sort((a, b) => b[1] - a[1]);
       if (factions.length === 0) continue;
       const totalHp = factions.reduce((s, f) => s + f[1], 0) || 1;
@@ -5032,12 +5323,6 @@
         seg.endFill();
         combatLayer.addChild(seg);
 
-        if (segW > 30) {
-          const lbl = new PIXI.Text(Math.round(hp), { fontSize: 12, fill: 0xffffff, fontWeight: "bold", stroke: 0x000000, strokeThickness: 2 });
-          lbl.anchor.set(0.5, 0.5);
-          lbl.position.set(cx - barW / 2 + offset + segW / 2, cy - lift + 38 + barH / 2);
-          combatLayer.addChild(lbl);
-        }
         if (offset > 0) {
           const div = new PIXI.Graphics();
           div.beginFill(0xffffff, 0.8);
@@ -5047,16 +5332,14 @@
         }
         offset += segW;
       }
-
-      let nameStr = factions.map(([pid]) => factionName[pid] || "?").join(" vs ");
-      const nameLabel = new PIXI.Text(nameStr, { fontSize: 13, fill: 0xffffff, fontWeight: "bold", stroke: 0x000000, strokeThickness: 2 });
-      nameLabel.anchor.set(0.5, 0);
-      nameLabel.position.set(cx, cy - lift + 38 + barH + 3);
-      combatLayer.addChild(nameLabel);
     }
     }
     if (state._forcePreview) {
       const fp = state._forcePreview;
+      if (!rectInView(fp.enemyCx - FORCE_PREVIEW_RADIUS, fp.enemyCy - FORCE_PREVIEW_RADIUS - 90, fp.enemyCx + FORCE_PREVIEW_RADIUS, fp.enemyCy + FORCE_PREVIEW_RADIUS, 120)) {
+        if (state.floatingDamage.length > 36) state.floatingDamage.splice(0, state.floatingDamage.length - 36);
+        return;
+      }
       const circle = new PIXI.Graphics();
       circle.lineStyle(2, 0xffffff, 0.6);
       circle.drawCircle(fp.enemyCx, fp.enemyCy, FORCE_PREVIEW_RADIUS);
@@ -5149,37 +5432,6 @@
         back.endFill();
         selectionBoxLayer.addChild(back);
       }
-    }
-    const attackTargets = new Set();
-    for (const sq of squads) {
-      const leader = sq.find(v => !v.leaderId) || sq[0];
-      if (leader.chaseTargetUnitId != null) attackTargets.add("u:" + leader.chaseTargetUnitId);
-      if (leader.chaseTargetCityId != null) attackTargets.add("c:" + leader.chaseTargetCityId);
-    }
-    const pulse = 0.4 + 0.35 * Math.sin(performance.now() / 250);
-    for (const key of attackTargets) {
-      const tg = new PIXI.Graphics();
-      if (key.startsWith("u:")) {
-        const tu = state.units.get(parseInt(key.slice(2)));
-        if (tu && tu.hp > 0) {
-          const r = getUnitHitRadius(tu) + 10;
-          tg.circle(tu.x, tu.y, r);
-          tg.stroke({ color: 0xff2222, width: 2.5, alpha: pulse });
-          tg.circle(tu.x, tu.y, r + 4);
-          tg.stroke({ color: 0xff4444, width: 1, alpha: pulse * 0.4 });
-        }
-      } else {
-        const cid = parseInt(key.slice(2));
-        const tc = state.players.get(cid);
-        if (tc && !tc.eliminated) {
-          const r = getPlanetRadius(tc) + 8;
-          tg.circle(tc.x, tc.y, r);
-          tg.stroke({ color: 0xff2222, width: 3, alpha: pulse });
-          tg.circle(tc.x, tc.y, r + 5);
-          tg.stroke({ color: 0xff4444, width: 1.5, alpha: pulse * 0.4 });
-        }
-      }
-      selectionBoxLayer.addChild(tg);
     }
   }
 
@@ -5282,71 +5534,7 @@
       const leader = squad.find(u => !u.leaderId) || squad[0];
       const isAttack = leader.chaseTargetUnitId != null || leader.chaseTargetCityId != null || leader._orderType === "attackUnit" || leader._orderType === "siege" || leader._orderType === "attackPirateBase";
 
-      if (isAttack) {
-        let targetPos = null;
-        if (leader.chaseTargetUnitId != null) {
-          let tu = state.units.get(leader.chaseTargetUnitId);
-          if (!tu || tu.hp <= 0) {
-            tu = null;
-            const deadTarget = state.units.get(leader.chaseTargetUnitId);
-            const targetSquadId = deadTarget ? deadTarget.squadId : null;
-            if (targetSquadId != null) {
-              const tSq = state.squads.get(targetSquadId);
-              if (tSq) {
-                for (const uid of tSq.unitIds) {
-                  const su = state.units.get(uid);
-                  if (su && su.hp > 0) { tu = su; break; }
-                }
-              }
-            }
-          }
-          if (tu) targetPos = { x: tu.x, y: tu.y };
-        } else if (leader.chaseTargetCityId != null) {
-          const city = state.players.get(leader.chaseTargetCityId);
-          if (city) targetPos = { x: city.x, y: city.y };
-          if (!targetPos) {
-            const pirateBase = getNearestAlivePirateBase(leader.x, leader.y);
-            if (pirateBase) targetPos = { x: pirateBase.x, y: pirateBase.y };
-          }
-        } else if (leader._orderType === "attackPirateBase") {
-          const pirateBase = getNearestAlivePirateBase(leader.x, leader.y);
-          if (pirateBase) targetPos = { x: pirateBase.x, y: pirateBase.y };
-        }
-        if (!targetPos && leader.squadId != null) {
-          const sq = state.squads.get(leader.squadId);
-          if (sq && sq.order) {
-            if (sq.order.type === "attackUnit" && sq.order.targetUnitId != null) {
-              const tu = state.units.get(sq.order.targetUnitId);
-              if (tu && tu.hp > 0) targetPos = { x: tu.x, y: tu.y };
-            } else if (sq.order.type === "siege" && sq.order.targetCityId != null) {
-              const city = state.players.get(sq.order.targetCityId);
-              if (city && !city.eliminated) targetPos = { x: city.x, y: city.y };
-            } else if (sq.order.type === "attackPirateBase") {
-              const pirateBase = getNearestAlivePirateBase(leader.x, leader.y);
-              if (pirateBase) targetPos = { x: pirateBase.x, y: pirateBase.y };
-            }
-          }
-        }
-        if (targetPos) {
-          const atkPts = [{ x: leader.x, y: leader.y }, targetPos];
-          const ag = new PIXI.Graphics();
-          for (let seg = 0; seg < atkPts.length - 1; seg++) {
-            ag.lineStyle(7, 0x000000, 0.65);
-            ag.moveTo(atkPts[seg].x, atkPts[seg].y);
-            ag.lineTo(atkPts[seg + 1].x, atkPts[seg + 1].y);
-            ag.lineStyle(5, 0xff3333, 0.95);
-            ag.moveTo(atkPts[seg].x, atkPts[seg].y);
-            ag.lineTo(atkPts[seg + 1].x, atkPts[seg + 1].y);
-          }
-          drawAnimatedDash(ag, atkPts, 14, 6, 2.5, 0xffaaaa, 0.85, t);
-          ag.lineStyle(3, 0xff3333, 1);
-          ag.beginFill(0xff3333, 0.5);
-          ag.drawCircle(targetPos.x, targetPos.y, 14);
-          ag.endFill();
-          pathPreviewLayer.addChild(ag);
-        }
-        continue;
-      }
+      if (isAttack) continue;
 
       const squadState = leader.squadId != null ? state.squads.get(leader.squadId) : null;
       const { points, markers } = getDisplayedOrderPath(leader, squadState);
@@ -5393,6 +5581,314 @@
     }
   }
 
+  function getCenterArenaRadius() {
+    const centerObjectives = state.centerObjectives || {};
+    const centerX = centerObjectives.centerX || CFG.WORLD_W * 0.5;
+    const centerY = centerObjectives.centerY || CFG.WORLD_H * 0.5;
+    let radius = 210;
+    for (const mineId of centerObjectives.centerMineIds || []) {
+      const mine = state.mines.get(mineId);
+      if (!mine) continue;
+      radius = Math.max(radius, Math.hypot((mine.x || 0) - centerX, (mine.y || 0) - centerY) + 90);
+    }
+    return radius;
+  }
+
+  function drawLaneRibbon(g, from, to, color, widthA, widthB, fillAlpha, lineAlpha) {
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const nx = -dy / len;
+    const ny = dx / len;
+    g.beginFill(color, fillAlpha);
+    g.moveTo(from.x + nx * widthA, from.y + ny * widthA);
+    g.lineTo(to.x + nx * widthB, to.y + ny * widthB);
+    g.lineTo(to.x - nx * widthB, to.y - ny * widthB);
+    g.lineTo(from.x - nx * widthA, from.y - ny * widthA);
+    g.closePath();
+    g.endFill();
+    g.lineStyle(1.6, color, lineAlpha);
+    g.moveTo(from.x, from.y);
+    g.lineTo(to.x, to.y);
+  }
+
+  function polylineLength(points) {
+    let total = 0;
+    for (let i = 1; i < (points || []).length; i++) {
+      total += Math.hypot((points[i].x || 0) - (points[i - 1].x || 0), (points[i].y || 0) - (points[i - 1].y || 0));
+    }
+    return total;
+  }
+
+  function slicePolylineToDistance(points, distance) {
+    if (!Array.isArray(points) || points.length === 0) return [];
+    if (points.length === 1) return [{ x: points[0].x || 0, y: points[0].y || 0 }];
+    const maxDist = Math.max(0, distance || 0);
+    const out = [{ x: points[0].x || 0, y: points[0].y || 0 }];
+    let walked = 0;
+    for (let i = 1; i < points.length; i++) {
+      const a = points[i - 1];
+      const b = points[i];
+      const segLen = Math.hypot((b.x || 0) - (a.x || 0), (b.y || 0) - (a.y || 0));
+      if (segLen <= 1e-6) continue;
+      if (walked + segLen <= maxDist) {
+        out.push({ x: b.x || 0, y: b.y || 0 });
+        walked += segLen;
+        continue;
+      }
+      const t = (maxDist - walked) / segLen;
+      if (t > 0) {
+        out.push({
+          x: mfLerp(a.x || 0, b.x || 0, t),
+          y: mfLerp(a.y || 0, b.y || 0, t)
+        });
+      }
+      break;
+    }
+    return out;
+  }
+
+  function projectPointOnPolyline(points, px, py) {
+    let best = null;
+    let walked = 0;
+    for (let i = 1; i < (points || []).length; i++) {
+      const a = points[i - 1];
+      const b = points[i];
+      const dx = (b.x || 0) - (a.x || 0);
+      const dy = (b.y || 0) - (a.y || 0);
+      const len2 = dx * dx + dy * dy;
+      if (len2 <= 1e-6) continue;
+      const t = Math.max(0, Math.min(1, ((px - (a.x || 0)) * dx + (py - (a.y || 0)) * dy) / len2));
+      const qx = (a.x || 0) + dx * t;
+      const qy = (a.y || 0) + dy * t;
+      const dist = Math.hypot(px - qx, py - qy);
+      const segLen = Math.sqrt(len2);
+      const progress = walked + segLen * t;
+      if (!best || dist < best.dist) best = { dist, progress, x: qx, y: qy, angle: Math.atan2(dy, dx) };
+      walked += segLen;
+    }
+    return best;
+  }
+
+  function drawLanePolylineRibbon(g, points, color, width, fillAlpha, lineAlpha) {
+    if (!Array.isArray(points) || points.length < 2) return;
+    for (let i = 1; i < points.length; i++) {
+      drawLaneRibbon(g, points[i - 1], points[i], color, width, width, fillAlpha, lineAlpha);
+    }
+  }
+
+  function drawLanePressureCap(g, point, angle, width, color) {
+    if (!point) return;
+    const nx = -Math.sin(angle || 0);
+    const ny = Math.cos(angle || 0);
+    const half = Math.max(10, width);
+    g.lineStyle(3, color, 0.30);
+    g.moveTo(point.x - nx * half, point.y - ny * half);
+    g.lineTo(point.x + nx * half, point.y + ny * half);
+    g.lineStyle(1.4, 0xffffff, 0.14);
+    g.moveTo(point.x - nx * half * 0.88, point.y - ny * half * 0.88);
+    g.lineTo(point.x + nx * half * 0.88, point.y + ny * half * 0.88);
+  }
+
+  function getLanePointsForPlayerFront(player, frontType, center) {
+    if (!player) return [];
+    if (frontType === "center") return [{ x: player.x, y: player.y }, { x: center.x, y: center.y }];
+    const graph = state.frontGraph && state.frontGraph[player.id] ? state.frontGraph[player.id] : null;
+    const path = frontType === "left" ? graph?.leftPath : graph?.rightPath;
+    return [{ x: player.x, y: player.y }].concat((path || []).map((point) => ({ x: point.x || 0, y: point.y || 0 })));
+  }
+
+  function getFrontLanePressure(ownerId, frontType, points) {
+    if (!Array.isArray(points) || points.length < 2) return null;
+    let bestProgress = 0;
+    let bestSample = null;
+    for (const [squadId, entry] of Object.entries(state.squadFrontAssignments || {})) {
+      if (!entry || entry.ownerId !== ownerId || entry.frontType !== frontType) continue;
+      const squad = state.squads && state.squads.get(Number(squadId));
+      if (!squad || typeof SQUADLOGIC === "undefined" || !SQUADLOGIC.getSquadUnits) continue;
+      for (const u of SQUADLOGIC.getSquadUnits(state, squad)) {
+        const sample = projectPointOnPolyline(points, u.x || 0, u.y || 0);
+        if (!sample) continue;
+        if (sample.dist > 220) continue;
+        if (sample.progress > bestProgress) {
+          bestProgress = sample.progress;
+          bestSample = sample;
+        }
+      }
+    }
+    if (!bestSample || bestProgress <= 0) return null;
+    const sliced = slicePolylineToDistance(points, bestProgress);
+    return { progress: bestProgress, sample: bestSample, points: sliced };
+  }
+
+  function getFrontLaneStrength(ownerId, frontType) {
+    let total = 0;
+    for (const [squadId, entry] of Object.entries(state.squadFrontAssignments || {})) {
+      if (!entry || entry.ownerId !== ownerId || entry.frontType !== frontType) continue;
+      const squad = state.squads && state.squads.get(Number(squadId));
+      if (!squad || typeof SQUADLOGIC === "undefined" || !SQUADLOGIC.getSquadUnits) continue;
+      const units = SQUADLOGIC.getSquadUnits(state, squad);
+      if (!units.length) continue;
+      total += squadStrength(units);
+    }
+    return Math.round(total);
+  }
+
+  function getOpposingLaneReference(ownerId, frontType) {
+    if (frontType !== "left" && frontType !== "right") return null;
+    const ownerGraph = state.frontGraph && state.frontGraph[ownerId] ? state.frontGraph[ownerId] : null;
+    const targetId = frontType === "left" ? ownerGraph?.leftTargetCoreId : ownerGraph?.rightTargetCoreId;
+    if (targetId == null) return null;
+    const enemyGraph = state.frontGraph && state.frontGraph[targetId] ? state.frontGraph[targetId] : null;
+    if (!enemyGraph) return null;
+    if (enemyGraph.leftTargetCoreId === ownerId) return { ownerId: targetId, frontType: "left" };
+    if (enemyGraph.rightTargetCoreId === ownerId) return { ownerId: targetId, frontType: "right" };
+    return null;
+  }
+
+  function sampleLanePolylinePoint(points, t) {
+    if (!Array.isArray(points) || points.length === 0) return null;
+    if (points.length === 1) return { x: points[0].x, y: points[0].y, angle: 0 };
+    const segments = [];
+    let totalLen = 0;
+    for (let i = 1; i < points.length; i++) {
+      const a = points[i - 1];
+      const b = points[i];
+      const len = Math.hypot((b.x || 0) - (a.x || 0), (b.y || 0) - (a.y || 0));
+      if (len <= 1e-6) continue;
+      segments.push({ a, b, len });
+      totalLen += len;
+    }
+    if (!segments.length) return { x: points[0].x || 0, y: points[0].y || 0, angle: 0 };
+    let walk = totalLen * Math.max(0, Math.min(1, t));
+    for (const segment of segments) {
+      if (walk <= segment.len) {
+        const lt = walk / segment.len;
+        const angle = Math.atan2((segment.b.y || 0) - (segment.a.y || 0), (segment.b.x || 0) - (segment.a.x || 0));
+        return {
+          x: mfLerp(segment.a.x || 0, segment.b.x || 0, lt),
+          y: mfLerp(segment.a.y || 0, segment.b.y || 0, lt),
+          angle
+        };
+      }
+      walk -= segment.len;
+    }
+    const last = segments[segments.length - 1];
+    return {
+      x: last.b.x || 0,
+      y: last.b.y || 0,
+      angle: Math.atan2((last.b.y || 0) - (last.a.y || 0), (last.b.x || 0) - (last.a.x || 0))
+    };
+  }
+
+  function addFrontLaneStrengthLabel(owner, frontType, points, t, pressure) {
+    const strength = getFrontLaneStrength(owner.id, frontType);
+    if (!owner || strength <= 0) return;
+    const sample = pressure && pressure.sample ? pressure.sample : sampleLanePolylinePoint(points, t);
+    if (!sample) return;
+    if (!inView(sample.x, sample.y)) return;
+    const sideAngle = sample.angle + Math.PI * 0.5;
+    const sideX = Math.cos(sideAngle);
+    const sideY = Math.sin(sideAngle);
+    const outward = ((sample.x - (state.centerObjectives?.centerX || CFG.WORLD_W * 0.5)) * sideX + (sample.y - (state.centerObjectives?.centerY || CFG.WORLD_H * 0.5)) * sideY) >= 0 ? 1 : -1;
+    const enemyLane = getOpposingLaneReference(owner.id, frontType);
+    const enemyStrength = enemyLane ? getFrontLaneStrength(enemyLane.ownerId, enemyLane.frontType) : 0;
+    const advantage = strength - enemyStrength;
+    const zoom = cam.zoom || CFG.CAMERA_START_ZOOM || 0.22;
+    const fontSize = Math.round(clamp(20 + (zoom - 0.16) * 30, 20, 40));
+    const fill = advantage > 0 ? 0xf4fff7 : advantage < 0 ? 0xfff0e8 : 0xf8fbff;
+    const glowColor = advantage > 0 ? 0x76ffb4 : advantage < 0 ? 0xff9866 : (owner.color || colorForId(owner.id));
+    const sideOffset = 58 + fontSize * 0.75;
+    const backOffset = pressure && pressure.sample ? (26 + fontSize * 0.45) : 0;
+    const txt = new PIXI.Text({
+      text: `${owner.name}: ${strength}`,
+      style: {
+        fontFamily: "ui-sans-serif, Arial",
+        fontSize,
+        fontWeight: "bold",
+        fill,
+        stroke: { color: glowColor, width: advantage === 0 ? 2 : 3 },
+        dropShadow: true,
+        dropShadowColor: glowColor,
+        dropShadowBlur: advantage === 0 ? 10 : 16,
+        dropShadowDistance: 0,
+        dropShadowAlpha: advantage > 0 ? 0.34 : advantage < 0 ? 0.28 : 0.16
+      }
+    });
+    txt.anchor.set(0.5, 0.5);
+    txt.position.set(
+      sample.x - Math.cos(sample.angle) * backOffset + sideX * outward * sideOffset,
+      sample.y - Math.sin(sample.angle) * backOffset + sideY * outward * sideOffset
+    );
+    let angle = sample.angle;
+    if (Math.cos(angle) < 0) angle += Math.PI;
+    txt.rotation = angle;
+    txt.alpha = advantage > 0 ? 0.92 : advantage < 0 ? 0.82 : 0.70;
+    frontLaneTextLayer.addChild(txt);
+  }
+
+  function updateFrontLaneOverlay() {
+    if (!frontLaneGfx) return;
+    frontLaneGfx.clear();
+    destroyChildren(frontLaneTextLayer);
+    const planner = getFrontPlannerApi();
+    const allCorePlayers = [...state.players.values()].filter((p) => p && p.id > 0);
+    const livePlayers = allCorePlayers.filter((p) => !p.eliminated);
+    if (allCorePlayers.length === 0) return;
+
+    const centerObjectives = state.centerObjectives || {};
+    const center = {
+      x: centerObjectives.centerX || CFG.WORLD_W * 0.5,
+      y: centerObjectives.centerY || CFG.WORLD_H * 0.5
+    };
+    const pairEntries = allCorePlayers.map((p) => ({ id: p.id, x: p.x, y: p.y }));
+    const pairs = planner && planner.buildAdjacentCorePairs ? planner.buildAdjacentCorePairs(pairEntries, center) : [];
+
+    for (const pair of pairs) {
+      if (!pointsBoundsInView([pair.a, pair.b], 180)) continue;
+      drawLaneRibbon(frontLaneGfx, pair.a, pair.b, 0x92baff, 108, 108, 0.042, 0.10);
+    }
+
+    for (const player of livePlayers) {
+      const color = player.color || colorForId(player.id);
+      if (pointsBoundsInView([{ x: player.x, y: player.y }, center], 180)) {
+        drawLaneRibbon(frontLaneGfx, { x: player.x, y: player.y }, center, color, 84, 135, 0.028, 0.08);
+      }
+      const leftPoints = getLanePointsForPlayerFront(player, "left", center);
+      const rightPoints = getLanePointsForPlayerFront(player, "right", center);
+      const centerPoints = getLanePointsForPlayerFront(player, "center", center);
+      const leftPressure = getFrontLanePressure(player.id, "left", leftPoints);
+      const rightPressure = getFrontLanePressure(player.id, "right", rightPoints);
+      const centerPressure = getFrontLanePressure(player.id, "center", centerPoints);
+      if (leftPressure && leftPressure.points.length >= 2 && pointsBoundsInView(leftPressure.points, 140)) {
+        drawLanePolylineRibbon(frontLaneGfx, leftPressure.points, color, 76, 0.05, 0.06);
+        drawLanePolylineRibbon(frontLaneGfx, leftPressure.points, color, 60, 0.12, 0.14);
+        drawLanePressureCap(frontLaneGfx, leftPressure.sample, leftPressure.sample.angle, 48, color);
+      }
+      if (rightPressure && rightPressure.points.length >= 2 && pointsBoundsInView(rightPressure.points, 140)) {
+        drawLanePolylineRibbon(frontLaneGfx, rightPressure.points, color, 76, 0.05, 0.06);
+        drawLanePolylineRibbon(frontLaneGfx, rightPressure.points, color, 60, 0.12, 0.14);
+        drawLanePressureCap(frontLaneGfx, rightPressure.sample, rightPressure.sample.angle, 48, color);
+      }
+      if (centerPressure && centerPressure.points.length >= 2 && pointsBoundsInView(centerPressure.points, 120)) {
+        drawLanePolylineRibbon(frontLaneGfx, centerPressure.points, color, 62, 0.04, 0.05);
+        drawLanePolylineRibbon(frontLaneGfx, centerPressure.points, color, 48, 0.09, 0.11);
+        drawLanePressureCap(frontLaneGfx, centerPressure.sample, centerPressure.sample.angle, 38, color);
+      }
+      addFrontLaneStrengthLabel(player, "left", leftPoints, 0.26, leftPressure);
+      addFrontLaneStrengthLabel(player, "right", rightPoints, 0.26, rightPressure);
+    }
+
+    const arenaRadius = getCenterArenaRadius();
+    const pulse = 0.5 + 0.5 * Math.sin((state.t || 0) * 1.4);
+    frontLaneGfx.lineStyle(2, 0xd8eeff, 0.14);
+    frontLaneGfx.beginFill(0x6ea3ff, 0.038);
+    frontLaneGfx.drawCircle(center.x, center.y, arenaRadius);
+    frontLaneGfx.endFill();
+    frontLaneGfx.lineStyle(1.2, 0xffffff, 0.08 + pulse * 0.03);
+    frontLaneGfx.drawCircle(center.x, center.y, arenaRadius * 0.78);
+  }
+
   function updateFloatingDamage(dt) {
     destroyChildren(floatingDamageLayer);
     for (let i = state.floatingDamage.length - 1; i >= 0; i--) {
@@ -5403,6 +5899,7 @@
         continue;
       }
       const lift = (1 - fd.ttl) * 35;
+      if (!rectInView(fd.x - 20, fd.y - lift - 20, fd.x + 20, fd.y + 20, 40)) continue;
       const txt = new PIXI.Text(fd.text, { fontSize: 18, fill: fd.color, fontWeight: "bold" });
       txt.anchor.set(0.5, 0.5);
       txt.position.set(fd.x, fd.y - lift);
@@ -5502,22 +5999,206 @@
     ).join("");
   }
 
-  function makeResVisual(r) {
-    const isCredit = r.type === "credit";
-    const value = isCredit ? (r.value || 1) : (r.xp || 1);
-    const g = new PIXI.Graphics();
-    ResourceFlow.drawPacket(g, isCredit, value, cam.zoom);
-    const glowCfg = ResourceFlow.getPacketGlow(isCredit, value, cam.zoom);
-    const glow = glowCfg ? makeGlow(glowCfg.color, glowCfg.distance, glowCfg.outerStrength) : null;
-    if (glow) g.filters = [glow];
-    if (isCredit) {
-      r.color = FACTION_VIS.RESOURCE_COLORS.money.primary;
-    } else {
-      r.color = FACTION_VIS.RESOURCE_COLORS.xp.primary;
+  function refreshResourceVisual(r, vx = 0, vy = 0) {
+    if (!r || !r.gfx || r.gfx.destroyed) return;
+    const root = r.gfx;
+    const packet = r._packetGfx;
+    const dust = r._dustGfx;
+    const speed = Math.hypot(vx, vy);
+    let drawX = r.x || 0;
+    let drawY = r.y || 0;
+    if (packet) packet.rotation = speed > 0.001 ? Math.atan2(vy, vx) * 0.18 : 0;
+    if (dust) dust.clear();
+    if (r.type === "killPulse") {
+      if (packet) packet.clear();
+      const owner = r._targetCity != null ? state.players.get(r._targetCity) : null;
+      const ownerColor = owner ? (owner.color || colorForId(owner.id)) : (r.color || 0x9dd7ff);
+      const age = Math.max(0, (state.t || 0) - (r._spawnedAt || 0));
+      const pulseIn = Math.min(1, age / 0.34);
+      const pulse = 0.58 + 0.42 * Math.sin(age * 10 + (r.id || 0));
+      const dirX = speed > 0.001 ? (vx / speed) : 1;
+      const dirY = speed > 0.001 ? (vy / speed) : 0;
+      const perpX = -dirY;
+      const perpY = dirX;
+      const intensity = Math.max(1, Math.min(10, r._killCount || 1));
+      const size = 7 + intensity * 1.3 + Math.min(10, Math.sqrt((r._xpValue || 0) + (r._creditValue || 0)) * 0.32);
+      const tailLen = size * (2.3 + pulse * 0.5);
+      const tailW = size * (0.58 + pulse * 0.08);
+      packet.rotation = speed > 0.001 ? Math.atan2(vy, vx) : 0;
+      packet.roundRect(-tailLen, -tailW * 0.5, tailLen * 0.92, tailW, 3);
+      packet.fill({ color: ownerColor, alpha: 0.10 + pulseIn * 0.10 });
+      packet.roundRect(-size * 0.62, -size * 0.62, size * 1.24, size * 1.24, 3);
+      packet.fill({ color: ownerColor, alpha: 0.18 + pulse * 0.16 });
+      packet.roundRect(-size * 0.42, -size * 0.42, size * 0.84, size * 0.84, 2);
+      packet.fill({ color: 0xf5fbff, alpha: 0.28 + pulse * 0.16 });
+      packet.roundRect(-size * 0.62, -size * 0.62, size * 1.24, size * 1.24, 3);
+      packet.stroke({ color: ownerColor, width: 1.4, alpha: 0.40 + pulse * 0.10 });
+      if ((r._creditValue || 0) > 0) {
+        packet.rect(-size * 0.22, -size * 0.12, size * 0.16, size * 0.16);
+        packet.fill({ color: 0xffcf63, alpha: 0.72 });
+      }
+      if ((r._xpValue || 0) > 0) {
+        packet.rect(size * 0.06, -size * 0.12, size * 0.16, size * 0.16);
+        packet.fill({ color: 0x9fd8ff, alpha: 0.72 });
+      }
+      if (dust && LOD.canDraw("gems")) {
+        for (let i = 0; i < Math.min(4, 2 + Math.floor(intensity / 3)); i++) {
+          const trail = 10 + i * (5 + intensity * 0.35);
+          const wobble = Math.sin(age * 9 + i * 1.2 + (r._dustSeed || 0)) * (1.4 + i * 0.5);
+          const alpha = Math.max(0.05, 0.18 - i * 0.03);
+          dust.roundRect(-dirX * trail + perpX * wobble - 2, -dirY * trail + perpY * wobble - 2, 4, 4, 1);
+          dust.fill({ color: i % 2 === 0 ? ownerColor : 0xe7f7ff, alpha });
+        }
+      }
+      root.scale.set(0.92 + pulseIn * 0.10);
+      root.alpha = 0.94;
+      root.position.set(drawX, drawY);
+      return;
     }
-    g.position.set(r.x, r.y);
-    resLayer.addChild(g);
-    r.gfx = g;
+    if (r._deathBurst && speed > 0.001) {
+      const age = Math.max(0, (state.t || 0) - (r._spawnedAt || 0));
+      const arcDur = 0.72;
+      const arcFade = Math.max(0, 1 - age / arcDur);
+      const arcPow = Math.sin(Math.min(1, age / arcDur) * Math.PI);
+      const arc = arcPow * arcFade * (r._arcHeight || 18) * (r._arcSide || 1);
+      const nx = vx / speed;
+      const ny = vy / speed;
+      drawX += -ny * arc;
+      drawY += nx * arc;
+      if (dust && LOD.canDraw("gems")) {
+        const pulse = (state.t || 0) * 10 + (r._dustSeed || 0);
+        for (let i = 0; i < 3; i++) {
+          const trail = 5 + i * 6;
+          const jitter = Math.sin(pulse + i * 1.17) * (1.6 - i * 0.35);
+          const alpha = (0.34 - i * 0.09) * arcFade;
+          if (alpha <= 0.01) continue;
+          dust.circle(-nx * trail, -ny * trail + jitter, Math.max(0.7, 2.2 - i * 0.45));
+          dust.fill({ color: 0xffd66b, alpha });
+        }
+      }
+    }
+    root.scale.set(1, 1);
+    root.alpha = 1;
+    root.position.set(drawX, drawY);
+  }
+
+  function makeResVisual(r) {
+    const root = new PIXI.Container();
+    const dust = new PIXI.Graphics();
+    const packet = new PIXI.Graphics();
+    root.addChild(dust, packet);
+    if (r.type === "killPulse") {
+      const owner = r._targetCity != null ? state.players.get(r._targetCity) : null;
+      const glowColor = owner ? (owner.color || colorForId(owner.id)) : 0x9dd7ff;
+      const intensity = Math.max(1, Math.min(8, (r._killCount || 1)));
+      const glow = makeGlow(glowColor, 10 + intensity * 2, 0.35 + intensity * 0.03);
+      if (glow) packet.filters = [glow];
+      r.color = glowColor;
+    } else {
+      const isCredit = r.type === "credit";
+      const value = isCredit ? (r.value || 1) : (r.xp || 1);
+      ResourceFlow.drawPacket(packet, isCredit, value, cam.zoom);
+      const glowCfg = ResourceFlow.getPacketGlow(isCredit, value, cam.zoom);
+      const glow = glowCfg ? makeGlow(glowCfg.color, glowCfg.distance, glowCfg.outerStrength) : null;
+      if (glow) packet.filters = [glow];
+      if (isCredit) {
+        r.color = FACTION_VIS.RESOURCE_COLORS.money.primary;
+      } else {
+        r.color = FACTION_VIS.RESOURCE_COLORS.xp.primary;
+      }
+    }
+    root.position.set(r.x, r.y);
+    resLayer.addChild(root);
+    r.gfx = root;
+    r._packetGfx = packet;
+    r._dustGfx = dust;
+    r._dustSeed = Math.random() * Math.PI * 2;
+    refreshResourceVisual(r, 0, 0);
+  }
+
+  function queueKillRewardPulse(ownerId, x, y, xpValue, creditValue) {
+    if (ownerId == null || !state.players.has(ownerId)) return;
+    if (!state._killRewardPulseBatches) state._killRewardPulseBatches = new Map();
+    let batch = state._killRewardPulseBatches.get(ownerId);
+    if (!batch || state.t >= (batch.flushAt || 0)) {
+      if (batch && state.t >= (batch.flushAt || 0)) {
+        spawnKillRewardPulse(batch);
+      }
+      batch = {
+        ownerId,
+        startAt: state.t,
+        flushAt: state.t + 3.0,
+        count: 0,
+        xp: 0,
+        credits: 0,
+        sumX: 0,
+        sumY: 0
+      };
+      state._killRewardPulseBatches.set(ownerId, batch);
+    }
+    batch.count += 1;
+    batch.xp += Math.max(0, xpValue || 0);
+    batch.credits += Math.max(0, creditValue || 0);
+    batch.sumX += x || 0;
+    batch.sumY += y || 0;
+  }
+
+  function getKillPulseLaneJoinPoint(ownerId, x, y) {
+    const owner = state.players.get(ownerId);
+    if (!owner) return null;
+    const center = {
+      x: state.centerObjectives?.centerX || 0,
+      y: state.centerObjectives?.centerY || 0
+    };
+    let best = null;
+    for (const frontType of ["left", "center", "right"]) {
+      const points = getLanePointsForPlayerFront(owner, frontType, center);
+      const sample = projectPointOnPolyline(points, x, y);
+      if (!sample) continue;
+      if (!best || sample.dist < best.dist) best = { x: sample.x, y: sample.y, angle: sample.angle, dist: sample.dist, frontType };
+    }
+    return best ? { x: best.x, y: best.y, angle: best.angle, frontType: best.frontType } : null;
+  }
+
+  function spawnKillRewardPulse(batch) {
+    if (!batch || !batch.count || !state.players.has(batch.ownerId)) return;
+    if (state.res.size >= (CFG.RES_MAX ?? 520)) {
+      const firstId = state.res.keys().next().value;
+      if (firstId != null) deleteResource(firstId);
+    }
+    const owner = state.players.get(batch.ownerId);
+    const avgX = batch.sumX / Math.max(1, batch.count);
+    const avgY = batch.sumY / Math.max(1, batch.count);
+    const totalPayload = Math.max(1, (batch.xp || 0) + (batch.credits || 0));
+    const id = state.nextResId++;
+    const pulse = {
+      id,
+      type: "killPulse",
+      value: totalPayload,
+      x: avgX,
+      y: avgY,
+      color: owner ? (owner.color || colorForId(owner.id)) : 0x9dd7ff,
+      gfx: null,
+      _spawnedAt: state.t,
+      _targetCity: batch.ownerId,
+      _visualOnly: true,
+      _impulsePacket: true,
+      _killCount: batch.count,
+      _xpValue: batch.xp || 0,
+      _creditValue: batch.credits || 0,
+      _laneJoinPoint: getKillPulseLaneJoinPoint(batch.ownerId, avgX, avgY)
+    };
+    state.res.set(id, pulse);
+    makeResVisual(pulse);
+  }
+
+  function flushKillRewardPulses() {
+    if (!state._killRewardPulseBatches || state._killRewardPulseBatches.size === 0) return;
+    for (const [ownerId, batch] of state._killRewardPulseBatches) {
+      if (!batch || state.t < (batch.flushAt || 0)) continue;
+      spawnKillRewardPulse(batch);
+      state._killRewardPulseBatches.delete(ownerId);
+    }
   }
 
   // ------------------------------------------------------------
@@ -5685,7 +6366,8 @@
     }
     return pts;
   }
-  function createMine(x, y, ownerId, isRich, resourceType) {
+  function createMine(x, y, ownerId, isRich, resourceType, opts) {
+    opts = opts || {};
     const id = nextMineId++;
     const mine = {
       id, x, y,
@@ -5695,7 +6377,10 @@
       isRich: !!isRich,
       resourceType: resourceType || "money",
       yieldAcc: 0,
-      gfx: null
+      gfx: null,
+      laneRole: opts.laneRole || null,
+      pairKey: opts.pairKey || null,
+      instantLaneTrigger: opts.triggerTo ? { x: opts.triggerTo.x || 0, y: opts.triggerTo.y || 0 } : null
     };
     state.mines.set(id, mine);
     makeMineVisual(mine);
@@ -5756,6 +6441,12 @@
 
     const inflR = CFG.INFLUENCE_R(CFG.POP_START);
     const rnd = rndFn || (() => Math.random());
+    const planner = getFrontPlannerApi();
+    const laneEntries = entries.map((entry) => ({
+      id: entry.ownerId,
+      x: entry.pos.x,
+      y: entry.pos.y
+    }));
     for (const entry of entries) {
       const sp = entry.pos;
       const pid = entry.ownerId;
@@ -5772,37 +6463,22 @@
           pid, false, resType
         );
       }
-      for (let m = 0; m < CFG.MINE_NEUTRAL_PER_PLAYER; m++) {
-        const baseAngle = Math.atan2(sp.y - cy, sp.x - cx);
-        const spread = ((m - (CFG.MINE_NEUTRAL_PER_PLAYER - 1) / 2) / Math.max(1, CFG.MINE_NEUTRAL_PER_PLAYER - 1)) * 1.5;
-        const a = baseAngle + spread + Math.PI + (rnd() * 0.2);
-        const d = inflR * 1.2 + rnd() * (inflR * 0.3);
-        const neutralType = m % 2 === 0 ? "money" : "xp";
-        createMine(
-          clamp(sp.x + Math.cos(a) * d, 40, CFG.WORLD_W - 40),
-          clamp(sp.y + Math.sin(a) * d, 40, CFG.WORLD_H - 40),
-          null, false, neutralType
-        );
-      }
     }
 
-    const margin = 90;
-    const cornerMineStep = inflR * 0.28;
-    const corners = [
-      [margin, margin, 1, 1],
-      [CFG.WORLD_W - margin, margin, -1, 1],
-      [CFG.WORLD_W - margin, CFG.WORLD_H - margin, -1, -1],
-      [margin, CFG.WORLD_H - margin, 1, -1]
-    ];
-    for (const [cpx, cpy, dx, dy] of corners) {
-      const norm = Math.hypot(dx, dy) || 1;
-      createMine(cpx, cpy, null, false, "money");
+    const sideLaneMines = planner && planner.buildSideLaneMinePlacements
+      ? planner.buildSideLaneMinePlacements(laneEntries, { x: cx, y: cy })
+      : [];
+    for (const mine of sideLaneMines) {
       createMine(
-        cpx + (dx / norm) * cornerMineStep,
-        cpy + (dy / norm) * cornerMineStep,
-        null, false, "xp"
+        clamp(mine.x, 48, CFG.WORLD_W - 48),
+        clamp(mine.y, 48, CFG.WORLD_H - 48),
+        null,
+        false,
+        mine.resourceType || "money",
+        mine
       );
     }
+    refreshPirateBaseOrbitAnchors();
   }
 
   function makeMineVisual(mine) {
@@ -5968,7 +6644,7 @@
     c.y = mine.y;
     c._baseRadius = R;
     mine.gfx = c;
-    resLayer.addChild(c);
+    mineLayer.addChild(c);
   }
 
   function updateMineVisual(mine) {
@@ -5979,6 +6655,11 @@
     for (const mine of state.mines.values()) {
       const gfx = mine.gfx;
       if (!gfx || gfx.destroyed) continue;
+      if (!inView(mine.x, mine.y)) {
+        gfx.visible = false;
+        continue;
+      }
+      gfx.visible = true;
       const pulse = 0.5 + 0.5 * Math.sin(state.t * 2.0 + mine.id * 0.73);
       const slowPulse = 0.5 + 0.5 * Math.sin(state.t * 0.9 + mine.id * 1.91);
       const owned = !!(mine.ownerId && mine.captureProgress >= 1);
@@ -6024,6 +6705,7 @@
   const MINE_FLOW_PHASE_HOLD = "hold";
   const MINE_FLOW_PHASE_EXIT = "exit";
   const MINE_FLOW_ANIM_TIME = 2.0;
+  const MINE_LANE_TRIGGER_COOLDOWN_SEC = 7.5;
 
   function mineYieldMul(p) {
     return 1 + ((p && p.mineYieldBonus) || 0) / 100;
@@ -6054,16 +6736,38 @@
       const targetId = mine._flowTargetPlayerId || mine.ownerId;
       if (targetId !== playerId) continue;
       energyPerSec += energyRate;
+      const xpRate = rate * (CFG.MINE_XP_YIELD_MUL || 1);
       if (mine.isRich) {
         moneyPerSec += rate;
-        xpPerSec += rate;
+        xpPerSec += xpRate;
       } else if (mine.resourceType === "money") {
         moneyPerSec += rate;
       } else {
-        xpPerSec += rate;
+        xpPerSec += xpRate;
       }
     }
     return { moneyPerSec, xpPerSec, energyPerSec };
+  }
+
+  function getPathSetBounds(paths) {
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const path of paths || []) {
+      if (!Array.isArray(path)) continue;
+      for (const point of path) {
+        if (!point) continue;
+        const x = point.x || 0;
+        const y = point.y || 0;
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+      }
+    }
+    if (!Number.isFinite(minX)) return null;
+    return { minX, minY, maxX, maxY };
   }
 
   function distToSegment(px, py, ax, ay, bx, by) {
@@ -6088,6 +6792,42 @@
       y: ay + dy * t,
       t
     };
+  }
+
+  function findLaneMineTriggerOwner(mine) {
+    const trigger = mine && mine.instantLaneTrigger;
+    if (!mine || !trigger) return null;
+    if ((mine._instantLaneTriggerCooldownUntil || 0) > state.t) return null;
+    let bestOwnerId = null;
+    let bestDist = Infinity;
+    for (const u of state.units.values()) {
+      if (!u || u.hp <= 0 || u.owner === PIRATE_OWNER_ID) continue;
+      if (u.owner === mine.ownerId) continue;
+      const owner = state.players.get(u.owner);
+      if (!owner || owner.pop <= 0 || owner.eliminated) continue;
+      const touchR = Math.max((CFG.MINE_GEM_INTERCEPT_R || 30), getUnitHitRadius(u) + 6);
+      const dist = distToSegment(u.x, u.y, mine.x, mine.y, trigger.x, trigger.y);
+      if (dist > touchR) continue;
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestOwnerId = u.owner;
+      }
+    }
+    return bestOwnerId;
+  }
+
+  function setMineOwnerInstantly(mine, ownerId) {
+    if (!mine) return false;
+    const nextOwnerId = ownerId || null;
+    if (mine.ownerId === nextOwnerId && mine.captureProgress >= 1) return false;
+    mine.ownerId = nextOwnerId;
+    mine.captureProgress = nextOwnerId ? 1 : 0;
+    mine._capturingOwner = null;
+    mine._captureProtectedUntil = 0;
+    mine._instantLaneTriggerCooldownUntil = state.t + toSimSeconds(MINE_LANE_TRIGGER_COOLDOWN_SEC);
+    clearMineFlowState(mine);
+    updateMineVisual(mine);
+    return true;
   }
 
   function getMineFlowInterceptorSourceId(unit) {
@@ -6243,6 +6983,8 @@
   // ── Mine step: capture + yield ──
   function stepMines(dt) {
     for (const mine of state.mines.values()) {
+      const triggerOwnerId = findLaneMineTriggerOwner(mine);
+      if (triggerOwnerId != null) setMineOwnerInstantly(mine, triggerOwnerId);
       const ownersInRadius = new Map();
       for (const u of state.units.values()) {
         if (u.owner === PIRATE_OWNER_ID) continue;
@@ -6296,18 +7038,18 @@
           continue;
         }
 
-        const interceptor = findMineFlowInterceptor(mine, owner);
-        updateMineFlowState(mine, owner, interceptor);
+        updateMineFlowState(mine, owner, null);
 
         const targetPlayer = state.players.get(mine._flowTargetPlayerId || mine.ownerId) || owner;
         const gain = (mine._flowRate || 0) * dt;
         const energyGain = getMineEnergyPerSecond(mine, owner) * dt;
         if ((gain > 0 || energyGain > 0) && targetPlayer && targetPlayer.pop > 0) {
           let moneyGain = 0;
+          const xpGain = gain * (CFG.MINE_XP_YIELD_MUL || 1);
           if (mine.isRich) {
             if (gain > 0) {
               targetPlayer.eCredits = (targetPlayer.eCredits || 0) + gain;
-              gainXP(targetPlayer, gain);
+              gainXP(targetPlayer, xpGain);
               moneyGain += gain;
             }
           } else if (mine.resourceType === "money") {
@@ -6316,7 +7058,7 @@
               moneyGain += gain;
             }
           } else if (gain > 0) {
-            gainXP(targetPlayer, gain);
+            gainXP(targetPlayer, xpGain);
           }
           if (energyGain > 0) {
             targetPlayer.popFloat = (targetPlayer.popFloat || targetPlayer.pop || 0) + energyGain;
@@ -6333,7 +7075,7 @@
 
     const alivePirateBases = getAlivePirateBases();
     if (alivePirateBases.length > 0) {
-      const PIRATE_RESPAWN_CD = 180;
+      const PIRATE_RESPAWN_CD = toSimSeconds(180);
       for (const pb of alivePirateBases) {
         const basePirateUnits = [...state.units.values()].filter((u) =>
           u.owner === PIRATE_OWNER_ID &&
@@ -6504,7 +7246,7 @@
 
   function spawnMineGem(mine, owner, value, isCredit) {
     const id = state.nextResId++;
-    const baseSpeed = CFG.MINE_GEM_SPEED * (0.7 + value * 0.15);
+    const baseSpeed = CFG.MINE_GEM_SPEED * 0.5 * (0.7 + value * 0.15);
     const jitter = baseSpeed * (0.95 + Math.random() * 0.1);
     const gem = {
       id, x: mine.x, y: mine.y,
@@ -6563,24 +7305,6 @@
         g.gfx.visible = inView(g.x, g.y) && LOD.canDraw("gems");
       }
 
-      const gemProtected = g._interceptProtectUntil && state.t < g._interceptProtectUntil;
-      if (!gemProtected && !g._visualOnly) {
-        const interceptR = CFG.MINE_GEM_INTERCEPT_R || 30;
-        const nearby = queryHash(g.x, g.y, interceptR);
-        for (let ni = 0; ni < nearby.length; ni++) {
-          const u = nearby[ni];
-          if (u.owner === g.targetPlayerId) continue;
-          const uHR = getUnitHitRadius(u);
-          if (Math.hypot(u.x - g.x, u.y - g.y) < uHR + 4) {
-            const interceptor = state.players.get(u.owner);
-            if (interceptor) {
-              g.targetPlayerId = u.owner;
-              g._interceptProtectUntil = state.t + 1.0;
-              break;
-            }
-          }
-        }
-      }
     }
   }
 
@@ -6624,13 +7348,48 @@
 
   function getMineFlowDetail() {
     const level = LOD.getLevel(cam.zoom || 0.22);
+    const unitCount = state.units ? state.units.size : 0;
+    const squadCount = state.squads ? state.squads.size : 0;
+    const packetCount = state.mineFlowPackets ? state.mineFlowPackets.length : 0;
+    const heavyLoad = unitCount >= 340 || squadCount >= 260 || packetCount >= 150;
+    const severeLoad = unitCount >= 520 || squadCount >= 400 || packetCount >= 240;
     if (level === LOD.LEVELS.FAR) {
-      return { routeSamples: 12, maxPacketsPerMine: 2, beamAlpha: 0.48, shimmer: false, bridges: false, packetScale: 0.72 };
+      return {
+        routeSamples: severeLoad ? 6 : (heavyLoad ? 8 : 12),
+        maxPacketsPerMine: severeLoad ? 0 : (heavyLoad ? 1 : 2),
+        maxTotalPackets: severeLoad ? 40 : (heavyLoad ? 70 : 110),
+        beamAlpha: severeLoad ? 0.26 : (heavyLoad ? 0.34 : 0.48),
+        shimmer: false,
+        bridges: false,
+        packetScale: severeLoad ? 0.56 : (heavyLoad ? 0.64 : 0.72),
+        updateEveryFrames: severeLoad ? 4 : (heavyLoad ? 3 : 2),
+        roughCullPad: heavyLoad ? 180 : 220
+      };
     }
     if (level === LOD.LEVELS.MID) {
-      return { routeSamples: 22, maxPacketsPerMine: 5, beamAlpha: 0.72, shimmer: false, bridges: true, packetScale: 0.88 };
+      return {
+        routeSamples: severeLoad ? 10 : (heavyLoad ? 14 : 22),
+        maxPacketsPerMine: severeLoad ? 1 : (heavyLoad ? 2 : 5),
+        maxTotalPackets: severeLoad ? 70 : (heavyLoad ? 110 : 180),
+        beamAlpha: severeLoad ? 0.36 : (heavyLoad ? 0.52 : 0.72),
+        shimmer: false,
+        bridges: !heavyLoad,
+        packetScale: severeLoad ? 0.64 : (heavyLoad ? 0.76 : 0.88),
+        updateEveryFrames: severeLoad ? 3 : (heavyLoad ? 2 : 1),
+        roughCullPad: heavyLoad ? 220 : 260
+      };
     }
-    return { routeSamples: 36, maxPacketsPerMine: 9, beamAlpha: 1.0, shimmer: true, bridges: true, packetScale: 1.0 };
+    return {
+      routeSamples: severeLoad ? 14 : (heavyLoad ? 20 : 36),
+      maxPacketsPerMine: severeLoad ? 2 : (heavyLoad ? 4 : 9),
+      maxTotalPackets: severeLoad ? 100 : (heavyLoad ? 150 : 240),
+      beamAlpha: severeLoad ? 0.52 : (heavyLoad ? 0.72 : 1.0),
+      shimmer: !heavyLoad,
+      bridges: !severeLoad,
+      packetScale: severeLoad ? 0.72 : (heavyLoad ? 0.84 : 1.0),
+      updateEveryFrames: severeLoad ? 2 : 1,
+      roughCullPad: heavyLoad ? 240 : 280
+    };
   }
 
   function ensureMineFlowVisuals() {
@@ -6725,6 +7484,92 @@
     return points;
   }
 
+  function mfBuildLinearPoints(start, end, samples) {
+    const points = [];
+    const count = Math.max(1, samples | 0);
+    for (let i = 0; i <= count; i++) {
+      const t = i / count;
+      points.push({
+        x: mfLerp(start.x || 0, end.x || 0, t),
+        y: mfLerp(start.y || 0, end.y || 0, t)
+      });
+    }
+    return points;
+  }
+
+  function mfConcatPointPaths(paths) {
+    const out = [];
+    for (const path of paths || []) {
+      if (!Array.isArray(path) || path.length === 0) continue;
+      for (let i = 0; i < path.length; i++) {
+        if (out.length > 0 && i === 0) {
+          const prev = out[out.length - 1];
+          const next = path[i];
+          if (Math.hypot((prev.x || 0) - (next.x || 0), (prev.y || 0) - (next.y || 0)) <= 0.5) continue;
+        }
+        out.push(path[i]);
+      }
+    }
+    return out;
+  }
+
+  function buildMineOuterLaneRoutePoints(startPoint, targetPoint, mine, detail, variant, laneSign = 0, channelSign = 0) {
+    if (!mine || !mine.pairKey || !targetPoint) return null;
+    const ids = String(mine.pairKey).split(":").map((id) => Number(id)).filter(Number.isFinite);
+    if (ids.length !== 2) return null;
+    const a = state.players.get(ids[0]);
+    const b = state.players.get(ids[1]);
+    if (!a || !b) return null;
+
+    const dx = (b.x || 0) - (a.x || 0);
+    const dy = (b.y || 0) - (a.y || 0);
+    const len = Math.hypot(dx, dy) || 1;
+    const dirX = dx / len;
+    const dirY = dy / len;
+    const perpX = -dirY;
+    const perpY = dirX;
+    const midX = ((a.x || 0) + (b.x || 0)) * 0.5;
+    const midY = ((a.y || 0) + (b.y || 0)) * 0.5;
+    const mineSide = ((mine.x || 0) - midX) * perpX + ((mine.y || 0) - midY) * perpY;
+    const sideSign = mineSide >= 0 ? 1 : -1;
+    const pathOffset = sideSign * (
+      Math.max(36, Math.abs(mineSide)) +
+      (laneSign || 0) * ((variant && variant.laneOffset) || 0) * 0.75 +
+      (channelSign || 0) * ((variant && variant.laneCount > 1) ? 7 : 12)
+    );
+
+    function projectT(point) {
+      return mfClamp((((point.x || 0) - (a.x || 0)) * dx + ((point.y || 0) - (a.y || 0)) * dy) / (len * len), 0, 1);
+    }
+
+    function edgePointAt(t) {
+      return {
+        x: mfLerp(a.x || 0, b.x || 0, t) + perpX * pathOffset,
+        y: mfLerp(a.y || 0, b.y || 0, t) + perpY * pathOffset
+      };
+    }
+
+    const startT = mfClamp(projectT(startPoint), 0.10, 0.90);
+    let targetT = projectT(targetPoint);
+    if (targetPoint.id === ids[0]) targetT = 0.08;
+    else if (targetPoint.id === ids[1]) targetT = 0.92;
+    else targetT = mfClamp(targetT, 0.08, 0.92);
+
+    const entryT = targetPoint.id === ids[0]
+      ? 0.18
+      : targetPoint.id === ids[1]
+        ? 0.82
+        : (targetT < 0.5 ? mfClamp(targetT + 0.10, 0.18, 0.82) : mfClamp(targetT - 0.10, 0.18, 0.82));
+
+    const startEdge = edgePointAt(startT);
+    const endEdge = edgePointAt(entryT);
+    return mfConcatPointPaths([
+      mfBuildLinearPoints(startPoint, startEdge, 4),
+      mfBuildLinearPoints(startEdge, endEdge, Math.max(8, Math.floor((detail && detail.routeSamples) || 12))),
+      mfBuildLinearPoints(endEdge, targetPoint, 5)
+    ]);
+  }
+
   function buildMineFlowRoute(mine, detail, resourceTypeOverride, channelSign = 0) {
     const owner = state.players.get(mine.ownerId);
     if (!owner || owner.pop <= 0 || mine.captureProgress < 1) return null;
@@ -6747,7 +7592,16 @@
       phaseProgress: getMineFlowProgress(mine),
       spliceT: mine._flowInterceptT != null ? mfClamp(mine._flowInterceptT, 0.08, 0.96) : 1
     };
-    route.main = mfBuildRoutePoints(
+    const outerMain = buildMineOuterLaneRoutePoints(
+      { x: mine.x, y: mine.y },
+      owner,
+      mine,
+      detail,
+      variant,
+      0,
+      channelSign
+    );
+    route.main = outerMain || mfBuildRoutePoints(
       { x: mine.x, y: mine.y },
       { x: owner.x, y: owner.y },
       mine.id * 11.13,
@@ -6758,29 +7612,39 @@
       channelSign
     );
     if (variant.laneCount > 1) {
-      route.left = mfBuildRoutePoints(
-        { x: mine.x, y: mine.y },
-        { x: owner.x, y: owner.y },
-        mine.id * 11.13,
-        variant,
-        detail,
-        -1,
-        1,
-        channelSign
-      );
-      route.right = mfBuildRoutePoints(
-        { x: mine.x, y: mine.y },
-        { x: owner.x, y: owner.y },
-        mine.id * 11.13,
-        variant,
-        detail,
-        1,
-        1,
-        channelSign
-      );
+      route.left = buildMineOuterLaneRoutePoints({ x: mine.x, y: mine.y }, owner, mine, detail, variant, -1, channelSign)
+        || mfBuildRoutePoints(
+          { x: mine.x, y: mine.y },
+          { x: owner.x, y: owner.y },
+          mine.id * 11.13,
+          variant,
+          detail,
+          -1,
+          1,
+          channelSign
+        );
+      route.right = buildMineOuterLaneRoutePoints({ x: mine.x, y: mine.y }, owner, mine, detail, variant, 1, channelSign)
+        || mfBuildRoutePoints(
+          { x: mine.x, y: mine.y },
+          { x: owner.x, y: owner.y },
+          mine.id * 11.13,
+          variant,
+          detail,
+          1,
+          1,
+          channelSign
+        );
     }
     if (mine._flowInterceptX != null && mine._flowInterceptY != null && visualTarget && visualTarget.id !== mine.ownerId) {
-      route.redirect = mfBuildRoutePoints(
+      route.redirect = buildMineOuterLaneRoutePoints(
+        { x: mine._flowInterceptX, y: mine._flowInterceptY },
+        visualTarget,
+        mine,
+        detail,
+        variant,
+        0,
+        channelSign
+      ) || mfBuildRoutePoints(
         { x: mine._flowInterceptX, y: mine._flowInterceptY },
         { x: visualTarget.x, y: visualTarget.y },
         mine.id * 17.29,
@@ -6793,6 +7657,11 @@
     } else {
       route.redirect = null;
     }
+    const routePaths = [route.main];
+    if (route.left) routePaths.push(route.left);
+    if (route.right) routePaths.push(route.right);
+    if (route.redirect) routePaths.push(route.redirect);
+    route.bounds = getPathSetBounds(routePaths);
     return route;
   }
 
@@ -6885,6 +7754,9 @@
       }
       livePerMine.set(route.key, (livePerMine.get(route.key) || 0) + 1);
     }
+    if (detail.maxTotalPackets != null && state.mineFlowPackets.length > detail.maxTotalPackets) {
+      state.mineFlowPackets.splice(0, state.mineFlowPackets.length - detail.maxTotalPackets);
+    }
 
     for (const route of routes.values()) {
       const mine = route.mine;
@@ -6894,6 +7766,7 @@
       if (mine._flowPacketAccByType[route.resourceType] == null) mine._flowPacketAccByType[route.resourceType] = Math.random() * interval;
       mine._flowPacketAccByType[route.resourceType] += dt;
       let localCount = current;
+      if (detail.maxTotalPackets != null && state.mineFlowPackets.length >= detail.maxTotalPackets) continue;
       while (mine._flowPacketAccByType[route.resourceType] >= interval && localCount < detail.maxPacketsPerMine) {
         mine._flowPacketAccByType[route.resourceType] -= interval;
         state.mineFlowPackets.push({
@@ -6986,15 +7859,20 @@
   }
 
   function drawMineFlowRoute(g, route, detail) {
+    if (route && route.bounds && !rectInView(route.bounds.minX, route.bounds.minY, route.bounds.maxX, route.bounds.maxY, 140)) return;
     const mine = route.mine;
     const variant = route.variant;
     const invZoom = 1 / Math.max(0.001, cam.zoom || 0.22);
     const isMoney = route.resourceType === "money";
-    const glowCol = isMoney ? 0xffbe54 : 0x56d6ff;
-    const edgeCol = isMoney ? 0xffe6a2 : 0xd8f0ff;
-    const accentCol = isMoney ? 0x79e67a : 0xff6f93;
-    const interceptColor = (mine._flowVisualTargetPlayerId === state.myPlayerId) ? 0x79e67a : 0xff5d68;
-    const interceptEdge = (mine._flowVisualTargetPlayerId === state.myPlayerId) ? 0xd9ffe2 : 0xffd2d8;
+    const owner = state.players.get(mine.ownerId);
+    const ownerColor = owner ? (owner.color || colorForId(owner.id)) : colorForId(mine.ownerId || 0);
+    const visualTarget = state.players.get(mine._flowVisualTargetPlayerId);
+    const visualTargetColor = visualTarget ? (visualTarget.color || colorForId(visualTarget.id)) : ownerColor;
+    const glowCol = ownerColor;
+    const edgeCol = ownerColor;
+    const accentCol = ownerColor;
+    const interceptColor = visualTargetColor;
+    const interceptEdge = visualTargetColor;
     const dash = variant.beamDash;
 
     const spliceT = route.spliceT;
@@ -7092,16 +7970,19 @@
 
   function updateMineFlowVisuals(dt) {
     ensureMineFlowVisuals();
+    const detail = getMineFlowDetail();
+    if (detail.updateEveryFrames > 1 && ((state._frameCtr || 0) % detail.updateEveryFrames) !== 0) return;
     updateMineAmbientVisuals();
     const beamG = state._mineFlowBeamGfx;
     const packetG = state._mineFlowPacketGfx;
     beamG.clear();
     packetG.clear();
-
-    const detail = getMineFlowDetail();
     const routes = new Map();
     for (const mine of state.mines.values()) {
       if (!mine.ownerId || mine.captureProgress < 1) continue;
+      const owner = state.players.get(mine.ownerId);
+      if (!owner) continue;
+      if (!rectInView(Math.min(mine.x, owner.x), Math.min(mine.y, owner.y), Math.max(mine.x, owner.x), Math.max(mine.y, owner.y), detail.roughCullPad || 220)) continue;
       const outputs = getMineOutputResourceTypes(mine);
       const signs = outputs.length === 2 ? [-1, 1] : [0];
       for (let ri = 0; ri < outputs.length; ri++) {
@@ -7207,6 +8088,7 @@
     destroyChildren(zonesLayer);
     clearTransientWorldFxLayers();
     destroyChildren(turretLayer);
+    destroyChildren(mineLayer);
     destroyChildren(resLayer);
     destroyChildren(unitsLayer);
     destroyChildren(cityLayer);
@@ -7231,6 +8113,7 @@
     state.mineGems = [];
     state.mineFlowPackets = [];
     state._mineIncomeSoundBudget = 0;
+    state._killRewardPulseBatches = new Map();
     state.nebulae = [];
     nextMineId = 1;
     state.nextTurretId = 1;
@@ -7253,8 +8136,8 @@
     state._thermoNukes = [];
     for (const raid of state._pirateRaids || []) destroyPirateRaidVisual(raid);
     state._pirateRaids = [];
-    state._randomBlackHoleNextAt = 300;
-    state._randomMeteorNextAt = 240;
+    state._randomBlackHoleNextAt = toSimSeconds(300);
+    state._randomMeteorNextAt = toSimSeconds(240);
     state._randomMeteorScheduled = [];
     // Reset fog memories
     app.renderer.render(new PIXI.Graphics(), { renderTexture: fogMemRT, clear: true });
@@ -7272,6 +8155,10 @@
     state.engagementZones = new Map();
     state.nextSquadId = 1;
     state.nextEngagementZoneId = 1;
+    state.coreFrontPolicies = {};
+    state.frontGraph = {};
+    state.squadFrontAssignments = {};
+    state.centerObjectives = { centerX: 0, centerY: 0, richMineId: null, centerMineIds: [], pirateBaseIds: [], livePirateBaseIds: [], securedByPlayerId: null, requiredMineCount: 0 };
     state.smoothedFronts = {};
     state.persistentBattles = {};
     state.resourceClusters = [];
@@ -7304,7 +8191,7 @@
       centerOn(me.x, me.y);
       state._timeSnapshots = [];
       state._lastTimeSnapshotAt = 0;
-      state._timeJumpAvailableAt = 61;
+      state._timeJumpAvailableAt = toSimSeconds(61);
 
       placeMines([{ pos: { x: cx, y: topY }, ownerId: 1 }], soloRnd);
       placeNebulae(soloRnd);
@@ -7337,7 +8224,7 @@
 
       state._timeSnapshots = [];
       state._lastTimeSnapshotAt = 0;
-      state._timeJumpAvailableAt = state.players.size * 61;
+      state._timeJumpAvailableAt = toSimSeconds(state.players.size * 61);
 
       placeMines([{ pos: mePos, ownerId: 1 }, { pos: botPos, ownerId: 2 }], soloRnd);
       placeNebulae(soloRnd);
@@ -7439,7 +8326,7 @@
 
     state._timeSnapshots = [];
     state._lastTimeSnapshotAt = 0;
-    state._timeJumpAvailableAt = state.players.size * 61;
+    state._timeJumpAvailableAt = toSimSeconds(state.players.size * 61);
 
     const orderedSpawns = [playerPos, ...botPositions];
     placeMines(orderedSpawns.map((pos, i) => ({ pos, ownerId: i + 1 })), soloRnd);
@@ -7462,6 +8349,7 @@
     destroyChildren(zonesLayer);
     clearTransientWorldFxLayers();
     destroyChildren(turretLayer);
+    destroyChildren(mineLayer);
     destroyChildren(resLayer);
     destroyChildren(unitsLayer);
     destroyChildren(cityLayer);
@@ -7485,6 +8373,7 @@
     state.mineGems = [];
     state.mineFlowPackets = [];
     state._mineIncomeSoundBudget = 0;
+    state._killRewardPulseBatches = new Map();
     state.nebulae = [];
     nextMineId = 1;
     state.nextTurretId = 1;
@@ -7507,8 +8396,8 @@
     state._thermoNukes = [];
     for (const raid of state._pirateRaids || []) destroyPirateRaidVisual(raid);
     state._pirateRaids = [];
-    state._randomBlackHoleNextAt = 300;
-    state._randomMeteorNextAt = 240;
+    state._randomBlackHoleNextAt = toSimSeconds(300);
+    state._randomMeteorNextAt = toSimSeconds(240);
     state._randomMeteorScheduled = [];
     app.renderer.render(new PIXI.Graphics(), { renderTexture: fogMemRT, clear: true });
     state.ghosts = [];
@@ -7524,6 +8413,10 @@
     state.engagementZones = new Map();
     state.nextSquadId = 1;
     state.nextEngagementZoneId = 1;
+    state.coreFrontPolicies = {};
+    state.frontGraph = {};
+    state.squadFrontAssignments = {};
+    state.centerObjectives = { centerX: 0, centerY: 0, richMineId: null, centerMineIds: [], pirateBaseIds: [], livePirateBaseIds: [], securedByPlayerId: null, requiredMineCount: 0 };
     state.smoothedFronts = {};
     state.persistentBattles = {};
 
@@ -7548,7 +8441,7 @@
     }
     state._timeSnapshots = [];
     state._lastTimeSnapshotAt = 0;
-    state._timeJumpAvailableAt = state.players.size * 61;
+    state._timeJumpAvailableAt = toSimSeconds(state.players.size * 61);
 
     const me = state.players.get(state.myPlayerId);
     centerOn(me.x, me.y);
@@ -7835,21 +8728,55 @@
     return n;
   }
 
-  function purchaseUnit(ownerId, unitTypeKey, waypoints, opts) {
+  function getUnitPurchaseQuote(ownerId, unitTypeKey, purchaseCount = 1, bundleUnits = 1) {
     const p = state.players.get(ownerId);
     if (!p) return { ok: false, reason: "no_player" };
     const type = UNIT_TYPES[unitTypeKey];
     if (!type) return { ok: false, reason: "unknown_type" };
     const cap = UNIT_CAPS[unitTypeKey] ?? 300;
     const current = countPlayerUnits(ownerId, unitTypeKey);
-    if (current >= cap) return { ok: false, reason: "cap_reached" };
-    const costMul = p.unitCostMul != null ? p.unitCostMul : 1;
-    const cost = Math.max(1, Math.round(type.cost * costMul));
-    if ((p.eCredits || 0) < cost) return { ok: false, reason: "no_credits" };
+    const squadSize = Math.max(1, type.squadSize || 1);
+    const unitsPerOrder = getPurchaseUnitsPerOrder(bundleUnits);
+    const requestedUnits = squadSize * Math.max(1, purchaseCount | 0) * unitsPerOrder;
+    if (current + requestedUnits > cap) return { ok: false, reason: "cap_reached" };
+    const costInfo = getPurchaseCostWithModifiers(ownerId, unitTypeKey, purchaseCount, unitsPerOrder);
+    const cost = costInfo.costPerPurchase;
+    const totalCost = costInfo.totalCost;
+    if ((p.eCredits || 0) < totalCost) return { ok: false, reason: "no_credits" };
+    return { ok: true, player: p, type, cap, current, squadSize, unitsPerOrder, costPerPurchase: cost, totalCost };
+  }
 
-    p.eCredits -= cost;
+  function seedFrontAssignment(ownerId, squadId, frontType) {
+    if (squadId == null || !frontType) return;
+    const graph = state.frontGraph && state.frontGraph[ownerId] ? state.frontGraph[ownerId] : null;
+    const targetCoreId = frontType === "left"
+      ? graph && graph.leftTargetCoreId
+      : frontType === "right"
+        ? graph && graph.rightTargetCoreId
+        : null;
+    state.squadFrontAssignments = state.squadFrontAssignments || {};
+    const existing = state.squadFrontAssignments[squadId] || {};
+    state.squadFrontAssignments[squadId] = {
+      squadId,
+      ownerId,
+      frontId: ownerId + ":" + frontType,
+      frontType,
+      role: frontType === "center" ? "center" : "pressure",
+      originCoreId: ownerId,
+      targetCoreId,
+      assignedAt: state.t || 0,
+      assignmentLockUntil: (state.t || 0) + 3,
+      lastIssuedAt: existing.lastIssuedAt || 0,
+      lastOrderSignature: existing.lastOrderSignature || ""
+    };
+  }
 
-    const n = type.squadSize;
+  function spawnPurchasedSquad(ownerId, unitTypeKey, waypoints, opts) {
+    const p = state.players.get(ownerId);
+    const type = UNIT_TYPES[unitTypeKey];
+    if (!p || !type) return { ok: false, spawned: 0, squadId: null };
+
+    const n = Math.max(1, type.squadSize || 1);
     const pts = Array.isArray(waypoints) && waypoints.length > 0 ? waypoints : [{ x: p.x + 100, y: p.y }];
     const first = pts[0];
     const [vx, vy] = norm(first.x - p.x, first.y - p.y);
@@ -7921,12 +8848,13 @@
       makeUnitVisual(u);
     }
 
+    let createdSquad = null;
     if (leaderId != null && typeof SQUADLOGIC !== "undefined" && SQUADLOGIC.createSquad) {
       const unitIds = [];
       for (const u of state.units.values()) {
         if (u.id === leaderId || u.leaderId === leaderId) unitIds.push(u.id);
       }
-      SQUADLOGIC.createSquad(state, unitIds, {
+      createdSquad = SQUADLOGIC.createSquad(state, unitIds, {
         leaderUnitId: leaderId,
         formationType,
         formationRows,
@@ -7942,7 +8870,44 @@
       });
     }
 
-    return { ok: true, spawned: n, cost };
+    return { ok: true, spawned: n, squadId: createdSquad ? createdSquad.id : null, leaderId };
+  }
+
+  function purchaseUnit(ownerId, unitTypeKey, waypoints, opts) {
+    const quote = getUnitPurchaseQuote(ownerId, unitTypeKey, 1);
+    if (!quote.ok) return quote;
+    quote.player.eCredits -= quote.costPerPurchase;
+    const spawned = spawnPurchasedSquad(ownerId, unitTypeKey, waypoints, opts);
+    if (!spawned.ok) return { ok: false, reason: "spawn_failed" };
+    if (opts && opts.frontType && spawned.squadId != null) seedFrontAssignment(ownerId, spawned.squadId, opts.frontType);
+    return { ok: true, spawned: spawned.spawned, cost: quote.costPerPurchase, squadId: spawned.squadId };
+  }
+
+  function purchaseFrontTriplet(ownerId, unitTypeKey) {
+    const quote = getUnitPurchaseQuote(ownerId, unitTypeKey, 1, 3);
+    if (!quote.ok) return quote;
+    const frontSpecs = getAutoFrontSpecs(ownerId);
+    if (!frontSpecs || frontSpecs.length === 0) return { ok: false, reason: "no_fronts" };
+    quote.player.eCredits -= quote.totalCost;
+    let spawned = 0;
+    const squadIds = [];
+    const fronts = [];
+    for (const spec of frontSpecs) {
+      const sourceTag = (spec && spec.sourceTag) || ("front:" + spec.frontType);
+      const out = spawnPurchasedSquad(ownerId, unitTypeKey, cloneWaypointsSafe(spec.waypoints), {
+        sourceTag,
+        frontType: spec.frontType,
+        autoGroupUntil: (state.t || 0) + 5,
+        allowAutoJoinRecentSpawn: true
+      });
+      spawned += out.spawned || 0;
+      fronts.push({ frontType: spec.frontType, squadId: out.squadId });
+      if (out.squadId != null) {
+        squadIds.push(out.squadId);
+        seedFrontAssignment(ownerId, out.squadId, spec.frontType);
+      }
+    }
+    return { ok: true, spawned, cost: quote.totalCost, squadIds, fronts };
   }
 
   function spawnUnits(ownerId, count, waypoints, opts) {
@@ -7957,7 +8922,12 @@
       if (firstId != null) deleteResource(firstId);
     }
     const id = state.nextResId++;
-    const r = { id, type: "orb", xp, x, y, color: 0xffdd44, gfx: null, _spawnedAt: state.t };
+    const r = {
+      id, type: "orb", xp, x, y, color: 0xffdd44, gfx: null, _spawnedAt: state.t,
+      _deathBurst: true,
+      _arcHeight: 16 + Math.random() * 10,
+      _arcSide: Math.random() < 0.5 ? -1 : 1
+    };
     if (killerOwner != null && killerOwner !== undefined) {
       r._targetCity = killerOwner;
       r._interceptProtectUntil = state.t + 1.5;
@@ -7995,7 +8965,7 @@
   function addTimedGrowthBonus(player, amountPerMin, durationSec) {
     if (!player || !amountPerMin || !durationSec) return;
     if (!player._growthBonuses) player._growthBonuses = [];
-    player._growthBonuses.push({ amount: amountPerMin, expiresAt: state.t + durationSec });
+    player._growthBonuses.push({ amount: amountPerMin, expiresAt: state.t + toSimSeconds(durationSec) });
   }
 
   function killUnit(u, reason = "dead", killerOwner) {
@@ -8004,33 +8974,16 @@
     const xpDrop = Math.max(1, Math.round(baseXP * (0.8 + Math.random() * 0.4)));
     const isPirateKill = killerOwner === PIRATE_OWNER_ID || (killerOwner != null && !state.players.has(killerOwner));
     const rewardTarget = !isPirateKill && killerOwner != null && state.players.has(killerOwner) ? killerOwner : null;
+    const creditDrop = UNIT_CREDIT_DROPS[u.unitType] || 3;
+    const creditVal = creditDrop > 0 ? Math.max(1, Math.round(creditDrop * (0.6 + Math.random() * 0.8))) : 0;
     if (rewardTarget != null) {
       const killer = state.players.get(rewardTarget);
       if (killer) gainXP(killer, xpDrop);
     }
-    spawnXPOrb(u.x + (Math.random() - 0.5) * 10, u.y + (Math.random() - 0.5) * 10, xpDrop, rewardTarget, rewardTarget != null ? { visualOnly: true } : {});
-    const creditDrop = UNIT_CREDIT_DROPS[u.unitType] || 3;
-    if (creditDrop > 0) {
-      const creditVal = Math.max(1, Math.round(creditDrop * (0.6 + Math.random() * 0.8)));
-      if (rewardTarget != null) {
-        const killer = state.players.get(rewardTarget);
-        if (killer) killer.eCredits = (killer.eCredits || 0) + creditVal;
-      }
-      const id = state.nextResId++;
-      const rx = u.x + (Math.random() - 0.5) * 12, ry = u.y + (Math.random() - 0.5) * 12;
-      const creditOrb = {
-        id, type: "credit", value: creditVal, x: rx, y: ry,
-        color: 0xffdd44, gfx: null, _spawnedAt: state.t, isCredit: true,
-        _targetCity: rewardTarget != null ? rewardTarget : undefined,
-        _interceptProtectUntil: rewardTarget != null ? state.t + 1.5 : undefined,
-        _visualOnly: rewardTarget != null
-      };
-      if (state.res.size >= (CFG.RES_MAX ?? 520)) {
-        const firstId = state.res.keys().next().value;
-        if (firstId != null) deleteResource(firstId);
-      }
-      state.res.set(id, creditOrb);
-      makeResVisual(creditOrb);
+    if (rewardTarget != null) {
+      const killer = state.players.get(rewardTarget);
+      if (killer && creditVal > 0) killer.eCredits = (killer.eCredits || 0) + creditVal;
+      queueKillRewardPulse(rewardTarget, u.x, u.y, xpDrop, creditVal);
     }
 
     const p = state.players.get(u.owner);
@@ -8298,6 +9251,7 @@
     stepCityDefense(dt);
 
     for (const p of [...state.players.values()]) {
+      if (p.eliminated) continue;
       if (p.pop <= 0) {
         if (p._lastCityAttacker != null) {
           const killer = state.players.get(p._lastCityAttacker);
@@ -8314,7 +9268,7 @@
             });
           }
         }
-        destroyCity(p);
+        destroyCity(p, p._lastCityAttacker);
       }
     }
   }
@@ -8360,13 +9314,19 @@
     const killerId = pb.lastDamagedBy;
     const killer = killerId != null ? state.players.get(killerId) : null;
     if (killer) {
-      for (let L = 0; L < 10; L++) {
+      let grantedDrops = 0;
+      for (let L = 0; L < 3; L++) {
         killer.level = (killer.level || 1) + 1;
-        killer.pendingCardPicks = (killer.pendingCardPicks || 0) + 1;
         killer._levelBonusMul = 1 + (killer.level || 1) * 0.01;
         killer.xpNext = xpNeed(killer.level, killer);
+        grantedDrops += grantLevelCardDrops(killer, "pirateBaseLevel");
       }
-      state.floatingDamage.push({ x: killer.x, y: killer.y - 50, text: "+10 ур.!", color: 0xffdd00, ttl: 3 });
+      killer.eCredits = (killer.eCredits || 0) + 2000;
+      killer.popFloat = (killer.popFloat || killer.pop || 0) + 150;
+      killer.pop = Math.floor(killer.popFloat);
+      if (grantedDrops > 0 && state.botPlayerIds && state.botPlayerIds.has(killer.id)) autoPlayBotCardHands(killer);
+      state.floatingDamage.push({ x: killer.x, y: killer.y - 54, text: "+3 ур.", color: 0xffdd00, ttl: 2.8 });
+      state.floatingDamage.push({ x: killer.x, y: killer.y - 30, text: "+2000€  +150 энергии", color: 0xffd98c, ttl: 3.0 });
     }
     for (const m of state.mines.values()) {
       if (m.isRich) { m.ownerId = null; m.captureProgress = 0; m._capturingOwner = null; m._captureProtectedUntil = 0; updateMineVisual(m); break; }
@@ -8722,17 +9682,57 @@
     if (state.bullets.length === 0) return;
     const g = _bulletsGfx;
     const now = performance.now();
+    const zoom = cam.zoom || CFG.CAMERA_START_ZOOM || 0.22;
+    if (zoom < 0.34) return;
+    const nearOnly = zoom < 0.52;
     for (let i = 0; i < state.bullets.length; i++) {
       const b = state.bullets[i];
       const bx = b.x || b.fromX || 0;
       const by = b.y || b.fromY || 0;
       if (!inView(bx, by)) continue;
+      if (nearOnly && !isNearCamera(bx, by)) continue;
       if (!LOD.canDraw("bullets")) break;
-      CombatVFX.drawBullet(g, b, cam.zoom, now);
+      CombatVFX.drawBullet(g, b, zoom, now);
     }
   }
 
-  function destroyCity(p) {
+  function resolveCityEliminationOwnerId(city, killerOwnerId) {
+    if (!city) return null;
+    const candidateIds = [killerOwnerId, city._lastCityAttacker, city.lastDamagedBy];
+    for (const candidateId of candidateIds) {
+      if (candidateId == null || candidateId === city.id) continue;
+      const candidate = state.players.get(candidateId);
+      if (candidate && !candidate.eliminated) return candidate.id;
+    }
+
+    let nearestOwnerId = null;
+    let nearestDist = Infinity;
+    for (const u of state.units.values()) {
+      if (!u || u.hp <= 0 || u.owner === city.id) continue;
+      const owner = state.players.get(u.owner);
+      if (!owner || owner.eliminated) continue;
+      const dist = Math.hypot((u.x || 0) - city.x, (u.y || 0) - city.y);
+      if (dist < nearestDist) {
+        nearestDist = dist;
+        nearestOwnerId = owner.id;
+      }
+    }
+    if (nearestOwnerId != null) return nearestOwnerId;
+
+    for (const other of state.players.values()) {
+      if (!other || other.id === city.id || other.eliminated) continue;
+      const dist = Math.hypot((other.x || 0) - city.x, (other.y || 0) - city.y);
+      if (dist < nearestDist) {
+        nearestDist = dist;
+        nearestOwnerId = other.id;
+      }
+    }
+    return nearestOwnerId;
+  }
+
+  function destroyCity(p, killerOwnerId) {
+    if (!p || p.eliminated) return;
+    const resolvedKillerOwnerId = resolveCityEliminationOwnerId(p, killerOwnerId);
     if (p._orbitalRings) { cityLayer.removeChild(p._orbitalRings); p._orbitalRings = null; }
     if (p.cityGfx) cityLayer.removeChild(p.cityGfx);
     if (p.label) cityLayer.removeChild(p.label);
@@ -8765,6 +9765,11 @@
     if (!state._ruinSpawns) state._ruinSpawns = [];
     state._ruinSpawns.push({ x: p.x, y: p.y, nextSpawn: state.t + 60 });
 
+    for (const mine of state.mines.values()) {
+      if (!mine || mine.ownerId !== p.id) continue;
+      setMineOwnerInstantly(mine, resolvedKillerOwnerId);
+    }
+
     for (const u of [...state.units.values()]) {
       if (u.owner === p.id) {
         if (u.gfx) unitsLayer.removeChild(u.gfx);
@@ -8781,7 +9786,20 @@
       }
     }
     p.turretIds = [];
-    state.players.delete(p.id);
+    p.cityGfx = null;
+    p.label = null;
+    p.popLabel = null;
+    p.shieldGfx = null;
+    p.zoneGfx = null;
+    p.zoneGlow = null;
+    p.zoneShellGfx = null;
+    p.zoneLightGfx = null;
+    p.pop = 0;
+    p.popFloat = 0;
+    p.shieldHp = 0;
+    p.shieldMaxHp = 0;
+    p.eliminated = true;
+    p.lastDamagedBy = resolvedKillerOwnerId ?? null;
   }
 
   // ------------------------------------------------------------
@@ -8828,15 +9846,31 @@
     const speedMuls = terrainSpd * unitSpeedMul * (u._territoryMul ?? 1) * cryoSpd * hyperMul * fleetBoostMul;
     const speed = baseSpeed * speedMuls;
     const blackHolePullActive = !!(u._blackHolePullUntil && state.t < u._blackHolePullUntil);
+    const moveIndividualPerSec = individualSpeed * speedMuls;
+    const blackHolePullSpeed = blackHolePullActive ? Math.max(0, (u._blackHolePullSpeed || 0)) : 0;
     return {
       leader,
       individualSpeed,
       speed,
+      moveIndividualPerSec,
       maxMove: speed * dt,
-      maxMoveIndividual: individualSpeed * speedMuls * dt,
+      maxMoveIndividual: moveIndividualPerSec * dt,
       blackHolePullActive,
-      blackHolePullStep: blackHolePullActive ? Math.max(0, (u._blackHolePullSpeed || 0) * dt) : 0
+      blackHolePullSpeed,
+      blackHolePullStep: blackHolePullSpeed * dt
     };
+  }
+
+  function getCachedUnitMotionContext(u, dt, useSquadLogic, refresh) {
+    if (refresh || !u._cachedMotionCtx) {
+      u._cachedMotionCtx = createUnitMotionContext(u, dt, useSquadLogic);
+      return u._cachedMotionCtx;
+    }
+    const ctx = u._cachedMotionCtx;
+    ctx.maxMove = (ctx.speed || 0) * dt;
+    ctx.maxMoveIndividual = (ctx.moveIndividualPerSec || ctx.speed || 0) * dt;
+    ctx.blackHolePullStep = ctx.blackHolePullActive ? Math.max(0, (ctx.blackHolePullSpeed || 0) * dt) : 0;
+    return ctx;
   }
 
   function resolveAuthoritativeMovementTarget(u, desired) {
@@ -9071,15 +10105,6 @@
         u.y = cp.y + (u.y - cp.y) * scale;
       }
     }
-    const mineR = (CFG.MINE_CAPTURE_RADIUS || 140) * 0.35;
-    for (const mine of state.mines.values()) {
-      const dToMine = Math.hypot(u.x - mine.x, u.y - mine.y);
-      if (dToMine > 0 && dToMine < mineR) {
-        const scale = mineR / dToMine;
-        u.x = mine.x + (u.x - mine.x) * scale;
-        u.y = mine.y + (u.y - mine.y) * scale;
-      }
-    }
   }
 
   function applyEnemyCollision(u, dt) {
@@ -9123,6 +10148,28 @@
     }
   }
 
+  function isUnitCombatHot(u) {
+    const cs = u && u._combatState;
+    return !!(u && (u._engagementZoneId != null || cs === "acquire" || cs === "chase" || cs === "attack" || cs === "siege"));
+  }
+
+  function getUnitPerfProfile(u, visible) {
+    const unitCount = state.units ? state.units.size : 0;
+    const hovered = !!(state._hoverTarget && state._hoverTarget.id === u.id);
+    const selected = state.selectedUnitIds ? state.selectedUnitIds.has(u.id) : false;
+    const hot = visible || hovered || selected || isUnitCombatHot(u);
+    if (unitCount < 260) return { desiredEvery: 1, motionEvery: 1, neighborEvery: 1, obstacleEvery: 1, trailLimit: 10, hot };
+    if (hot) return { desiredEvery: 1, motionEvery: 1, neighborEvery: 1, obstacleEvery: 1, trailLimit: unitCount >= 520 ? 6 : 8, hot };
+    return {
+      desiredEvery: unitCount >= 520 ? 4 : (unitCount >= 380 ? 3 : 2),
+      motionEvery: unitCount >= 520 ? 4 : (unitCount >= 380 ? 3 : 2),
+      neighborEvery: unitCount >= 520 ? 6 : (unitCount >= 380 ? 4 : 3),
+      obstacleEvery: unitCount >= 520 ? 6 : (unitCount >= 380 ? 4 : 3),
+      trailLimit: unitCount >= 520 ? 4 : 6,
+      hot
+    };
+  }
+
   function stepUnits(dt) {
     const useSquadLogic = typeof SQUADLOGIC !== "undefined" && SQUADLOGIC.getUnitMovementTarget;
     // ═══════════════════════════════════════════════════════════════════
@@ -9130,46 +10177,64 @@
     // Each unit resolves to a single target (tx,ty) then moves toward it
     // ═══════════════════════════════════════════════════════════════════
     for (const u of state.units.values()) {
-      const motionCtx = createUnitMotionContext(u, dt, useSquadLogic);
+      const vis = inView(u.x, u.y);
+      const perf = getUnitPerfProfile(u, vis);
+      const cadenceSeed = (state._frameCtr || 0) + u.id;
+      const refreshDesired = perf.desiredEvery <= 1 || (cadenceSeed % perf.desiredEvery) === 0 || !u._cachedDesiredMovement;
+      const refreshMotionCtx = perf.motionEvery <= 1 || (cadenceSeed % perf.motionEvery) === 0 || !u._cachedMotionCtx;
+      const runNeighborOps = perf.neighborEvery <= 1 || (cadenceSeed % perf.neighborEvery) === 0 || perf.hot;
+      const runObstacleOps = perf.obstacleEvery <= 1 || (cadenceSeed % perf.obstacleEvery) === 0 || perf.hot;
+      const motionCtx = getCachedUnitMotionContext(u, dt, useSquadLogic, refreshMotionCtx);
 
       // 1. resolve desired movement target
-      const desired = resolveDesiredMovementTarget(u, motionCtx);
+      const desired = refreshDesired
+        ? resolveDesiredMovementTarget(u, motionCtx)
+        : (u._cachedDesiredMovement || { tx: u.x, ty: u.y, moveMode: "stop" });
+      if (refreshDesired) {
+        u._cachedDesiredMovement = { tx: desired.tx, ty: desired.ty, moveMode: desired.moveMode };
+      }
 
       // 2. turning / heading
       // 3. formation movement / forward step toward target
       applyHeadingAndMovement(u, desired, motionCtx, dt);
 
       // 4. friendly separation
-      applyFriendlySeparation(u);
+      if (runNeighborOps) applyFriendlySeparation(u);
 
       // 5. boundary constraints
-      applyCombatZoneBoundary(u, motionCtx);
+      if (perf.hot || runNeighborOps) applyCombatZoneBoundary(u, motionCtx);
 
       // 6. obstacle push / shield push / mine push
-      applyObstaclePushes(u);
+      if (runObstacleOps) applyObstaclePushes(u);
 
       // 7. enemy collision
-      applyEnemyCollision(u, dt);
+      if (runNeighborOps) applyEnemyCollision(u, dt);
 
       // 8. final clamp
       applyFinalWorldClamp(u);
 
       if (u.gfx) {
-        const vis = inView(u.x, u.y);
         u.gfx.visible = vis;
-        const spd = Math.hypot(u.vx || 0, u.vy || 0);
-        if (spd > 2 && (state._frameCtr + u.id) % 2 === 0) {
-          if (!u._trail) u._trail = [];
-          u._trail.push({ x: u.x, y: u.y });
-          if (u._trail.length > 10) u._trail.shift();
-        } else if (spd <= 2 && u._trail) u._trail = [];
         if (vis) {
+          const spd = Math.hypot(u.vx || 0, u.vy || 0);
+          const shipDetail = getAdaptiveShipVisualDetail();
+          const shipLodLevel = getAdaptiveShipLodLevel();
+          if (u._lastShipLodLevel !== shipLodLevel) {
+            u._lastShipLodLevel = shipLodLevel;
+            syncUnitShipFilters(u, shipDetail);
+          }
+          if (spd > 2 && (state._frameCtr + u.id) % 2 === 0) {
+            if (!u._trail) u._trail = [];
+            u._trail.push({ x: u.x, y: u.y });
+            if (u._trail.length > perf.trailLimit) u._trail.shift();
+          } else if (spd <= 2 && u._trail) u._trail = [];
           const vfc = state._frameCtr;
           const sel = state.selectedUnitIds.has(u.id);
           const flashing = u._hitFlashT != null && (state.t - u._hitFlashT) < 0.3;
           const hovered = state._hoverTarget && state._hoverTarget.id === u.id;
           const stateChanged = (u._lastSelected !== sel || u._lastFlash !== flashing || u._lastHovered !== hovered);
-          const needRedraw = stateChanged || (vfc + u.id) % 4 === 0;
+          const redrawInterval = getShipVisualRedrawInterval(sel, hovered, flashing);
+          const needRedraw = stateChanged || (vfc + u.id) % redrawInterval === 0;
           if (needRedraw) {
             u._lastSelected = sel;
             u._lastFlash = flashing;
@@ -9203,6 +10268,18 @@
               const hR = hType.sizeMultiplier * 6 + 8;
               u.gfx.circle(0, 0, hR);
               u.gfx.stroke({ color: 0xff4444, width: 2, alpha: 0.8 });
+              const hpMax = Math.max(1, u.maxHp || hType.hp || 1);
+              const hpFrac = Math.max(0, Math.min(1, (u.hp || 0) / hpMax));
+              const barW = Math.max(18, hR * 1.8);
+              const barH = 4;
+              const barY = -hR - 10;
+              const hpColor = hpFrac > 0.5 ? 0x74ff95 : (hpFrac > 0.25 ? 0xffb347 : 0xff5e5e);
+              u.gfx.roundRect(-barW * 0.5, barY, barW, barH, 2);
+              u.gfx.fill({ color: 0x111111, alpha: 0.72 });
+              u.gfx.roundRect(-barW * 0.5 + 0.8, barY + 0.8, Math.max(0, (barW - 1.6) * hpFrac), barH - 1.6, 2);
+              u.gfx.fill({ color: hpColor, alpha: 0.94 });
+              u.gfx.roundRect(-barW * 0.5, barY, barW, barH, 2);
+              u.gfx.stroke({ color: 0xffffff, width: 0.8, alpha: 0.32 });
             }
           }
           u.gfx.position.set(u.x, u.y);
@@ -9218,6 +10295,8 @@
           const step = Math.min(Math.PI * 0.5, turnSpeed * (state._lastDt || 0.016));
           if (Math.abs(diff) < step) u.gfx.rotation = targetRot;
           else u.gfx.rotation = curRot + Math.sign(diff) * step;
+        } else if (u._trail && (state._frameCtr + u.id) % 8 === 0) {
+          u._trail = [];
         }
       }
     }
@@ -9407,12 +10486,13 @@
       if (r.gfx) {
         const vis = inView(r.x, r.y);
         r.gfx.visible = vis;
-        if (vis) r.gfx.position.set(r.x, r.y);
+        if (vis) refreshResourceVisual(r, r._visualVx || 0, r._visualVy || 0);
       }
     }
   }
 
   function stepPickups(dt) {
+    flushKillRewardPulses();
     const toDelete = [];
     const touchR = CFG.ACTIVITY_RADIUS;
 
@@ -9420,15 +10500,27 @@
       if (r._targetCity) {
         const p = state.players.get(r._targetCity);
         if (!p) { r._targetCity = null; continue; }
-        const dx = p.x - r.x, dy = p.y - r.y;
+        const prevX = r.x || 0;
+        const prevY = r.y || 0;
+        let targetX = p.x;
+        let targetY = p.y;
+        if (r.type === "killPulse" && r._laneJoinPoint) {
+          targetX = r._laneJoinPoint.x;
+          targetY = r._laneJoinPoint.y;
+        }
+        const dx = targetX - r.x, dy = targetY - r.y;
         const dl = Math.hypot(dx, dy);
         const minFlyTime = 0.4;
         const canPickup = !r._spawnedAt || (state.t - r._spawnedAt >= minFlyTime);
+        if (r.type === "killPulse" && r._laneJoinPoint && dl < 18) {
+          r._laneJoinPoint = null;
+          continue;
+        }
         if (dl < 28 && canPickup) {
           if (!r._visualOnly) {
             if (r.type === "credit") {
               p.eCredits = (p.eCredits || 0) + (r.value || 0);
-            } else {
+            } else if (r.type === "orb") {
               gainXP(p, r.xp || 0);
             }
           }
@@ -9445,11 +10537,15 @@
           const zoneOwner = getZoneOwnerFast(r.x, r.y);
           if (zoneOwner === r._targetCity) speed += magnetSpeed * 0.6;
         }
+        if (r._deathBurst) speed *= 1.45;
+        if (r._impulsePacket) speed *= 2.05;
         const ease = Math.min(1, 350 / Math.max(dl, 40));
         speed *= (0.35 + 0.65 * ease);
         r.x += (dx / dl) * speed * dt;
         r.y += (dy / dl) * speed * dt;
-        if (r.gfx) r.gfx.position.set(r.x, r.y);
+        r._visualVx = (r.x - prevX) / Math.max(0.0001, dt);
+        r._visualVy = (r.y - prevY) / Math.max(0.0001, dt);
+        if (r.gfx) refreshResourceVisual(r, r._visualVx, r._visualVy);
       }
 
       const interceptProtected = r._interceptProtectUntil && state.t < r._interceptProtectUntil;
@@ -9543,8 +10639,8 @@
       p.popFloat = (p.popFloat || p.pop) + 10;
       p._levelBonusMul = 1 + p.level * 0.01;
       p.xpNext = xpNeed(p.level, p);
-      const draw = drawRandomCardForPlayer(p, "levelUp");
-      if (draw && state.botPlayerIds && state.botPlayerIds.has(p.id)) autoPlayBotCardHands(p);
+      const draws = grantLevelCardDrops(p, "levelUp");
+      if (draws > 0 && state.botPlayerIds && state.botPlayerIds.has(p.id)) autoPlayBotCardHands(p);
     }
     if (p.id === state.myPlayerId && p.level > prevLevel) levelUpSound();
     p.pendingCardPicks = 0;
@@ -9745,7 +10841,6 @@
       p.xpZonePct = totalArea > 0 ? (zoneArea / totalArea * 100) : 0;
       p.xpGainMul = p.xpZonePct < 5 ? 1.2 : 1;
       p.xpNext = xpNeed(p.level, p);
-      redrawZone(p);
     }
   }
 
@@ -9854,12 +10949,15 @@
     for (const p of state.players.values()) {
       if (p.id === state.myPlayerId) continue;
       if (state.botPlayerIds && !state.botPlayerIds.has(p.id)) continue;
+      if (p.eliminated || p.pop <= 0) continue;
       p._botAcc = (p._botAcc ?? 0) + dt;
       const tick = p._botAcc >= BOT_TICK;
       if (tick) p._botAcc = 0;
 
-      if (tick) botMergeSmallSquads(p.id);
+      if (tick && !isIndirectControlEnabled()) botMergeSmallSquads(p.id);
       if (!tick) continue;
+
+      autoPlayBotCardHands(p);
 
       const arch = botGetArchetype(p);
       const scores = botEvalScores(p, arch);
@@ -9868,6 +10966,7 @@
       const squads = getSquads().filter(s => s.length > 0 && s[0].owner === p.id);
       const myUnitCount = myUnits.length;
       const stagingMinSize = 4;
+      const indirectLanes = isIndirectControlEnabled();
 
       function estimatePower(units) {
         let total = 0;
@@ -9955,36 +11054,41 @@
         return best;
       };
 
-      for (const squad of squads) {
-        const leader = squad.find(u => !u.leaderId) || squad[0];
-        const squadState = getSquadStateFromUnits(squad);
-        if (isAuthoritativeSquadInCombat(squadState)) continue;
-        if (squad.length < stagingMinSize) {
-          setSquadWaypoint(squad, p.x + rand(-60, 60), p.y + rand(-60, 60));
-          continue;
-        }
-        const wp = leader.waypoints;
-        const idle = !wp || (leader.waypointIndex ?? 0) >= wp.length;
-        if (!idle && Math.random() > 0.3) continue;
+      if (!indirectLanes) {
+        for (const squad of squads) {
+          const leader = squad.find(u => !u.leaderId) || squad[0];
+          const squadState = getSquadStateFromUnits(squad);
+          if (isAuthoritativeSquadInCombat(squadState)) continue;
+          if (squad.length < stagingMinSize) {
+            setSquadWaypoint(squad, p.x + rand(-60, 60), p.y + rand(-60, 60));
+            continue;
+          }
+          const wp = leader.waypoints;
+          const idle = !wp || (leader.waypointIndex ?? 0) >= wp.length;
+          if (!idle && Math.random() > 0.3) continue;
 
-        if (bestAction === defendScore && threatNearBase) {
-          setSquadWaypoint(squad, p.x + rand(-80, 80), p.y + rand(-80, 80));
-        } else if (bestAction === attackScore && weakestEnemy) {
-          attackCity(squad, weakestEnemy);
-        } else if (bestAction === expandScore || bestAction === economyScore) {
-          const mine = nearestUnownedMine();
-          if (mine) {
-            setSquadWaypoint(squad, mine.x, mine.y);
-          } else if (weakestEnemy) {
+          if (bestAction === defendScore && threatNearBase) {
+            setSquadWaypoint(squad, p.x + rand(-80, 80), p.y + rand(-80, 80));
+          } else if (bestAction === attackScore && weakestEnemy) {
             attackCity(squad, weakestEnemy);
+          } else if (bestAction === expandScore || bestAction === economyScore) {
+            const mine = nearestUnownedMine();
+            if (mine) {
+              setSquadWaypoint(squad, mine.x, mine.y);
+            } else if (weakestEnemy) {
+              attackCity(squad, weakestEnemy);
+            }
           }
         }
       }
 
       const credits = p.eCredits || 0;
       const gameTime = state.t || 0;
-      const costMul = p.unitCostMul != null ? p.unitCostMul : 1;
-      const affordType = (key) => { const t = UNIT_TYPES[key]; return t && credits >= Math.max(1, Math.round(t.cost * costMul)); };
+      const affordType = (key) => {
+        if (!UNIT_TYPES[key]) return false;
+        if (indirectLanes) return !!getUnitPurchaseQuote(p.id, key, 1, 3).ok;
+        return credits >= getPurchaseCostWithModifiers(p.id, key, 1, 1).costPerPurchase;
+      };
 
       let unitToBuy = "fighter";
       const isEconomist = p._botArchetype === "economist";
@@ -10002,7 +11106,8 @@
       }
 
       const type = UNIT_TYPES[unitToBuy];
-      const cost = Math.max(1, Math.round(type.cost * costMul));
+      const quote = indirectLanes ? getUnitPurchaseQuote(p.id, unitToBuy, 1, 3) : getUnitPurchaseQuote(p.id, unitToBuy, 1, 1);
+      const cost = quote.ok ? quote.totalCost : getPurchaseCostWithModifiers(p.id, unitToBuy, 1, indirectLanes ? 3 : 1).totalCost;
       const saveMultiplier = isEconomist ? 3.0 : (p._botArchetype === "aggressor" ? 1.2 : 1.8);
       const savingThreshold = gameTime > 180 ? cost * saveMultiplier : cost;
       if (credits >= cost && (credits >= savingThreshold || myUnitCount < 4)) {
@@ -10010,15 +11115,27 @@
         const target = mine || weakestEnemy || { x: p.x + rand(-200, 200), y: p.y + rand(-200, 200) };
         const tx = clamp((target.x || 0) + rand(-20, 20), 0, CFG.WORLD_W);
         const ty = clamp((target.y || 0) + rand(-20, 20), 0, CFG.WORLD_H);
-        const affordableCount = Math.max(1, Math.floor(credits / cost));
-        let burstCount = 1;
-        if (unitToBuy === "fighter") burstCount = Math.min(4, affordableCount);
-        else if (unitToBuy === "destroyer") burstCount = Math.min(2, affordableCount);
-        else if (unitToBuy === "cruiser" && affordableCount >= 2 && Math.random() < 0.35) burstCount = 2;
-        for (let i = 0; i < burstCount; i++) {
-          purchaseUnit(p.id, unitToBuy, [{ x: tx, y: ty }], { sourceTag: "spawn" });
+        if (indirectLanes) {
+          const affordableCount = Math.max(1, Math.floor(credits / Math.max(1, cost)));
+          let burstCount = 1;
+          if (unitToBuy === "fighter") burstCount = Math.min(4, affordableCount);
+          else if (unitToBuy === "destroyer") burstCount = Math.min(3, affordableCount);
+          else if (unitToBuy === "cruiser") burstCount = Math.min(2, affordableCount);
+          else if ((unitToBuy === "battleship" || unitToBuy === "hyperDestroyer") && affordableCount >= 2 && credits >= savingThreshold * 1.35) burstCount = 2;
+          for (let i = 0; i < burstCount; i++) {
+            if (!purchaseFrontTriplet(p.id, unitToBuy).ok) break;
+          }
+        } else {
+          const affordableCount = Math.max(1, Math.floor(credits / cost));
+          let burstCount = 1;
+          if (unitToBuy === "fighter") burstCount = Math.min(4, affordableCount);
+          else if (unitToBuy === "destroyer") burstCount = Math.min(2, affordableCount);
+          else if (unitToBuy === "cruiser" && affordableCount >= 2 && Math.random() < 0.35) burstCount = 2;
+          for (let i = 0; i < burstCount; i++) {
+            purchaseUnit(p.id, unitToBuy, [{ x: tx, y: ty }], { sourceTag: "spawn" });
+          }
+          if (burstCount > 1) botMergeSmallSquads(p.id);
         }
-        if (burstCount > 1) botMergeSmallSquads(p.id);
       }
 
       if (p._levelUpCards && p._levelUpCards.length > 0) {
@@ -10056,13 +11173,41 @@
   }
 
   function mineAtWorld(wx, wy) {
+    if (state._frontControlEnabled !== false) return null;
     let best = null;
     let bestD = Infinity;
     for (const mine of state.mines.values()) {
-      const R = mine.isRich ? 40 : 32;
+      const R = mine.isRich ? 26 : 18;
       const d = (mine.x - wx) ** 2 + (mine.y - wy) ** 2;
       if (d > R * R) continue;
       if (d < bestD) { bestD = d; best = mine; }
+    }
+    return best;
+  }
+
+  function mineAtWorldAny(wx, wy) {
+    let best = null;
+    let bestD = Infinity;
+    const extraR = 14 / Math.max(0.18, cam.zoom || 0.22);
+    for (const mine of state.mines.values()) {
+      const baseR = mine.isRich ? 34 : 26;
+      const hoverR = baseR + extraR;
+      const d = (mine.x - wx) ** 2 + (mine.y - wy) ** 2;
+      if (d > hoverR * hoverR) continue;
+      if (d < bestD) { bestD = d; best = mine; }
+    }
+    return best;
+  }
+
+  function pirateBaseAtWorld(wx, wy) {
+    let best = null;
+    let bestD = Infinity;
+    const hoverR = 52 + 18 / Math.max(0.18, cam.zoom || 0.22);
+    for (const pb of getPirateBases()) {
+      if (!pb || pb.hp <= 0) continue;
+      const d = (pb.x - wx) ** 2 + (pb.y - wy) ** 2;
+      if (d > hoverR * hoverR) continue;
+      if (d < bestD) { bestD = d; best = pb; }
     }
     return best;
   }
@@ -10080,6 +11225,79 @@
       if (d < bestD) { bestD = d; best = p; }
     }
     return best;
+  }
+
+  function escapeHtml(value) {
+    return String(value == null ? "" : value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  function getMineRealtimeIncome(mine) {
+    const owner = mine && mine.ownerId ? state.players.get(mine.ownerId) : null;
+    const baseRate = mine && mine._flowRate > 0 ? mine._flowRate : getMineYieldPerSecond(mine, owner);
+    const energyRate = getMineEnergyPerSecond(mine, owner);
+    const xpRate = baseRate * (CFG.MINE_XP_YIELD_MUL || 1);
+    return {
+      moneyPerSec: mine && (mine.isRich || mine.resourceType === "money") ? baseRate : 0,
+      xpPerSec: mine && (mine.isRich || mine.resourceType !== "money") ? xpRate : 0,
+      energyPerSec: energyRate
+    };
+  }
+
+  function getHoverInspectTarget(wx, wy) {
+    const mine = mineAtWorldAny(wx, wy);
+    if (mine) return { type: "mine", key: "mine:" + mine.id, mine };
+    const pirateBase = pirateBaseAtWorld(wx, wy);
+    if (pirateBase) return { type: "pirateBase", key: "pirateBase:" + pirateBase.id, pirateBase };
+    const me = state.players.get(state.myPlayerId);
+    if (me && me.influencePolygon && me.influencePolygon.length >= 3 && isPointInPolygon(wx, wy, me.influencePolygon)) {
+      return { type: "zone", key: "zone:" + me.id, player: me };
+    }
+    return null;
+  }
+
+  function getHoverInspectHtml(target) {
+    if (!target) return "";
+    if (target.type === "zone") {
+      const me = target.player;
+      const totalArea = CFG.WORLD_W * CFG.WORLD_H;
+      const myArea = polygonArea(me.influencePolygon || []);
+      const zonePct = totalArea > 0 ? Math.min(100, (myArea / totalArea) * 100) : 0;
+      const xpBonusPct = Math.round(((me.xpGainMul != null ? me.xpGainMul : 1) - 1) * 100);
+      return "<div style='font-weight:800;font-size:13px;margin-bottom:6px;color:#eef7ff'>Зона влияния</div>" +
+        "<div style='opacity:0.9;line-height:1.35'>Ваша территория контроля. Она растет от энергии ядра и карт экспансии, показывает владение картой и удерживает пространство вокруг базы.</div>" +
+        "<div style='margin-top:7px;color:#d7e7ff'>Площадь: <b>" + zonePct.toFixed(1) + "%</b> карты</div>" +
+        "<div style='color:#d7e7ff'>Скорость роста: <b>x" + (me.influenceSpeedMul != null ? me.influenceSpeedMul : 1).toFixed(2) + "</b></div>" +
+        "<div style='color:" + (xpBonusPct > 0 ? "#90ffb0" : "#c6d4ef") + "'>Бонус XP: <b>" + (xpBonusPct >= 0 ? "+" : "") + xpBonusPct + "%</b></div>";
+    }
+    if (target.type === "pirateBase") {
+      const pb = target.pirateBase;
+      const pirateCount = [...state.units.values()].filter((u) => u && u.owner === PIRATE_OWNER_ID && u._pirateBaseId === pb.id && u.hp > 0).length;
+      return "<div style='font-weight:800;font-size:13px;margin-bottom:6px;color:#ffe6cb'>Пиратская база</div>" +
+        "<div style='opacity:0.9;line-height:1.35'>Спавнит пиратские волны и удерживает центр, пока жива. После уничтожения центр становится намного безопаснее.</div>" +
+        "<div style='margin-top:7px;color:#ffd7ba'>HP: <b>" + Math.round(pb.hp || 0) + "/" + Math.round(pb.maxHp || pb.hp || 0) + "</b></div>" +
+        "<div style='color:#ffd7ba'>Активных пиратов: <b>" + pirateCount + "</b></div>" +
+        "<div style='color:#ffe38a'>Награда: <b>+3 уровня, 2000 € и 150 энергии</b></div>";
+    }
+    if (target.type === "mine") {
+      const mine = target.mine;
+      const owner = mine.ownerId ? state.players.get(mine.ownerId) : null;
+      const rates = getMineRealtimeIncome(mine);
+      const lines = [];
+      if (rates.moneyPerSec > 0) lines.push("€ <b>" + rates.moneyPerSec.toFixed(1) + "/с</b>");
+      if (rates.xpPerSec > 0) lines.push("XP <b>" + rates.xpPerSec.toFixed(1) + "/с</b>");
+      if (rates.energyPerSec > 0) lines.push("⚡ <b>" + rates.energyPerSec.toFixed(1) + "/с</b>");
+      const label = mine.isRich ? "Богатая шахта" : (mine.resourceType === "money" ? "Денежная шахта" : "XP шахта");
+      return "<div style='font-weight:800;font-size:13px;margin-bottom:6px;color:#fff0b0'>" + label + "</div>" +
+        "<div style='opacity:0.9;line-height:1.35'>Постоянно отправляет ресурсы владельцу. Доход ниже считается уже в реальном времени, с учетом текущего бонуса добычи.</div>" +
+        "<div style='margin-top:7px;color:#ffe7a4'>Владелец: <b>" + escapeHtml(owner ? owner.name : "Нейтральная") + "</b></div>" +
+        "<div style='color:#ffe7a4'>Состояние: <b>" + (mine.captureProgress >= 1 ? "захвачена" : "оспаривается") + "</b></div>" +
+        "<div style='color:#fff7d5'>Доход сейчас: " + lines.join(" | ") + "</div>";
+    }
+    return "";
   }
 
   function statDiffHTML(enemyVal, myVal) {
@@ -10175,6 +11393,74 @@
   const enemyCityPanelCloseEl = document.getElementById("enemyCityPanelClose");
   if (enemyCityPanelCloseEl) enemyCityPanelCloseEl.addEventListener("click", closeEnemyCityPanel);
 
+  const hoverInspectEl = document.createElement("div");
+  hoverInspectEl.id = "holdHoverInspect";
+  hoverInspectEl.style.cssText = [
+    "position:fixed",
+    "display:none",
+    "z-index:99999",
+    "pointer-events:none",
+    "max-width:320px",
+    "padding:10px 12px",
+    "border-radius:12px",
+    "border:1px solid rgba(170,205,255,0.26)",
+    "background:rgba(10,16,30,0.92)",
+    "box-shadow:0 14px 34px rgba(0,0,0,0.34), 0 0 22px rgba(88,148,255,0.10)",
+    "backdrop-filter:blur(8px)",
+    "color:#ecf4ff",
+    "font:12px/1.35 ui-sans-serif, system-ui, Segoe UI, Arial"
+  ].join(";");
+  document.body.appendChild(hoverInspectEl);
+
+  function hideHoverInspect() {
+    hoverInspectEl.style.display = "none";
+  }
+
+  function updateDelayedHoverInfo() {
+    const hoverWorld = state._hoverWorld;
+    const hoverScreen = state._hoverScreen;
+    if (!hoverWorld || !hoverScreen) {
+      state._holdInspectKey = null;
+      hideHoverInspect();
+      return;
+    }
+    const target = getHoverInspectTarget(hoverWorld.x, hoverWorld.y);
+    if (!target) {
+      state._holdInspectKey = null;
+      hideHoverInspect();
+      return;
+    }
+    const nowMs = performance.now();
+    if (state._holdInspectKey !== target.key) {
+      state._holdInspectKey = target.key;
+      state._holdInspectStartMs = nowMs;
+      state._holdInspectAnchor = { x: hoverScreen.x, y: hoverScreen.y };
+      hideHoverInspect();
+      return;
+    }
+    const anchor = state._holdInspectAnchor || hoverScreen;
+    if (Math.hypot((hoverScreen.x || 0) - anchor.x, (hoverScreen.y || 0) - anchor.y) > 18) {
+      state._holdInspectStartMs = nowMs;
+      state._holdInspectAnchor = { x: hoverScreen.x, y: hoverScreen.y };
+      hideHoverInspect();
+      return;
+    }
+    if ((nowMs - (state._holdInspectStartMs || nowMs)) < 1000) {
+      hideHoverInspect();
+      return;
+    }
+    hoverInspectEl.innerHTML = getHoverInspectHtml(target);
+    hoverInspectEl.style.display = "block";
+    const pad = 16;
+    const rect = hoverInspectEl.getBoundingClientRect();
+    const left = Math.min(window.innerWidth - rect.width - pad, hoverScreen.x + 18);
+    const top = hoverScreen.y + 22 + rect.height > window.innerHeight - pad
+      ? hoverScreen.y - rect.height - 16
+      : hoverScreen.y + 22;
+    hoverInspectEl.style.left = Math.max(pad, left) + "px";
+    hoverInspectEl.style.top = Math.max(pad, top) + "px";
+  }
+
   function unitsInRect(x1, y1, x2, y2) {
     return selectionAndOrdersApi ? selectionAndOrdersApi.unitsInRect(x1, y1, x2, y2) : [];
   }
@@ -10207,6 +11493,18 @@
     const y = (sy - cam.y) / cam.zoom;
     return { x, y };
   }
+
+  app.canvas.addEventListener("pointermove", (e) => {
+    const pt = screenToWorld(e.clientX, e.clientY);
+    state._hoverScreen = { x: e.clientX, y: e.clientY };
+    state._hoverWorld = pt;
+  });
+
+  app.canvas.addEventListener("pointerleave", () => {
+    state._hoverScreen = null;
+    state._holdInspectKey = null;
+    hideHoverInspect();
+  });
 
   if (window.SelectionAndOrders && window.SelectionAndOrders.install) {
     selectionAndOrdersApi = window.SelectionAndOrders.install({
@@ -10298,7 +11596,11 @@
   function showPurchaseError(reason) {
     const me = state.players.get(state.myPlayerId);
     if (!me) return;
-    const msg = reason === "cap_reached" ? "Лимит юнитов!" : "Недостаточно €!";
+    const msg = reason === "cap_reached"
+      ? "Лимит юнитов!"
+      : reason === "no_fronts"
+        ? "Нет доступных фронтов!"
+        : "Недостаточно €!";
     state.floatingDamage.push({ x: me.x, y: me.y - 60, text: msg, color: 0xff4444, ttl: 1.5 });
     tickSound(180, 0.08, 0.06);
   }
@@ -10306,17 +11608,14 @@
   function doPurchaseUnit(unitTypeKey) {
     const me = state.players.get(state.myPlayerId);
     if (!me) return false;
-    const wps = (state.targetPoints && state.targetPoints.length > 0)
-      ? state.targetPoints
-      : (state.rallyPoint ? [state.rallyPoint] : [{ x: me.x + 220, y: me.y }]);
     if (state._multiSlots && !state._multiIsHost && state._socket) {
-      state._socket.emit("playerAction", { type: "purchase", pid: state.myPlayerId, unitType: unitTypeKey, waypoints: wps });
-      const optRes = purchaseUnit(me.id, unitTypeKey, wps);
+      state._socket.emit("playerAction", { type: "purchaseFrontTriplet", pid: state.myPlayerId, unitType: unitTypeKey });
+      const optRes = purchaseFrontTriplet(me.id, unitTypeKey);
       if (!optRes.ok) { showPurchaseError(optRes.reason); return false; }
       state.targetPoints = [];
       return true;
     }
-    const res = purchaseUnit(me.id, unitTypeKey, wps);
+    const res = purchaseFrontTriplet(me.id, unitTypeKey);
     if (res.ok) { state.targetPoints = []; return true; }
     showPurchaseError(res.reason);
     return false;
@@ -10506,8 +11805,8 @@
   function getCardDurationText(card, entry) {
     if (entry && entry.permanent) return "Постоянный";
     if (card.permanent) return "Постоянный";
-    if (entry && entry.expiresAt != null) return "Осталось " + Math.max(0, Math.ceil(entry.expiresAt - state.t)) + "с";
-    if (card.durationSec) return card.durationSec + "с";
+    if (entry && entry.expiresAt != null) return "Осталось " + Math.max(0, Math.ceil(fromSimSeconds(entry.expiresAt - state.t))) + "с";
+    if (card.durationSec) return Math.ceil(fromSimSeconds(card.durationSec)) + "с";
     return "";
   }
 
@@ -11444,8 +12743,7 @@
       const typeKey = btn.dataset.type;
       const type = UNIT_TYPES[typeKey];
       if (!type) return;
-      const costMul = me.unitCostMul != null ? me.unitCostMul : 1;
-      const cost = Math.max(1, Math.round(type.cost * costMul));
+      const cost = getPurchaseCostWithModifiers(me.id, typeKey, 1, isIndirectControlEnabled() ? 3 : 1).costPerPurchase;
       const costEl = btn.querySelector(".unit-buy-cost");
       if (costEl) costEl.textContent = cost + " €";
       btn.disabled = (me.eCredits || 0) < cost;
@@ -11530,29 +12828,29 @@
     }
 
     // Update buy/batch button enabled/disabled state (credits + unit cap)
-    const costMul = me.unitCostMul != null ? me.unitCostMul : 1;
     const myId = me.id;
     document.querySelectorAll(".unit-batch-btn").forEach(b => {
       const tk = b.dataset.type;
       const cnt = parseInt(b.dataset.count) || 1;
       const tp = UNIT_TYPES[tk];
       if (!tp) return;
-      const unitCost = Math.max(1, Math.round(tp.cost * costMul));
+      const unitCost = getPurchaseCostWithModifiers(me.id, tk, 1, isIndirectControlEnabled() ? 3 : 1).costPerPurchase;
       const totalCost = unitCost * cnt;
       const canAfford = (me.eCredits || 0) >= totalCost;
       const cap = UNIT_CAPS[tk] ?? 300;
       const cur = countPlayerUnits(myId, tk);
       const atCap = cur >= cap;
       const enabled = canAfford && !atCap;
+      b.textContent = "x" + cnt;
       b.style.opacity = enabled ? "1" : "0.35";
       b.style.pointerEvents = enabled ? "auto" : "none";
-      b.title = atCap ? "Лимит: " + cur + "/" + cap : totalCost + " €";
+      b.title = atCap ? "Лимит: " + cur + "/" + cap : ("Цена: " + totalCost + " €");
     });
     document.querySelectorAll(".unit-buy-btn").forEach(b => {
       const tk = b.dataset.type;
       const tp = UNIT_TYPES[tk];
       if (!tp) return;
-      const cost = Math.max(1, Math.round(tp.cost * costMul));
+      const cost = getPurchaseCostWithModifiers(me.id, tk, 1, isIndirectControlEnabled() ? 3 : 1).costPerPurchase;
       const cap = UNIT_CAPS[tk] ?? 300;
       const cur = countPlayerUnits(myId, tk);
       const atCap = cur >= cap;
@@ -12032,14 +13330,15 @@
   // ------------------------------------------------------------
   const ABILITY_DEFS = (CardSystemApi && CardSystemApi.ABILITY_DEFS) ? CardSystemApi.ABILITY_DEFS : [
     { id: "ionNebula", name: "Ионная туманность", desc: "Гроза в зоне 15с: урон + замедление", cooldown: 120, icon: "🌩️", targeting: "point" },
-    { id: "meteor", name: "Сверхбыстрый метеор", desc: "Линия удара: первая цель на траектории, затем крупный AoE в точке контакта", cooldown: 120, icon: "☄️", targeting: "angle" },
-    { id: "meteorSwarm", name: "Метеоритный Дождь", desc: "Сначала точка, затем угол: 5 cyan scrap-burner метеоров через карту", cooldown: 140, icon: "☄️", targeting: "angle" },
+    { id: "meteor", name: "Сверхбыстрый метеор", desc: "Пробивает юнитов насквозь, взрывается только о планету; каждый задетый юнит даёт AoE-всплеск", cooldown: 120, icon: "☄️", targeting: "angle" },
+    { id: "meteorSwarm", name: "Метеоритный Дождь", desc: "Сначала точка, затем угол: 5 метеоров прошивают линию насквозь и дают AoE по каждому задетому юниту", cooldown: 140, icon: "☄️", targeting: "angle" },
     { id: "timeJump", name: "Временной скачок", desc: "Отмотка на 1 мин назад (разово)", cooldown: 0, oneTime: true, icon: "⏪" },
     { id: "blackHole", name: "Чёрная дыра", desc: "Засасывает и повреждает юнитов " + CFG.BLACKHOLE_DURATION + "с", cooldown: CFG.BLACKHOLE_COOLDOWN, icon: "🕳️", targeting: "point" },
     { id: "activeShield", name: "Активный Щит", desc: "Щит +25% от макс. HP всем кораблям", cooldown: 90, icon: "🛡️" },
     { id: "pirateRaid", name: "Налёт Пиратов", desc: "Пираты атакуют всех (5+2+1)", cooldown: 150, icon: "🏴‍☠️", targeting: "point" },
     { id: "gloriousBattleMarch", name: "Боевой Марш", desc: "+30% скорости всем кораблям 30с", cooldown: 60, icon: "🎺" },
     { id: "raiderCapture", name: "Рейдерский захват", desc: "Ворует 10% Энергии врага", cooldown: 120, icon: "⚔️", targeting: "city" },
+    { id: "cosmicGodHand", name: "РУКА КОСМИЧЕСКОГО БОГА", desc: "Мгновенно уничтожает вражеское ядро.", cooldown: 240, icon: "🖐️", targeting: "city" },
     { id: "loan", name: "Заём", desc: "+5000€. Через 3 мин вычтет 7500€", cooldown: 300, icon: "💰" },
     { id: "spatialRift", name: "Разлом", desc: "Сначала точка, затем угол: разлом наносит 5 + 50% max HP при пересечении и стирает все в цепочке радиусов при схлопывании", cooldown: 100, icon: "🌀", targeting: "angle" },
     { id: "gravAnchor", name: "Грав. Якорь", desc: "Иммобилизация врагов в огромной зоне 20с", cooldown: 90, icon: "⚓", targeting: "point" },
@@ -12093,6 +13392,26 @@
   function setPirateBases(bases) {
     state.pirateBases = Array.isArray(bases) ? bases : [];
     state.pirateBase = state.pirateBases[0] || null;
+  }
+
+  function refreshPirateBaseOrbitAnchors() {
+    const centerMines = [...state.mines.values()].filter((mine) => mine && (mine.isRich || mine.ownerId !== PIRATE_OWNER_ID));
+    if (!centerMines.length) return;
+    for (const pb of getPirateBases()) {
+      if (!pb) continue;
+      let bestMine = null;
+      let bestDist = Infinity;
+      for (const mine of centerMines) {
+        const dist = Math.hypot((pb.x || 0) - (mine.x || 0), (pb.y || 0) - (mine.y || 0));
+        if (dist < bestDist) {
+          bestDist = dist;
+          bestMine = mine;
+        }
+      }
+      if (!bestMine) continue;
+      pb.orbitCenter = { x: bestMine.x || 0, y: bestMine.y || 0 };
+      pb.orbitRadius = Math.max(84, Math.min(220, bestDist));
+    }
   }
 
   function getAlivePirateBases() {
@@ -12202,6 +13521,8 @@
       const used = def.oneTime && myUsed.includes(def.id);
       const onCooldownStart = def.id === "timeJump" && state.t < timeJumpAvailableAt;
       const cd = used ? 1 : (myCds[def.id] ?? 0);
+      const cdReal = fromSimSeconds(cd);
+      const timeJumpStartReal = fromSimSeconds(Math.max(0, timeJumpAvailableAt - state.t));
       const ready = !used && cd <= 0 && !onCooldownStart;
       const card = document.createElement("div");
       card.style.cssText = `
@@ -12219,7 +13540,7 @@
         <div style="font-size:36px;line-height:1;margin-top:2px;">${def.icon}</div>
         <div style="color:#ddeeff;font-size:13px;font-weight:700;text-align:center;min-height:34px;display:flex;align-items:center;justify-content:center;">${def.name}</div>
         <div style="color:#8899bb;font-size:11px;text-align:center;line-height:1.3;flex:1;display:flex;align-items:flex-start;justify-content:center;">${def.desc}</div>
-        <div style="min-height:18px;color:#ff6644;font-size:12px;font-weight:600;text-align:center;">${!ready ? (def.id === "timeJump" && state.t < timeJumpAvailableAt ? "через " + Math.ceil(timeJumpAvailableAt - state.t) + "с" : Math.ceil(cd) + "с") : "&nbsp;"}</div>
+        <div style="min-height:18px;color:#ff6644;font-size:12px;font-weight:600;text-align:center;">${!ready ? (def.id === "timeJump" && state.t < timeJumpAvailableAt ? "через " + Math.ceil(timeJumpStartReal) + "с" : Math.ceil(cdReal) + "с") : "&nbsp;"}</div>
       `;
       if (ready) card.addEventListener("click", () => activateAbilityFromPicker(def));
       abilityCards.appendChild(card);
@@ -12274,7 +13595,7 @@
     for (const b of blobs) { b._baseOx = b.ox; b._baseOy = b.oy; b._baseR = b.r; }
     state._abilityStorms.push({
       x: wx, y: wy, vx: 0, vy: 0,
-      spawnedAt: state.t, duration: ION_NEBULA_DURATION_SEC, lastDmgTick: state.t,
+      spawnedAt: state.t, duration: toSimSeconds(ION_NEBULA_DURATION_SEC), lastDmgTick: state.t,
       gfx: null, emojiContainer: null,
       rotAngle, stretch, blobs, lastDirChange: state.t, _finalBurstDone: false, ownerId
     });
@@ -12282,7 +13603,7 @@
 
   function setAbilityCooldown(pid, abilityId, seconds) {
     if (!state._abilityCooldownsByPlayer[pid]) state._abilityCooldownsByPlayer[pid] = {};
-    state._abilityCooldownsByPlayer[pid][abilityId] = seconds;
+    state._abilityCooldownsByPlayer[pid][abilityId] = toSimSeconds(seconds);
   }
 
   function spawnSpatialRiftLocal(wx, wy, angle, pid) {
@@ -12300,6 +13621,7 @@
           length: 760,
           ownerId: pid
         };
+    scaleTimingFields(effect, ["duration", "collapseAtSec"]);
     state._abilityZoneEffects.push({ ...effect, ownerId: pid, spawnedAt: state.t, gfx: null });
   }
 
@@ -12519,15 +13841,38 @@
       }
     };
 
-    for (const u of state.units.values()) {
-      if (!u || u.hp <= 0) continue;
-      tryCandidate("unit", u, u.x, u.y, getUnitHitRadius(u));
-    }
     for (const p of state.players.values()) {
       if (!p || p.eliminated) continue;
       tryCandidate("planet", p, p.x, p.y, getMeteorPlanetImpactRadius(p));
     }
     return best;
+  }
+
+  function collectMeteorUnitHitsOnSegment(m, ax, ay, bx, by, maxT = 1) {
+    const meteorR = Math.max(2, m?.radius || METEOR_RADIUS);
+    const hitIds = m._piercedUnitIds || (m._piercedUnitIds = new Set());
+    const hits = [];
+    for (const u of state.units.values()) {
+      if (!u || u.hp <= 0 || hitIds.has(u.id)) continue;
+      const hit = getMeteorSegmentCircleHit(ax, ay, bx, by, u.x, u.y, getUnitHitRadius(u) + meteorR * 0.75);
+      if (!hit || hit.t > maxT) continue;
+      hits.push({ type: "unit", target: u, x: hit.x, y: hit.y, t: hit.t });
+    }
+    hits.sort((a, b) => a.t - b.t);
+    return hits;
+  }
+
+  function triggerMeteorPierceImpact(m, hit) {
+    if (!m || !hit || !hit.target || hit.target.hp <= 0) return;
+    if (!m._piercedUnitIds) m._piercedUnitIds = new Set();
+    if (m._piercedUnitIds.has(hit.target.id)) return;
+    m._piercedUnitIds.add(hit.target.id);
+    queueMeteorImpactEffect({
+      ...m,
+      x: hit.x,
+      y: hit.y
+    });
+    applyMeteorAoE(m, hit.x, hit.y);
   }
 
   function applyMeteorAoE(m, impactX, impactY) {
@@ -12566,16 +13911,7 @@
       m._impactFx = true;
       queueMeteorImpactEffect(m);
     }
-
-    if (impact.type === "unit") {
-      const u = impact.target;
-      if (u && u.hp > 0) {
-        u.hp = 0;
-        u.lastDamagedBy = m.ownerId;
-        state.floatingDamage.push({ x: u.x, y: u.y - 15, text: "☄️ X", color: 0xffa34a, ttl: 0.9 });
-        killUnit(u, "meteorDirect", m.ownerId);
-      }
-    } else if (impact.type === "planet") {
+    if (impact.type === "planet") {
       const p = impact.target;
       if (p && !p.eliminated) {
         if ((p.shieldHp || 0) > 0) {
@@ -13161,8 +14497,10 @@
     }
   }
 
-  const TIME_JUMP_REWIND_SEC = 60;
-  const TIME_SNAPSHOT_INTERVAL = 5;
+  const TIME_JUMP_REWIND_REAL_SEC = 60;
+  const TIME_JUMP_REWIND_SEC = toSimSeconds(TIME_JUMP_REWIND_REAL_SEC);
+  const TIME_SNAPSHOT_INTERVAL_REAL_SEC = 5;
+  const TIME_SNAPSHOT_INTERVAL = toSimSeconds(TIME_SNAPSHOT_INTERVAL_REAL_SEC);
   const TIME_SNAPSHOT_MAX = 15;
   const TIME_REWIND_FREEZE_ENTER_SEC = 1.0;
   const TIME_REWIND_PULSE_SEQ_SEC = 2.3;
@@ -13497,6 +14835,10 @@
     state.nextResId = snap.nextResId;
     state.nextSquadId = snap.nextSquadId ?? 1;
     state.nextEngagementZoneId = snap.nextEngagementZoneId ?? 1;
+    state.coreFrontPolicies = snap.coreFrontPolicies || {};
+    state.frontGraph = snap.frontGraph || {};
+    state.squadFrontAssignments = snap.squadFrontAssignments || {};
+    state.centerObjectives = snap.centerObjectives || { centerX: 0, centerY: 0, richMineId: null, centerMineIds: [], pirateBaseIds: [], livePirateBaseIds: [], securedByPlayerId: null, requiredMineCount: 0 };
 
     for (const o of snap.players) {
       const p = { ...o, cityGfx: null, zoneGfx: null, zoneGlow: null, zoneShellGfx: null, zoneLightGfx: null, shieldGfx: null, label: null };
@@ -13540,8 +14882,8 @@
     state._abilityZoneEffects = (snap.abilityZoneEffects || []).map(cloneForSnapshot);
     state._meteorImpactEffects = [];
     state._nextStormAt = snap.nextStormAt != null ? snap.nextStormAt : STORM_STARTUP_DELAY;
-    state._randomBlackHoleNextAt = snap.randomBlackHoleNextAt != null ? snap.randomBlackHoleNextAt : (state.t + 300);
-    state._randomMeteorNextAt = snap.randomMeteorNextAt != null ? snap.randomMeteorNextAt : (state.t + 240);
+    state._randomBlackHoleNextAt = snap.randomBlackHoleNextAt != null ? snap.randomBlackHoleNextAt : (state.t + toSimSeconds(300));
+    state._randomMeteorNextAt = snap.randomMeteorNextAt != null ? snap.randomMeteorNextAt : (state.t + toSimSeconds(240));
     state._randomMeteorScheduled = (snap.randomMeteorScheduled || []).map(cloneForSnapshot);
     if (typeof SQUADLOGIC !== "undefined" && SQUADLOGIC && typeof SQUADLOGIC.syncSquadsFromState === "function") {
       SQUADLOGIC.syncSquadsFromState(state);
@@ -13569,7 +14911,7 @@
       token,
       usedByPid,
       startedAtReal: nowSec,
-      rewindSeconds: TIME_JUMP_REWIND_SEC,
+      rewindSeconds: TIME_JUMP_REWIND_REAL_SEC,
       freezeEnterSec: TIME_REWIND_FREEZE_ENTER_SEC,
       pulseSeqSec: TIME_REWIND_PULSE_SEQ_SEC,
       rewindSec: TIME_REWIND_ANIM_SEC,
@@ -13723,6 +15065,10 @@
         m.alive = false; removeMeteorGfx(m); state._activeMeteors.splice(i, 1); continue;
       }
       const impact = findMeteorFirstImpactOnSegment(m, prevX, prevY, m.x, m.y);
+      const unitHits = collectMeteorUnitHitsOnSegment(m, prevX, prevY, m.x, m.y, impact ? impact.t : 1);
+      for (const hit of unitHits) {
+        triggerMeteorPierceImpact(m, hit);
+      }
       if (impact) detonateMeteor(m, impact);
       if (!m.alive) { removeMeteorGfx(m); state._activeMeteors.splice(i, 1); }
     }
@@ -13911,9 +15257,9 @@
     if (!state._multiIsHost && state._multiSlots) return;
     const W = CFG.WORLD_W, H = CFG.WORLD_H;
     const margin = 200;
-    if (state._randomBlackHoleNextAt == null) state._randomBlackHoleNextAt = state.t + 300;
+    if (state._randomBlackHoleNextAt == null) state._randomBlackHoleNextAt = state.t + toSimSeconds(300);
     if (state.t >= (state._randomBlackHoleNextAt ?? 0)) {
-      state._randomBlackHoleNextAt = state.t + 300;
+      state._randomBlackHoleNextAt = state.t + toSimSeconds(300);
       const x = margin + Math.random() * (W - 2 * margin);
       const y = margin + Math.random() * (H - 2 * margin);
       spawnBlackHole(x, y, null);
@@ -13974,7 +15320,7 @@
       const sy = p.y + Math.sin(ang) * 80;
       const u = spawnUnitAt(sx, sy, pid, "fighter", [{ x: p.x + rand(-200, 200), y: p.y + rand(-200, 200) }]);
       if (u) {
-        u._droneExpires = state.t + 30;
+        u._droneExpires = state.t + toSimSeconds(30);
         u.hp = Math.round(u.hp * 0.6);
         u.maxHp = u.hp;
         u.baseMaxHp = Math.max(1, u.hp);
@@ -13984,7 +15330,7 @@
 
   function useFleetBoost(pid) {
     state._fleetBoostUntil = state._fleetBoostUntil || {};
-    state._fleetBoostUntil[pid] = state.t + 20;
+    state._fleetBoostUntil[pid] = state.t + toSimSeconds(20);
   }
 
   function useResourceSurge(pid) {
@@ -13994,7 +15340,7 @@
 
   function useVoidShield(pid) {
     state._voidShieldUntil = state._voidShieldUntil || {};
-    state._voidShieldUntil[pid] = state.t + 3;
+    state._voidShieldUntil[pid] = state.t + toSimSeconds(3);
   }
 
   function useSabotage(pid) {
@@ -14031,20 +15377,22 @@
       const effect = api && typeof api.buildEffect === "function"
         ? api.buildEffect(wx, wy, pid)
         : { type: "anchor", x: wx, y: wy, duration: 20, radius: 420, previewRadius: 420, ownerId: pid };
+      scaleTimingFields(effect, ["duration"]);
       state._abilityZoneEffects.push({ ...effect, ownerId: pid, spawnedAt: state.t, gfx: null });
     } else if (abilityId === "fakeSignature") {
       state._fakeSignatures = state._fakeSignatures || [];
       for (let i = 0; i < 6; i++) {
         const ang = (i / 6) * Math.PI * 2;
-        state._fakeSignatures.push({ x: wx + Math.cos(ang) * 60, y: wy + Math.sin(ang) * 60, color: state.players.get(pid)?.color || 0x4488ff, expiresAt: state.t + 15 });
+        state._fakeSignatures.push({ x: wx + Math.cos(ang) * 60, y: wy + Math.sin(ang) * 60, color: state.players.get(pid)?.color || 0x4488ff, expiresAt: state.t + toSimSeconds(15) });
       }
     } else if (abilityId === "timeSingularity") {
-      state._abilityZoneEffects.push({ type: "timeSlow", x: wx, y: wy, spawnedAt: state.t, duration: 8, radius: 200, ownerId: pid, slowPct: 0.6 });
+      state._abilityZoneEffects.push({ type: "timeSlow", x: wx, y: wy, spawnedAt: state.t, duration: toSimSeconds(8), radius: 200, ownerId: pid, slowPct: 0.6 });
     } else if (abilityId === "nanoSwarm") {
       const api = getNanoSwarmAbilityApi();
       const effect = api && typeof api.buildEffect === "function"
         ? api.buildEffect(wx, wy, pid)
         : { type: "nano", x: wx, y: wy, duration: 20, radius: 240, previewRadius: 240, ownerId: pid, dps: 10, maxHpPctPerSec: 0.025, atkReduction: 0.25 };
+      scaleTimingFields(effect, ["duration"]);
       state._abilityZoneEffects.push({ ...effect, ownerId: pid, spawnedAt: state.t, gfx: null });
     } else if (abilityId === "gravWave") {
       for (const u of state.units.values()) {
@@ -14164,7 +15512,7 @@
       return { ok: true };
     }
     if (abilityId === "pirateRaid") {
-      spawnPirateRaid(action.x, action.y, pid);
+      if (!spawnPirateRaid(action.x, action.y, pid)) return { ok: false, reason: "lane_only" };
       if (!def.oneTime) setAbilityCooldown(pid, abilityId, def.cooldown || 0);
       pushAbilityAnnouncement(pid, abilityId);
       cancelAbilityTargeting();
@@ -14186,6 +15534,13 @@
     }
     if (abilityId === "raiderCapture") {
       useRaiderCapture(pid, action.targetCityId);
+      if (!def.oneTime) setAbilityCooldown(pid, abilityId, def.cooldown || 0);
+      pushAbilityAnnouncement(pid, abilityId);
+      cancelAbilityTargeting();
+      return { ok: true };
+    }
+    if (abilityId === "cosmicGodHand") {
+      useCosmicGodHand(pid, action.targetCityId);
       if (!def.oneTime) setAbilityCooldown(pid, abilityId, def.cooldown || 0);
       pushAbilityAnnouncement(pid, abilityId);
       cancelAbilityTargeting();
@@ -14363,7 +15718,7 @@
     state._blackHoles.push({
       x, y, ownerId,
       spawnedAt: state.t,
-      duration: CFG.BLACKHOLE_DURATION,
+      duration: toSimSeconds(CFG.BLACKHOLE_DURATION),
       radius: CFG.BLACKHOLE_RADIUS,
       gfx: null, phase: 0,
       debris: [],
@@ -14378,10 +15733,10 @@
       if (u.owner !== pid) continue;
       const shieldAmt = Math.max(1, Math.round((u.maxHp || u.hp) * 0.25));
       u._activeShieldHp = (u._activeShieldHp || 0) + shieldAmt;
-      u._activeShieldEffectUntil = state.t + 2;
+      u._activeShieldEffectUntil = state.t + toSimSeconds(2);
     }
     state._activeShieldEffects = state._activeShieldEffects || [];
-    state._activeShieldEffects.push({ pid, t0: state.t, duration: 2 });
+    state._activeShieldEffects.push({ pid, t0: state.t, duration: toSimSeconds(2) });
   }
 
   const PIRATE_RAID_HYPER_SPEED_MUL = 4.5;
@@ -14419,7 +15774,25 @@
     };
   }
 
+  function isPirateRaidPointOnLane(targetX, targetY) {
+    for (const player of state.players.values()) {
+      if (!player || player.eliminated) continue;
+      const minCoreDist = getPlanetRadius(player) + 130;
+      if (Math.hypot((targetX || 0) - (player.x || 0), (targetY || 0) - (player.y || 0)) <= minCoreDist) continue;
+      for (const frontType of ["left", "center", "right"]) {
+        const center = state.centerObjectives || {};
+        const points = getLanePointsForPlayerFront(player, frontType, { x: center.centerX || 0, y: center.centerY || 0 });
+        const sample = projectPointOnPolyline(points, targetX || 0, targetY || 0);
+        if (!sample) continue;
+        const laneHalfWidth = frontType === "center" ? 124 : 96;
+        if (sample.dist <= laneHalfWidth) return true;
+      }
+    }
+    return false;
+  }
+
   function getPirateRaidPreview(targetX, targetY, ownerId) {
+    if (!isPirateRaidPointOnLane(targetX, targetY)) return null;
     const api = getPirateRaidAbilityApi();
     if (!api || typeof api.buildCast !== "function") return null;
     return api.buildCast(targetX, targetY, ownerId);
@@ -14488,7 +15861,8 @@
 
   function spawnPirateRaid(targetX, targetY, ownerId) {
     const built = getPirateRaidPreview(targetX, targetY, ownerId);
-    if (!built) return;
+    if (!built) return false;
+    scaleTimingFields(built, ["duration", "portalDuration", "hyperDuration"]);
     const raidId = `pirate-raid-${state.nextUnitId}`;
     const batchTag = raidId;
     state._pirateRaids.push({
@@ -14504,7 +15878,7 @@
         allowAutoJoinRecentSpawn: true
       });
       if (!u) continue;
-      u._pirateHyperUntil = state.t + (built.hyperDuration || 9);
+      u._pirateHyperUntil = state.t + (built.hyperDuration || toSimSeconds(9));
       u.vx = Math.cos(built.attackAngle);
       u.vy = Math.sin(built.attackAngle);
       u._pirateRaidId = raidId;
@@ -14514,7 +15888,8 @@
       u._pirateRaidStage = "assault";
     }
     state._hyperFlashes = state._hyperFlashes || [];
-    state._hyperFlashes.push({ x: built.portalX, y: built.portalY, t0: state.t, duration: 1.2 });
+    state._hyperFlashes.push({ x: built.portalX, y: built.portalY, t0: state.t, duration: toSimSeconds(1.2) });
+    return true;
   }
 
   function stepPirateRaids(dt) {
@@ -14558,7 +15933,7 @@
 
   function useGloriousBattleMarch(pid) {
     state._battleMarchUntil = state._battleMarchUntil || {};
-    state._battleMarchUntil[pid] = state.t + 30;
+    state._battleMarchUntil[pid] = state.t + toSimSeconds(30);
   }
 
   if (!state._loanDebts) state._loanDebts = [];
@@ -14567,7 +15942,7 @@
     if (!p) return;
     p.eCredits = (p.eCredits || 0) + 5000;
     state._loanDebts = state._loanDebts || [];
-    state._loanDebts.push({ pid, deductAt: state.t + 180, amount: 7500 });
+    state._loanDebts.push({ pid, deductAt: state.t + toSimSeconds(180), amount: 7500 });
   }
   function stepLoanDebts(dt) {
     if (!state._loanDebts || !state._loanDebts.length) return;
@@ -14626,6 +16001,28 @@
     p.pop = Math.floor(p.popFloat);
     state.floatingDamage.push({ x: targetCity.x, y: targetCity.y - 40, text: "-" + steal + " нас.", color: 0xff4444, ttl: 2 });
     state.floatingDamage.push({ x: p.x, y: p.y - 40, text: "+" + steal + " нас.", color: 0x44ff44, ttl: 2 });
+  }
+
+  function useCosmicGodHand(pid, targetCityId) {
+    const caster = state.players.get(pid);
+    const targetCity = state.players.get(targetCityId);
+    if (!caster || caster.eliminated || !targetCity || targetCity.eliminated || targetCityId === pid) return;
+    targetCity._lastCityAttacker = pid;
+    targetCity.lastDamagedBy = pid;
+    if ((targetCity.shieldHp || 0) > 0) {
+      targetCity.shieldHp = 0;
+      targetCity.shieldRegenCd = SHIELD_REGEN_DELAY;
+      pushShieldHitEffect(targetCity.x, targetCity.y, shieldRadius(targetCity), caster.x, caster.y, caster.color || 0xf2d7ff);
+    }
+    state.floatingDamage.push({
+      x: targetCity.x,
+      y: targetCity.y - 52,
+      text: "РУКА БОГА",
+      color: 0xf6dcff,
+      ttl: 1.4
+    });
+    playExplosionSound(targetCity.x, targetCity.y);
+    destroyCity(targetCity, pid);
   }
 
   function destroyBlackHoleVisual(bh) {
@@ -14803,7 +16200,6 @@
 
     const g = pb.gfx;
     const R = 54;
-    const attackRange = getPirateBaseAttackRange(pb);
     const facing = pb.orbitCenter
       ? Math.atan2((pb.orbitCenter.y || 0) - pb.y, (pb.orbitCenter.x || 0) - pb.x)
       : -Math.PI / 2;
@@ -14814,11 +16210,6 @@
     const glowCol = 0xff9258;
     const hotCol = 0xffe3ab;
     const underAttack = !!(pb._lastAttackedAt && (state.t - pb._lastAttackedAt) < 5);
-
-    g.circle(0, 0, attackRange);
-    g.fill({ color: 0xff7a4f, alpha: 0.018 });
-    g.circle(0, 0, attackRange);
-    g.stroke({ color: 0xff8f66, width: 1.8, alpha: 0.12 });
 
     const outerHex = [];
     const innerHex = [];
@@ -15460,8 +16851,9 @@
         g.stroke({ color: 0xffcc44, width: 1.5, alpha: 0.35 + 0.15 * p });
       }
     }
-    if (state._abilityTargeting === "raiderCapture") {
+    if (state._abilityTargeting === "raiderCapture" || state._abilityTargeting === "cosmicGodHand") {
       const t = performance.now() / 1000;
+      const isGodHand = state._abilityTargeting === "cosmicGodHand";
       for (const p of state.players.values()) {
         if (p.eliminated || p.id === state.myPlayerId) continue;
         const pR = getPlanetRadius(p) + 40;
@@ -15469,16 +16861,17 @@
           const pr = getPlanetRadius(p);
           const pulse = 0.4 + 0.3 * Math.sin(t * 3);
           g.circle(p.x, p.y, pr + 12);
-          g.stroke({ color: 0xff4422, width: 3, alpha: pulse });
+          g.stroke({ color: isGodHand ? 0xe8c2ff : 0xff4422, width: 3, alpha: pulse });
           g.circle(p.x, p.y, pr + 20);
-          g.stroke({ color: 0xff6644, width: 1.5, alpha: pulse * 0.5 });
+          g.stroke({ color: isGodHand ? 0xffffff : 0xff6644, width: 1.5, alpha: pulse * 0.5 });
+          const particleCount = isGodHand ? 8 : 6;
           const stolen = Math.round((p.pop || 0) * 0.1);
-          if (stolen > 0) {
-            for (let i = 0; i < 6; i++) {
-              const a = (i / 6) * Math.PI * 2 + t * 2;
+          if (isGodHand || stolen > 0) {
+            for (let i = 0; i < particleCount; i++) {
+              const a = (i / particleCount) * Math.PI * 2 + t * 2;
               const d = pr + 16 + 8 * Math.sin(t * 4 + i);
               g.circle(p.x + Math.cos(a) * d, p.y + Math.sin(a) * d, 3);
-              g.fill({ color: 0xff8844, alpha: 0.4 });
+              g.fill({ color: isGodHand ? 0xf3dbff : 0xff8844, alpha: 0.4 });
             }
           }
         }
@@ -15598,7 +16991,8 @@
           pushAbilityAnnouncement(state.myPlayerId, "gloriousBattleMarch");
         }
         cancelAbilityTargeting();
-      } else if (state._abilityTargeting === "raiderCapture") {
+      } else if (state._abilityTargeting === "raiderCapture" || state._abilityTargeting === "cosmicGodHand") {
+        const abilityId = state._abilityTargeting;
         let targetCityId = null;
         for (const p of state.players.values()) {
           if (p.eliminated || p.id === state.myPlayerId) continue;
@@ -15607,13 +17001,14 @@
         }
         if (targetCityId != null) {
           if (confirmPendingAbilityCardCast({ targetCityId })) return;
-          const def = ABILITY_DEFS.find(d => d.id === "raiderCapture");
+          const def = ABILITY_DEFS.find(d => d.id === abilityId);
           if (state._multiSlots && !state._multiIsHost && state._socket) {
-            state._socket.emit("playerAction", { type: "useAbility", abilityId: "raiderCapture", pid: state.myPlayerId, targetCityId });
+            state._socket.emit("playerAction", { type: "useAbility", abilityId, pid: state.myPlayerId, targetCityId });
           } else {
-            useRaiderCapture(state.myPlayerId, targetCityId);
-            if (def) setAbilityCooldown(state.myPlayerId, "raiderCapture", def.cooldown);
-            pushAbilityAnnouncement(state.myPlayerId, "raiderCapture");
+            if (abilityId === "cosmicGodHand") useCosmicGodHand(state.myPlayerId, targetCityId);
+            else useRaiderCapture(state.myPlayerId, targetCityId);
+            if (def) setAbilityCooldown(state.myPlayerId, abilityId, def.cooldown);
+            pushAbilityAnnouncement(state.myPlayerId, abilityId);
           }
           cancelAbilityTargeting();
         }
@@ -15621,9 +17016,10 @@
         if (confirmPendingAbilityCardCast({ x: wx, y: wy })) return;
         const def = ABILITY_DEFS.find(d => d.id === "pirateRaid");
         if (state._multiSlots && !state._multiIsHost && state._socket) {
+          if (!isPirateRaidPointOnLane(wx, wy)) return;
           state._socket.emit("playerAction", { type: "useAbility", abilityId: "pirateRaid", pid: state.myPlayerId, x: wx, y: wy });
         } else {
-          spawnPirateRaid(wx, wy, state.myPlayerId);
+          if (!spawnPirateRaid(wx, wy, state.myPlayerId)) return;
           if (def) setAbilityCooldown(state.myPlayerId, "pirateRaid", def.cooldown);
           pushAbilityAnnouncement(state.myPlayerId, "pirateRaid");
         }
@@ -16845,6 +18241,7 @@
     destroyChildren(zonesLayer);
     clearTransientWorldFxLayers();
     destroyChildren(turretLayer);
+    destroyChildren(mineLayer);
     destroyChildren(resLayer);
     destroyChildren(unitsLayer);
     destroyChildren(cityLayer);
@@ -16905,6 +18302,10 @@
     state.engagementZones = new Map();
     state.nextSquadId = 1;
     state.nextEngagementZoneId = 1;
+    state.coreFrontPolicies = {};
+    state.frontGraph = {};
+    state.squadFrontAssignments = {};
+    state.centerObjectives = { centerX: 0, centerY: 0, richMineId: null, centerMineIds: [], pirateBaseIds: [], livePirateBaseIds: [], securedByPlayerId: null, requiredMineCount: 0 };
     state.smoothedFronts = {};
     state.persistentBattles = {};
   }
@@ -17256,6 +18657,7 @@
     state,
     CFG,
     purchaseUnit,
+    purchaseFrontTriplet,
     shieldRadius,
     getUnitAtkRange,
     getSquadStateFromUnits,
@@ -17304,7 +18706,8 @@
     stepBulletsVisual,
     stepMineGemsRemote,
     stepMineGems,
-    inView
+    inView,
+    refreshResourceVisual
   });
 
   hostNetworkRuntimeApi = installRuntime(window.HostNetworkRuntime, {
@@ -17321,6 +18724,7 @@
     rebuildZoneGrid,
     botThink,
     requireSquadLogic,
+    getFrontPlannerGlobal: () => (typeof FrontPlanner !== "undefined" ? FrontPlanner : null),
     queryHash,
     getUnitAtkRange,
     getUnitEngagementRange,
@@ -17400,12 +18804,15 @@
     updateSelectionBox,
     updatePathPreview,
     updateMovingPathPreview,
+    updateFrontLaneOverlay,
     updateMinimap,
     updateLeaderboard,
     updateFog,
     updateSquadStrip,
     updateSquadControlBox,
+    updateFrontControlBox,
     updateHUD,
+    updateDelayedHoverInfo,
     checkVictory,
     updateSurvivalHud,
     updateDominationTimerUI,
@@ -17626,6 +19033,18 @@
       approxFps: stats.avgFrameMs ? Math.round(1000 / Math.max(0.001, stats.avgFrameMs)) : 0,
       units: stats.units || state.units.size,
       bullets: stats.bullets || state.bullets.length,
+      zoom: stats.zoom || cam.zoom || CFG.CAMERA_START_ZOOM || 0.22,
+      visibleUnits: stats.visibleUnits || 0,
+      visibleTurrets: stats.visibleTurrets || 0,
+      visibleBullets: stats.visibleBullets || 0,
+      visibleResources: stats.visibleResources || 0,
+      visibleMines: stats.visibleMines || 0,
+      visibleMineGems: stats.visibleMineGems || 0,
+      visibleCities: stats.visibleCities || 0,
+      visiblePirateBases: stats.visiblePirateBases || 0,
+      squads: stats.squads || (state.squads ? state.squads.size : 0),
+      engagementZones: stats.engagementZones || (state.engagementZones ? state.engagementZones.size : 0),
+      mineFlowPackets: stats.mineFlowPackets || ((state.mineFlowPackets || []).length),
       avgPacketBytes: stats.avgPacketBytes || (packetSamples.length > 0
         ? Math.round(packetSamples.reduce((sum, sample) => sum + (sample.size || 0), 0) / packetSamples.length)
         : 0),

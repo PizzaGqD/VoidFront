@@ -27,7 +27,7 @@
 
   const PLAYER_LIGHT_KEYS = [
     "id", "x", "y", "pop", "popFloat", "eCredits", "activeUnits",
-    "influenceR", "influenceRayDistances"
+    "influenceR", "influenceRayDistances", "eliminated"
   ];
   const PLAYER_SYNC_KEYS = [
     "id", "name", "x", "y", "pop", "popFloat", "eCredits",
@@ -42,7 +42,7 @@
     "_levelBonusMul", "rerollCount",
     "shieldHp", "shieldMaxHp", "shieldRegenCd", "shieldRegenBonus", "_cardPicksCount",
     "mineYieldBonus", "cityTargetBonus", "turretTargetBonus", "attackEffect", "attackEffects",
-    "_patrolCount", "_patrols"
+    "_patrolCount", "_patrols", "eliminated"
   ];
   const PLAYER_FULL_KEYS = [
     ...PLAYER_SYNC_KEYS,
@@ -319,6 +319,19 @@
               balanceSegments: z.balanceSegments || []
             });
           }
+        }
+
+        if (state.coreFrontPolicies) {
+          gs.coreFrontPolicies = JSON.parse(JSON.stringify(state.coreFrontPolicies));
+        }
+        if (state.frontGraph) {
+          gs.frontGraph = JSON.parse(JSON.stringify(state.frontGraph));
+        }
+        if (state.squadFrontAssignments) {
+          gs.squadFrontAssignments = JSON.parse(JSON.stringify(state.squadFrontAssignments));
+        }
+        if (state.centerObjectives) {
+          gs.centerObjectives = JSON.parse(JSON.stringify(state.centerObjectives));
         }
       }
 

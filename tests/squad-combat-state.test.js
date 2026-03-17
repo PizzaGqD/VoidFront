@@ -231,6 +231,34 @@ function testSiegeContinuesAfterShieldBreak() {
   console.log("  [OK] testSiegeContinuesAfterShieldBreak");
 }
 
+function testSiegeKeepsFollowingWaypointsAfterTargetDies() {
+  const state = makeState();
+  state.players.set(4, {
+    id: 4,
+    x: 220,
+    y: 100,
+    pop: 0,
+    popFloat: 0,
+    shieldHp: 0,
+    shieldMaxHp: 0,
+    eliminated: true
+  });
+
+  const siegeSquad = createSquad(state, [
+    { id: 66, owner: 1, x: 118, y: 100, unitType: "destroyer", attackRange: 120, speed: 60 }
+  ], {});
+  SQUADLOGIC.issueSiegeOrder(state, siegeSquad.id, 4, [
+    { x: 220, y: 100 },
+    { x: 360, y: 100 }
+  ]);
+
+  step(state, 0.1, 1);
+
+  assert(siegeSquad.order.type === "siege", "siege-dead-target: squad keeps siege order while follow-up waypoints remain");
+  assert(Array.isArray(siegeSquad.order.waypoints) && siegeSquad.order.waypoints.length === 2, "siege-dead-target: waypoint chain is preserved after target death");
+  console.log("  [OK] testSiegeKeepsFollowingWaypointsAfterTargetDies");
+}
+
 function testCaptureOrderContinuesToNextWaypoint() {
   const state = makeState();
   state.mines = new Map();
@@ -462,6 +490,7 @@ function runAll() {
   testQueuedOrderAppliesAfterCombatEnds();
   testResumeOrHoldStaysStableAfterCombat();
   testSiegeContinuesAfterShieldBreak();
+  testSiegeKeepsFollowingWaypointsAfterTargetDies();
   testCaptureOrderContinuesToNextWaypoint();
   testCaptureOrderStopsAtCaptureRadius();
   testCaptureOrderCompletesOnceMineIsOwned();

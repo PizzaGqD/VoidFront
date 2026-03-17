@@ -180,17 +180,65 @@ const rooms = new Map();
 const ROOM_GRACE_MS = 5 * 60 * 1000;
 
 function getRoom(roomId) {
-  if (!rooms.has(roomId)) {
-    rooms.set(roomId, {
-      hostId: null,
-      createdAt: Date.now(),
-      slots: Array.from({ length: SLOTS }, (_, i) => ({
-        id: null, name: null, colorIndex: i, isBot: false, spawnIndex: i
-      })),
-      chat: []
-    });
+  return roomId ? (rooms.get(roomId) || null) : null;
+}
+
+function createRoom(roomId) {
+  const room = {
+    hostId: null,
+    createdAt: Date.now(),
+    emptySince: null,
+    slots: Array.from({ length: SLOTS }, (_, i) => ({
+      id: null, name: null, colorIndex: i, isBot: false, spawnIndex: i
+    })),
+    chat: []
+  };
+  rooms.set(roomId, room);
+  return room;
+}
+
+function ensureRoom(roomId) {
+  return getRoom(roomId) || createRoom(roomId);
+}
+
+function roomHasHumanPlayers(room) {
+  return !!(room && room.slots.some((s) => !!s.id));
+}
+
+function roomHasOccupants(room) {
+  return !!(room && room.slots.some((s) => !!(s.id || s.isBot)));
+}
+
+function touchRoomOccupancy(room) {
+  if (!room) return;
+  room.emptySince = roomHasHumanPlayers(room) ? null : (room.emptySince || Date.now());
+}
+
+function pruneRooms() {
+  const now = Date.now();
+  for (const [roomId, room] of rooms) {
+    if (roomHasHumanPlayers(room)) {
+      room.emptySince = null;
+      continue;
+    }
+    const emptySince = room.emptySince ?? room.createdAt ?? now;
+    if ((now - emptySince) >= ROOM_GRACE_MS) {
+      rooms.delete(roomId);
+    }
   }
-  return rooms.get(roomId);
+}
+
+function makeRoomId() {
+  let roomId = "";
+  do {
+    roomId = "r_" + Math.random().toString(36).slice(2, 10);
+  } while (rooms.has(roomId));
+  return roomId;
+}
+
+function getHostSlot(room) {
+  if (!room || !room.hostId) return -1;
+  return room.slots.findIndex((s) => s.id === room.hostId);
 }
 
 function getUsedColors(room, excludeSlot) {
@@ -240,10 +288,27 @@ function slotSummary(room) {
   }));
 }
 
+function roomSnapshot(room) {
+  return {
+    slots: slotSummary(room),
+    hostSlot: getHostSlot(room)
+  };
+}
+
+function emitRoomSlots(roomId, room) {
+  io.to(roomId).emit("slots", roomSnapshot(room));
+}
+
 function removePlayerFromRoom(socket) {
   const roomId = socket.roomId;
   if (!roomId) return;
   const room = getRoom(roomId);
+  if (!room) {
+    socket.roomId = null;
+    socket.slotIndex = null;
+    socket.isHost = false;
+    return;
+  }
 
   for (let i = 0; i < SLOTS; i++) {
     if (room.slots[i].id === socket.id) {
@@ -259,11 +324,19 @@ function removePlayerFromRoom(socket) {
   if (room.hostId === socket.id) {
     const next = room.slots.find((s) => s.id);
     room.hostId = next ? next.id : null;
+    if (next && next.id) {
+      const nextSocket = io.sockets.sockets.get(next.id);
+      if (nextSocket) nextSocket.isHost = true;
+    }
   }
 
+  touchRoomOccupancy(room);
   socket.roomId = null;
+  socket.slotIndex = null;
+  socket.isHost = false;
   socket.leave(roomId);
-  io.to(roomId).emit("slots", slotSummary(room));
+  emitRoomSlots(roomId, room);
+  pruneRooms();
 }
 
 // ─── Connection handler ──────────────────────────────────────────
@@ -282,10 +355,13 @@ io.on("connection", (socket) => {
 
   // ── Lobby: create room ──
   socket.on("create", (nickname, cb) => {
+    pruneRooms();
+    removePlayerFromRoom(socket);
     const name = String(nickname || "Игрок").trim().slice(0, 24) || "Игрок";
-    const roomId = "r_" + Math.random().toString(36).slice(2, 10);
-    const room = getRoom(roomId);
+    const roomId = makeRoomId();
+    const room = createRoom(roomId);
     room.hostId = socket.id;
+    room.emptySince = null;
     room.slots[0] = { id: socket.id, name, colorIndex: 0, isBot: false, spawnIndex: 0 };
     socket.join(roomId);
     socket.roomId = roomId;
@@ -294,16 +370,19 @@ io.on("connection", (socket) => {
     console.log("[Socket] create room", roomId.replace(/^r_/, ""),
       "host:", name, "IP:", clientIp);
     if (typeof cb === "function")
-      cb({ roomId, slots: slotSummary(room), mySlot: 0, isHost: true });
+      cb({ roomId, slots: slotSummary(room), mySlot: 0, isHost: true, hostSlot: 0 });
   });
 
   // ── Lobby: list rooms ──
   socket.on("listRooms", (cb) => {
+    pruneRooms();
     const list = [];
     const now = Date.now();
     for (const [roomId, room] of rooms) {
-      const hasPlayers = room.slots.some((s) => s.id);
-      const recent = room.createdAt && (now - room.createdAt) < ROOM_GRACE_MS;
+      const hasPlayers = roomHasHumanPlayers(room);
+      const recent = room.emptySince != null
+        ? (now - room.emptySince) < ROOM_GRACE_MS
+        : true;
       if (!hasPlayers && !recent) continue;
       const slotsUsed = room.slots.filter((s) => s.id || s.isBot).length;
       const hostSlot = room.slots.find((s) => s.id === room.hostId);
@@ -320,10 +399,18 @@ io.on("connection", (socket) => {
 
   // ── Lobby: join room ──
   socket.on("join", (roomId, nickname, cb) => {
+    pruneRooms();
+    removePlayerFromRoom(socket);
     const name = String(nickname || "Игрок").trim().slice(0, 24) || "Игрок";
     let rid = String(roomId || "").trim();
     if (rid && !rid.startsWith("r_")) rid = "r_" + rid;
     const room = getRoom(rid);
+    if (!room) {
+      console.log("[Socket] join FAIL missing room:", rid.replace(/^r_/, ""),
+        "nick:", name, "IP:", clientIp);
+      if (typeof cb === "function") cb({ error: "Комната не найдена" });
+      return;
+    }
 
     let slotIndex = -1;
     for (let i = 0; i < SLOTS; i++) {
@@ -345,16 +432,17 @@ io.on("connection", (socket) => {
     if (!room.hostId) {
       room.hostId = socket.id;
     }
+    room.emptySince = null;
     socket.join(rid);
     socket.roomId = rid;
     socket.slotIndex = slotIndex;
     socket.isHost = room.hostId === socket.id;
     console.log("[Socket] join OK room:", rid.replace(/^r_/, ""),
       "slot:", slotIndex, "nick:", name, "isHost:", socket.isHost, "IP:", clientIp);
-    io.to(rid).emit("slots", slotSummary(room));
+    emitRoomSlots(rid, room);
     if (typeof cb === "function")
       cb({ roomId: rid, slots: slotSummary(room),
-           mySlot: slotIndex, isHost: socket.isHost });
+           mySlot: slotIndex, isHost: socket.isHost, hostSlot: getHostSlot(room) });
   });
 
   // ── Lobby: slot / color / chat ──
@@ -362,6 +450,7 @@ io.on("connection", (socket) => {
     const roomId = socket.roomId;
     if (!roomId) return;
     const room = getRoom(roomId);
+    if (!room) return;
     if (room.hostId !== socket.id) return;
     if (slotIndex < 0 || slotIndex >= SLOTS) return;
     if (isBot) {
@@ -378,65 +467,71 @@ io.on("connection", (socket) => {
         spawnIndex: room.slots[slotIndex].spawnIndex
       };
     }
-    io.to(roomId).emit("slots", slotSummary(room));
+    touchRoomOccupancy(room);
+    emitRoomSlots(roomId, room);
   });
 
   socket.on("setColor", (colorIndex) => {
     const roomId = socket.roomId;
     if (!roomId) return;
     const room = getRoom(roomId);
+    if (!room) return;
     const idx = room.slots.findIndex((s) => s.id === socket.id);
     if (idx < 0) return;
     const ci = Math.max(0, Math.min(COLOR_COUNT - 1, colorIndex | 0));
     const used = getUsedColors(room, idx);
     if (used.has(ci)) return;
     room.slots[idx].colorIndex = ci;
-    io.to(roomId).emit("slots", slotSummary(room));
+    emitRoomSlots(roomId, room);
   });
 
   socket.on("setSlotColor", (slotIndex, colorIndex) => {
     const roomId = socket.roomId;
     if (!roomId) return;
     const room = getRoom(roomId);
+    if (!room) return;
     if (room.hostId !== socket.id) return;
     if (slotIndex < 0 || slotIndex >= SLOTS) return;
     const ci = Math.max(0, Math.min(COLOR_COUNT - 1, colorIndex | 0));
     const used = getUsedColors(room, slotIndex);
     if (used.has(ci)) return;
     room.slots[slotIndex].colorIndex = ci;
-    io.to(roomId).emit("slots", slotSummary(room));
+    emitRoomSlots(roomId, room);
   });
 
   socket.on("setSpawn", (spawnIndex) => {
     const roomId = socket.roomId;
     if (!roomId) return;
     const room = getRoom(roomId);
+    if (!room) return;
     const idx = room.slots.findIndex((s) => s.id === socket.id);
     if (idx < 0) return;
     const si = Math.max(0, Math.min(SLOTS - 1, spawnIndex | 0));
     const taken = room.slots.some((s, j) => j !== idx && s.spawnIndex === si && (s.id || s.isBot));
     if (taken) return;
     room.slots[idx].spawnIndex = si;
-    io.to(roomId).emit("slots", slotSummary(room));
+    emitRoomSlots(roomId, room);
   });
 
   socket.on("setSlotSpawn", (slotIndex, spawnIndex) => {
     const roomId = socket.roomId;
     if (!roomId) return;
     const room = getRoom(roomId);
+    if (!room) return;
     if (room.hostId !== socket.id) return;
     if (slotIndex < 0 || slotIndex >= SLOTS) return;
     const si = Math.max(0, Math.min(SLOTS - 1, spawnIndex | 0));
     const taken = room.slots.some((s, j) => j !== slotIndex && s.spawnIndex === si && (s.id || s.isBot));
     if (taken) return;
     room.slots[slotIndex].spawnIndex = si;
-    io.to(roomId).emit("slots", slotSummary(room));
+    emitRoomSlots(roomId, room);
   });
 
   socket.on("chat", (text) => {
     const roomId = socket.roomId;
     if (!roomId) return;
     const room = getRoom(roomId);
+    if (!room) return;
     const idx = room.slots.findIndex((s) => s.id === socket.id);
     const name = idx >= 0 ? (room.slots[idx].name || "Игрок") : "?";
     const msg = { name, text: String(text).slice(0, 200), t: Date.now() };
@@ -454,6 +549,7 @@ io.on("connection", (socket) => {
     const roomId = socket.roomId;
     if (!roomId) return;
     const room = getRoom(roomId);
+    if (!room) return;
     if (room.hostId !== socket.id) return;
     _gsLogCtr++;
     if (_gsLogCtr % 500 === 1) {
@@ -470,8 +566,14 @@ io.on("connection", (socket) => {
     const roomId = socket.roomId;
     if (!roomId) return;
     const room = getRoom(roomId);
-    if (room.hostId)
-      io.to(room.hostId).emit("playerAction", data);
+    if (!room || !room.hostId) return;
+    const senderSlot = room.slots.findIndex((s) => s.id === socket.id);
+    if (senderSlot < 0) return;
+    const payload = (data && typeof data === "object") ? { ...data } : { type: "invalid" };
+    payload._senderSlot = senderSlot;
+    payload._senderSocketId = socket.id;
+    payload._senderPlayerId = senderSlot + 1;
+    io.to(room.hostId).emit("playerAction", payload);
   });
 
   // ── Game: map regeneration (host → clients) ──
@@ -479,6 +581,7 @@ io.on("connection", (socket) => {
     const roomId = socket.roomId;
     if (!roomId) return;
     const room = getRoom(roomId);
+    if (!room) return;
     if (room.hostId !== socket.id) return;
     socket.to(roomId).emit("mapRegenerate", data);
   });
@@ -487,6 +590,7 @@ io.on("connection", (socket) => {
     const roomId = socket.roomId;
     if (!roomId) return;
     const room = getRoom(roomId);
+    if (!room) return;
     if (room.hostId !== socket.id) return;
     socket.to(roomId).emit("cardState", data);
   });
@@ -496,6 +600,7 @@ io.on("connection", (socket) => {
     const roomId = socket.roomId;
     if (!roomId) return;
     const room = getRoom(roomId);
+    if (!room) return;
     if (room.hostId !== socket.id) return;
     const slots = slotSummary(room);
     const seed = (payload && typeof payload.seed === "number")

@@ -330,7 +330,7 @@
             pathPreviewLayer.addChild(ghostG);
           }
         }
-      } else if (order && (order.type === "attackUnit" || order.type === "attackCity" || order.type === "attackPirateBase" || order.type === "focusFire" || order.type === "capture")) {
+      } else if (order && order.type === "capture") {
         const squads = getSelectedSquads();
         let scx = 0, scy = 0, scnt = 0;
         for (const sq of squads) {
@@ -415,6 +415,10 @@
       }
     }
 
+    function isIndirectControlEnabled() {
+      return state._frontControlEnabled !== false;
+    }
+
     app.canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 
     app.canvas.addEventListener("pointerdown", (e) => {
@@ -423,7 +427,7 @@
       const pt = screenToWorld(e.clientX, e.clientY);
 
       if (btn === 2 || btn === 1) {
-        if (btn === 2 && state.selectedUnitIds.size > 0) {
+        if (btn === 2 && state.selectedUnitIds.size > 0 && !isIndirectControlEnabled()) {
           const selectedSquads = getSquadLogicApi() ? getSelectedSquads() : [];
           const selectedCombatSquads = selectedSquads.filter((sq) => {
             const sqState = getSquadStateFromUnits(sq);
@@ -491,7 +495,7 @@
           if (rallyPointHintEl) rallyPointHintEl.textContent = "Точка сбора: " + Math.round(pt.x) + ", " + Math.round(pt.y);
           return;
         }
-        if (state.selectedUnitIds.size > 0) {
+        if (state.selectedUnitIds.size > 0 && !isIndirectControlEnabled()) {
           const clickedMine = mineAtWorld(pt.x, pt.y);
           if (clickedMine && clickedMine.ownerId !== state.myPlayerId) {
             const squads = getSelectedSquads();
@@ -557,7 +561,7 @@
         state._rmbHoldStart = null;
         state._rmbHoldPt = null;
       }
-      if (e.button === 2 && state.orderPreview) {
+      if (e.button === 2 && state.orderPreview && !isIndirectControlEnabled()) {
         const order = state.orderPreview;
         const squads = getSelectedSquads();
         const leaderIds = [];

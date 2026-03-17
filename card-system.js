@@ -3,6 +3,8 @@
 
   const BUFF_HAND_LIMIT = 30;
   const ABILITY_HAND_LIMIT = 10;
+  const SIM_TIME_PER_REAL_SECOND = 2.5;
+  const BUFF_DURATION_MULT = 3;
 
   const RARITY_WEIGHTS = {
     common: 45,
@@ -29,14 +31,15 @@
 
   const ABILITY_DEFS = [
     { id: "ionNebula", name: "Ионная туманность", desc: "Гроза в зоне 15с: урон + замедление", cooldown: 120, icon: "🌩️", targeting: "point", cardRarity: "epic" },
-    { id: "meteor", name: "Сверхбыстрый метеор", desc: "Метеор сквозь карту, 25% по планете", cooldown: 120, icon: "☄️", targeting: "angle", cardRarity: "epic" },
-    { id: "meteorSwarm", name: "Метеоритный дождь", desc: "Сначала точка, затем угол: 5 cyan scrap-burner метеоров через карту", cooldown: 140, icon: "☄️", targeting: "angle", cardRarity: "legendary" },
+    { id: "meteor", name: "Сверхбыстрый метеор", desc: "Пробивает юнитов насквозь, взрывается только о планету; каждый задетый юнит даёт AoE", cooldown: 120, icon: "☄️", targeting: "angle", cardRarity: "epic" },
+    { id: "meteorSwarm", name: "Метеоритный дождь", desc: "Сначала точка, затем угол: 5 метеоров прошивают линию насквозь и дают AoE по каждому задетому юниту", cooldown: 140, icon: "☄️", targeting: "angle", cardRarity: "legendary" },
     { id: "timeJump", name: "Временной скачок", desc: "Отмотка на 1 мин назад (разово)", cooldown: 0, oneTime: true, icon: "⏪", cardRarity: "legendary" },
     { id: "blackHole", name: "Чёрная дыра", desc: "Засасывает и повреждает юнитов", cooldown: 180, icon: "🕳️", targeting: "point", cardRarity: "legendary" },
     { id: "activeShield", name: "Активный Щит", desc: "Щит +25% от макс. HP всем кораблям", cooldown: 90, icon: "🛡️", cardRarity: "rare" },
     { id: "pirateRaid", name: "Налёт Пиратов", desc: "Пираты атакуют всех (5+2+1)", cooldown: 150, icon: "🏴‍☠️", targeting: "point", cardRarity: "legendary" },
     { id: "gloriousBattleMarch", name: "Боевой Марш", desc: "+30% скорости всем кораблям 30с", cooldown: 60, icon: "🎺", cardRarity: "rare" },
     { id: "raiderCapture", name: "Рейдерский захват", desc: "Ворует 10% Энергии врага", cooldown: 120, icon: "⚔️", targeting: "city", cardRarity: "epic" },
+    { id: "cosmicGodHand", name: "РУКА КОСМИЧЕСКОГО БОГА", desc: "Мгновенно уничтожает вражеское ядро.", cooldown: 240, icon: "🖐️", targeting: "city", cardRarity: "mythic" },
     { id: "loan", name: "Заём", desc: "+5000€. Через 3 мин вычтет 7500€", cooldown: 300, icon: "💰", cardRarity: "rare" },
     { id: "spatialRift", name: "Разлом", desc: "Сначала точка, затем угол: разлом наносит 5 + 50% max HP при пересечении и стирает все в цепочке радиусов при схлопывании", cooldown: 100, icon: "🌀", targeting: "angle", cardRarity: "epic" },
     { id: "gravAnchor", name: "Грав. Якорь", desc: "Иммобилизация врагов в огромной зоне 20с", cooldown: 90, icon: "⚓", targeting: "point", cardRarity: "epic" },
@@ -59,10 +62,11 @@
 
   function makeBuffCard(base) {
     const rarity = base.rarity || "common";
+    const baseDuration = BUFF_DURATION_BY_RARITY[rarity];
     return Object.assign({
       zone: "buff",
       kind: "buff",
-      durationSec: BUFF_DURATION_BY_RARITY[rarity],
+      durationSec: baseDuration == null ? baseDuration : baseDuration * BUFF_DURATION_MULT * SIM_TIME_PER_REAL_SECOND,
       permanent: rarity === "legendary" || rarity === "mythic"
     }, base);
   }

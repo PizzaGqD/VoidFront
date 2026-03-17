@@ -15,7 +15,7 @@
     "comment": "Max AI players in solo. Bots re-evaluate every thinkIntervalSeconds."
   },
   "city": {
-    "startPopulation": 150,
+    "startPopulation": 900,
     "baseGrowthPerMinute": 2,
     "growthPer100Population": 1.5,
     "activeUnitPenaltyPercent": 0.005,
@@ -34,7 +34,7 @@
     "fighter": {
       "name": "Корвет",
       "squadSize": 1,
-      "cost": 40,
+      "cost": 15,
       "hp": 45,
       "damage": 3,
       "attackRate": 0.8,
@@ -49,7 +49,7 @@
     "destroyer": {
       "name": "Эсминец",
       "squadSize": 1,
-      "cost": 450,
+      "cost": 150,
       "hp": 700,
       "damage": 14,
       "attackRate": 0.42,
@@ -64,7 +64,7 @@
     "cruiser": {
       "name": "Крейсер",
       "squadSize": 1,
-      "cost": 1800,
+      "cost": 600,
       "hp": 2200,
       "damage": 28,
       "attackRate": 0.3,
@@ -79,7 +79,7 @@
     "battleship": {
       "name": "Линкор",
       "squadSize": 1,
-      "cost": 5000,
+      "cost": 1700,
       "hp": 5500,
       "damage": 55,
       "attackRate": 0.22,
@@ -94,7 +94,7 @@
     "hyperDestroyer": {
       "name": "ГиперЛинкор",
       "squadSize": 1,
-      "cost": 12000,
+      "cost": 4000,
       "hp": 12000,
       "damage": 90,
       "attackRate": 0.18,
@@ -114,6 +114,7 @@
     "yieldPerSecond": 0.4,
     "energyPerSecond": 0.1,
     "baseYieldValue": 1,
+    "xpYieldMultiplier": 2,
     "richMultiplier": 2.0,
     "gemSpeed": 15,
     "gemInterceptRadius": 30,
