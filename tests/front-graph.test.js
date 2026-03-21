@@ -86,8 +86,8 @@ function testSideLaneMinePlacementsFollowNeighborPairs() {
 
 function testDuelFrontGraphCreatesDistinctLeftAndRightLanes() {
   const state = makeState();
-  addPlayer(state, 1, -220, 0);
-  addPlayer(state, 2, 220, 0);
+  addPlayer(state, 1, -220, -220);
+  addPlayer(state, 2, 220, 220);
 
   FrontPlanner.buildCenterObjectives(state);
   const graph = FrontPlanner.buildFrontGraph(state);
@@ -96,22 +96,24 @@ function testDuelFrontGraphCreatesDistinctLeftAndRightLanes() {
   assert(graph[1].rightTargetCoreId === 2, "duel right lane still targets the enemy core");
   assert(Array.isArray(graph[1].leftPath) && graph[1].leftPath.length >= 2, "duel left lane has an intermediate flank waypoint");
   assert(Array.isArray(graph[1].rightPath) && graph[1].rightPath.length >= 2, "duel right lane has an intermediate flank waypoint");
-  assert(Math.round(graph[1].leftPath[0].y) !== Math.round(graph[1].rightPath[0].y), "duel left/right lanes split to opposite flanks");
+  assert(graph[1].leftPath[0].coreId && String(graph[1].leftPath[0].coreId).startsWith("ghost:"), "duel left lane first passes through an empty corner sector");
+  assert(graph[1].rightPath[0].coreId && String(graph[1].rightPath[0].coreId).startsWith("ghost:"), "duel right lane first passes through the opposite empty corner sector");
+  assert(Math.round(graph[1].leftPath[0].x) !== Math.round(graph[1].rightPath[0].x) || Math.round(graph[1].leftPath[0].y) !== Math.round(graph[1].rightPath[0].y), "duel left/right lanes split to different empty corners");
   console.log("  [OK] testDuelFrontGraphCreatesDistinctLeftAndRightLanes");
 }
 
 function testDuelSideLaneMinesCreateTwoFlanks() {
   const entries = [
-    { id: 1, x: -220, y: 0 },
-    { id: 2, x: 220, y: 0 }
+    { id: 1, x: -220, y: -220 },
+    { id: 2, x: 220, y: 220 }
   ];
   const mines = FrontPlanner.buildSideLaneMinePlacements(entries, { x: 0, y: 0 });
 
-  assert(mines.length === 4, "duel map creates 2 side lanes with money/xp mine pairs");
+  assert(mines.length === 8, "duel map keeps the full square side-lane mine layout");
   const pairKeys = new Set(mines.map((mine) => mine.pairKey));
-  assert(pairKeys.size === 2, "duel side-lane mines are grouped into left/right flank pairs");
-  const ys = mines.map((mine) => Math.round(mine.y));
-  assert(ys.some((y) => y < 0) && ys.some((y) => y > 0), "duel mines appear on both flank lanes");
+  assert(pairKeys.size === 4, "duel side-lane mines keep 4 edge groups from the square map topology");
+  const coords = mines.map((mine) => `${Math.round(mine.x)},${Math.round(mine.y)}`);
+  assert(new Set(coords).size >= 6, "duel side-lane mines populate the empty corner sectors as real flank objectives");
   console.log("  [OK] testDuelSideLaneMinesCreateTwoFlanks");
 }
 

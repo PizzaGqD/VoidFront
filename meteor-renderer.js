@@ -445,36 +445,33 @@
     var level = getZoomLevel(opts && opts.zoom != null ? opts.zoom : 0.22);
     var detail = getMeteorDetail(level);
     if (preview.phase === "point") {
-      g.beginFill(PALETTE.line, 0.045);
+      g.beginFill(PALETTE.line, 0.040);
       g.drawCircle(preview.mouseX, preview.mouseY, preview.aoeRadius);
       g.endFill();
-      g.lineStyle(4.25, PALETTE.trim, 0.92);
+      g.lineStyle(4.25, PALETTE.trim, 0.72);
       g.drawCircle(preview.mouseX, preview.mouseY, preview.aoeRadius);
-      g.lineStyle(2.5, PALETTE.core, 0.52);
+      g.lineStyle(2.5, PALETTE.core, 0.40);
       g.drawCircle(preview.mouseX, preview.mouseY, preview.aoeRadius * 0.72);
-      g.lineStyle(1.8, PALETTE.line, 0.24);
+      g.lineStyle(1.8, PALETTE.line, 0.20);
       g.drawCircle(preview.mouseX, preview.mouseY, preview.aoeRadius * 0.88);
-      drawTelemetryBrackets(g, preview.mouseX, preview.mouseY, preview.aoeRadius * 0.64, 0.28, 1.4);
+      drawTelemetryBrackets(g, preview.mouseX, preview.mouseY, preview.aoeRadius * 0.64, 0.22, 1.4);
       return;
     }
 
     var geom = drawCorridor(g, preview.x, preview.y, preview.angle, preview.aoeRadius, detail, timeSec, preview.worldW, preview.worldH, true);
     var impactX = preview.impactX != null ? preview.impactX : preview.x;
     var impactY = preview.impactY != null ? preview.impactY : preview.y;
-    g.beginFill(PALETTE.line, 0.045);
+    g.lineStyle(4.0, PALETTE.line, 0.52);
     g.drawCircle(impactX, impactY, preview.aoeRadius);
-    g.endFill();
-    g.lineStyle(4.0, PALETTE.trim, 0.90);
-    g.drawCircle(impactX, impactY, preview.aoeRadius);
-    g.lineStyle(2.5, PALETTE.core, 0.52);
+    g.lineStyle(2.5, PALETTE.core, 0.34);
     g.drawCircle(impactX, impactY, preview.aoeRadius * 0.72);
-    g.lineStyle(1.8, PALETTE.line, 0.24);
+    g.lineStyle(1.8, PALETTE.trim, 0.18);
     g.drawCircle(impactX, impactY, preview.aoeRadius * 0.88);
-    g.beginFill(PALETTE.trim, 0.86);
-    g.drawCircle(impactX, impactY, 7);
+    g.beginFill(PALETTE.line, 0.18);
+    g.drawCircle(impactX, impactY, 5.5);
     g.endFill();
     if (preview.predictedTargetRadius && preview.predictedTargetX != null && preview.predictedTargetY != null) {
-      g.lineStyle(2.75, PALETTE.trim, 0.70);
+      g.lineStyle(2.75, PALETTE.line, 0.48);
       g.drawCircle(preview.predictedTargetX, preview.predictedTargetY, preview.predictedTargetRadius);
     }
     return geom;

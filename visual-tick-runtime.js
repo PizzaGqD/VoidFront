@@ -36,6 +36,7 @@
       drawOrbitalStrikes,
       drawThermoNukes,
       drawPirateRaids,
+      drawEconomyAbilityFx,
       drawMeteorImpactEffects,
       drawTimeRewindFx,
       drawAbilityTargetPreview,
@@ -90,7 +91,7 @@
           : "near";
         const zoneLodChanged = state._zoneVisualLodLevel !== zoneLodLevel;
         state._zoneVisualLodLevel = zoneLodLevel;
-        const zoneCadenceSec = 3.0;
+        const zoneCadenceSec = 1.0;
         const zoneRedrawThisFrame = zoneLodChanged || state._nextZoneVisualRedrawAt == null || (state.t || 0) >= state._nextZoneVisualRedrawAt;
         if (zoneRedrawThisFrame) state._nextZoneVisualRedrawAt = (state.t || 0) + zoneCadenceSec;
         for (const p of state.players.values()) {
@@ -148,21 +149,22 @@
         drawOrbitalStrikes();
         drawThermoNukes();
         drawPirateRaids();
+        drawEconomyAbilityFx();
         drawMeteorImpactEffects();
         drawTimeRewindFx(now / 1000);
       });
       timeCall("vis.overlay", () => {
         if (state._abilityTargeting) drawAbilityTargetPreview();
         else clearAbilityPreview();
-        if (neonEdgeSprite) {
-          if (neonEdgeSprite.parent) neonEdgeSprite.parent.removeChild(neonEdgeSprite);
-          world.addChild(neonEdgeSprite);
-        }
         pulseNeonEdge();
         updateSelectionBox();
-        updatePathPreview();
-        updateMovingPathPreview();
-        updateFrontLaneOverlay();
+        const pathPreviewInterval = state._abilityTargeting ? 1 : (severeLoad ? 4 : (heavyLoad ? 3 : 2));
+        const frontLaneInterval = state._abilityTargeting ? 1 : (severeLoad ? 6 : (heavyLoad ? 4 : 2));
+        if (vfc % pathPreviewInterval === 0) {
+          updatePathPreview();
+          updateMovingPathPreview();
+        }
+        if (vfc % frontLaneInterval === 0) updateFrontLaneOverlay();
       });
       timeCall("vis.ui", () => {
         if (vfc % (heavyLoad ? 8 : 4) === 0) updateMinimap();

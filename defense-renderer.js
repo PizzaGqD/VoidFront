@@ -7,6 +7,248 @@
 (function () {
   "use strict";
 
+  var BLEND_MODES = (typeof PIXI !== "undefined" && PIXI.BLEND_MODES) ? PIXI.BLEND_MODES : null;
+  var NORMAL_BLEND = BLEND_MODES && BLEND_MODES.NORMAL != null ? BLEND_MODES.NORMAL : "normal";
+  var HALF_PI = Math.PI * 0.5;
+  var DEFENSE_SPRITES = {
+    patrol: {
+      path: "assets/Ships/Players/patrol.png",
+      textureSize: 512,
+      worldWidth: 34,
+      localRotation: HALF_PI
+    },
+    turret: {
+      path: "assets/Ships/Players/Turret.png",
+      textureSize: 512,
+      worldWidth: 30,
+      localRotation: HALF_PI
+    }
+  };
+  var _textureCache = Object.create(null);
+  var _loadPromises = Object.create(null);
+
+  function isTextureReady(texture) {
+    if (!texture) return false;
+    if ((texture.width || 0) > 1 || (texture.height || 0) > 1) return true;
+    var source = texture.source || texture.baseTexture || null;
+    if (!source) return false;
+    return !!(source.valid && ((source.width || 0) > 1 || (source.height || 0) > 1));
+  }
+
+  function getTexture(path) {
+    var texture = _textureCache[path];
+    return isTextureReady(texture) ? texture : null;
+  }
+
+  function requestTexture(path) {
+    if (!path || typeof PIXI === "undefined") return null;
+    if (isTextureReady(_textureCache[path])) return Promise.resolve(_textureCache[path]);
+    if (_loadPromises[path]) return _loadPromises[path];
+    if (PIXI.Assets && typeof PIXI.Assets.load === "function") {
+      _loadPromises[path] = PIXI.Assets.load(path).then(function (asset) {
+        _textureCache[path] = asset && asset.texture ? asset.texture : asset;
+        return _textureCache[path];
+      }).catch(function () {
+        _textureCache[path] = null;
+        return null;
+      }).finally(function () {
+        delete _loadPromises[path];
+      });
+      return _loadPromises[path];
+    }
+    if (PIXI.Texture && typeof PIXI.Texture.from === "function") {
+      _textureCache[path] = PIXI.Texture.from(path);
+      return Promise.resolve(_textureCache[path]);
+    }
+    return null;
+  }
+
+  function getDestroyOptions() {
+    return {
+      children: true,
+      texture: false,
+      textureSource: false,
+      context: false,
+      style: false
+    };
+  }
+
+  function setSpriteLayout(sprite, scale, localRotation) {
+    if (!sprite) return;
+    sprite.anchor.set(0.5, 0.5);
+    sprite.rotation = localRotation || 0;
+    sprite.scale.set(scale);
+  }
+
+  function getDefenseSpriteConfig(kind) {
+    return kind ? DEFENSE_SPRITES[kind] || null : null;
+  }
+
+  function hasSpriteType(kind) {
+    return !!getDefenseSpriteConfig(kind);
+  }
+
+  function isSpriteReady(kind) {
+    var cfg = getDefenseSpriteConfig(kind);
+    return !!(cfg && getTexture(cfg.path));
+  }
+
+  function requestSprite(kind) {
+    var cfg = getDefenseSpriteConfig(kind);
+    if (!cfg) return null;
+    return requestTexture(cfg.path);
+  }
+
+  function destroyChildren(container) {
+    if (!container || typeof container.removeChildren !== "function") return;
+    var removed = container.removeChildren();
+    for (var i = 0; i < removed.length; i++) {
+      if (removed[i] && !removed[i].destroyed && typeof removed[i].destroy === "function") {
+        removed[i].destroy(getDestroyOptions());
+      }
+    }
+  }
+
+  function drawDefenseOutline(gfx, kind, worldSize, color, alpha) {
+    if (!gfx || gfx.destroyed) return;
+    var length = Math.max(16, worldSize || 28);
+    var width = kind === "turret" ? length * 0.44 : length * 0.34;
+    var points = kind === "turret"
+      ? [
+          0, -length * 0.52,
+          width * 0.52, -length * 0.12,
+          width * 0.62, length * 0.24,
+          width * 0.26, length * 0.56,
+          -width * 0.26, length * 0.56,
+          -width * 0.62, length * 0.24,
+          -width * 0.52, -length * 0.12
+        ]
+      : [
+          0, -length * 0.58,
+          width * 0.62, -length * 0.16,
+          width * 0.50, length * 0.34,
+          width * 0.18, length * 0.56,
+          -width * 0.18, length * 0.56,
+          -width * 0.50, length * 0.34,
+          -width * 0.62, -length * 0.16
+        ];
+    gfx.clear();
+    gfx.poly(points);
+    gfx.stroke({ color: color, width: Math.max(1.1, length * 0.05), alpha: alpha, join: "round" });
+    gfx.poly(points);
+    gfx.fill({ color: color, alpha: Math.min(alpha * 0.10, 0.035) });
+  }
+
+  function drawDefenseLights(gfx, kind, worldSize, color, alpha) {
+    if (!gfx || gfx.destroyed) return;
+    var length = Math.max(16, worldSize || 28);
+    var beam = kind === "turret" ? length * 0.24 : length * 0.30;
+    var frontY = kind === "turret" ? -length * 0.08 : -length * 0.14;
+    var midY = kind === "turret" ? length * 0.18 : length * 0.10;
+    var lampR = Math.max(1.0, length * 0.05);
+    gfx.clear();
+    gfx.circle(-beam, frontY, lampR);
+    gfx.fill({ color: 0xffffff, alpha: alpha * 0.95 });
+    gfx.circle(beam, frontY, lampR);
+    gfx.fill({ color: color, alpha: alpha });
+    gfx.circle(0, midY, lampR * 0.7);
+    gfx.fill({ color: color, alpha: alpha * 0.52 });
+  }
+
+  function ensureSpriteVisual(container, kind) {
+    var cfg = getDefenseSpriteConfig(kind);
+    if (!cfg || !container || !isSpriteReady(kind)) return null;
+    if (container._defenseSpriteKind === kind && container._baseSprite && !container._baseSprite.destroyed) {
+      return cfg;
+    }
+    destroyChildren(container);
+    var scale = cfg.worldWidth / cfg.textureSize;
+    var outline = new PIXI.Graphics();
+    var base = new PIXI.Sprite(getTexture(cfg.path));
+    var lights = new PIXI.Graphics();
+    outline.rotation = cfg.localRotation || 0;
+    lights.rotation = cfg.localRotation || 0;
+    setSpriteLayout(base, scale, cfg.localRotation);
+    base.blendMode = NORMAL_BLEND;
+    container.addChild(outline, base, lights);
+    container._defenseSpriteKind = kind;
+    container._defenseConfig = cfg;
+    container._outlineGfx = outline;
+    container._baseSprite = base;
+    container._lightsGfx = lights;
+    return cfg;
+  }
+
+  function createSpriteVisual(kind) {
+    if (!hasSpriteType(kind) || !isSpriteReady(kind)) return null;
+    var container = new PIXI.Container();
+    container.sortableChildren = false;
+    ensureSpriteVisual(container, kind);
+    return container;
+  }
+
+  function updateSpriteVisual(container, kind, opts) {
+    if (!container || !opts) return false;
+    var cfg = ensureSpriteVisual(container, kind);
+    if (!cfg) return false;
+    var worldSize = (cfg.worldWidth || 28) * Math.max(0.9, opts.scale || 1);
+    var rotation = opts.rotation || 0;
+    var color = opts.color != null ? opts.color : 0xffffff;
+    var outlineAlpha = opts.outlineAlpha != null ? opts.outlineAlpha : 0.20;
+    var lampAlpha = opts.lampAlpha != null ? opts.lampAlpha : 0.60;
+    container.position.set(opts.x || 0, opts.y || 0);
+    container.rotation = rotation;
+    if (container._baseSprite && !container._baseSprite.destroyed) {
+      var textureScale = worldSize / cfg.worldWidth;
+      container._baseSprite.scale.set((cfg.worldWidth / cfg.textureSize) * textureScale);
+      container._baseSprite.alpha = opts.alpha != null ? opts.alpha : 1;
+    }
+    if (container._outlineGfx && !container._outlineGfx.destroyed) {
+      drawDefenseOutline(container._outlineGfx, kind, worldSize, color, outlineAlpha);
+      container._outlineGfx.visible = outlineAlpha > 0.01;
+    }
+    if (container._lightsGfx && !container._lightsGfx.destroyed) {
+      drawDefenseLights(container._lightsGfx, kind, worldSize, color, lampAlpha);
+      container._lightsGfx.visible = lampAlpha > 0.01;
+    }
+    return true;
+  }
+
+  function updateTurretSpriteVisual(container, opts) {
+    var nx = opts && opts.nx != null ? opts.nx : 0;
+    var ny = opts && opts.ny != null ? opts.ny : -1;
+    var rotation = Math.atan2(ny, nx);
+    return updateSpriteVisual(container, "turret", {
+      x: opts && opts.x,
+      y: opts && opts.y,
+      rotation: rotation,
+      color: opts && opts.color,
+      scale: opts && opts.scale,
+      alpha: opts && opts.alpha,
+      outlineAlpha: opts && opts.outlineAlpha,
+      lampAlpha: opts && opts.lampAlpha
+    });
+  }
+
+  function updatePatrolSpriteVisual(container, opts) {
+    return updateSpriteVisual(container, "patrol", {
+      x: opts && opts.x,
+      y: opts && opts.y,
+      rotation: opts && opts.angle,
+      color: opts && opts.color,
+      scale: opts && opts.scale,
+      alpha: opts && opts.alpha,
+      outlineAlpha: opts && opts.outlineAlpha,
+      lampAlpha: opts && opts.lampAlpha
+    });
+  }
+
+  function destroySpriteVisual(container) {
+    if (!container) return;
+    if (container.parent) container.parent.removeChild(container);
+    if (container.destroy) container.destroy(getDestroyOptions());
+  }
+
   /**
    * Draw a turret shape (diamond with direction barrel) into a Graphics object.
    * @param {PIXI.Graphics} g - target graphics (already cleared)
@@ -164,7 +406,17 @@
     drawTurretShape: drawTurretShape,
     drawTurretRadius: drawTurretRadius,
     drawPatrolShape: drawPatrolShape,
+    hasSpriteType: hasSpriteType,
+    isSpriteReady: isSpriteReady,
+    requestSprite: requestSprite,
+    createSpriteVisual: createSpriteVisual,
+    updateTurretSpriteVisual: updateTurretSpriteVisual,
+    updatePatrolSpriteVisual: updatePatrolSpriteVisual,
+    destroySpriteVisual: destroySpriteVisual,
   };
+
+  requestSprite("patrol");
+  requestSprite("turret");
 
   if (typeof window !== "undefined") window.DefenseRenderer = DefenseRenderer;
   if (typeof module !== "undefined") module.exports = DefenseRenderer;

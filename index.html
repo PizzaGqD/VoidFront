@@ -81,14 +81,9 @@
   <div id="soloLobbyScreen" class="menu-overlay menu-screen" style="display:none">
     <div class="menu-box" style="max-width:420px">
       <p class="menu-subtitle">Одиночка — настройки</p>
-      <p class="muted" style="margin-bottom:10px">Режимы: дуэль 1v1 или квадратная схватка 1v1v1v1. Выберите стартовую позицию для текущего формата.</p>
+      <p class="muted" style="margin-bottom:10px">Выбери формат матча и стартовую позицию. Дуэль даёт одного бота на противоположном углу, квадратная схватка запускает матч против трёх ботов.</p>
       <div id="soloSpawnPicker" class="row" style="gap:8px; flex-wrap:wrap; margin-bottom:14px"></div>
-      <p class="muted" style="margin-bottom:6px">Seed карты (число или пусто для случайной):</p>
-      <div class="row" style="gap:8px; margin-bottom:14px">
-        <input type="text" id="soloMapSeedInput" placeholder="случайный" style="width:120px;padding:6px 10px;border-radius:6px;border:1px solid #445;background:#181a3a;color:#ddd;font-size:13px">
-        <button type="button" id="soloMapReroll" class="menu-btn secondary" style="min-width:40px">🎲</button>
-      </div>
-      <p class="muted" style="margin-bottom:6px">Режим:</p>
+      <p class="muted" style="margin-bottom:6px">Соперники:</p>
       <div id="soloModePicker" class="row" style="gap:8px; flex-wrap:wrap; margin-bottom:14px"></div>
       <div class="row" style="margin-top:14px">
         <button type="button" id="soloLobbyBack" class="menu-btn secondary">Назад</button>
@@ -128,6 +123,11 @@
           <button type="button" id="lobbyLeave" class="menu-btn secondary">Выйти</button>
         </div>
         <p class="muted">4 слота максимум. Матч запускается только в формате 1v1 или 1v1v1v1.</p>
+        <div class="lobby-format-banner">
+          <div class="lobby-format-kicker">Формат матча</div>
+          <div id="lobbyFormatTitle" class="lobby-format-title">Ожидание состава</div>
+          <div id="lobbyFormatHint" class="lobby-format-hint">Соберите либо 2, либо 4 занятых слота.</div>
+        </div>
         <div class="lobby-url-row">
           <label class="muted">Адрес для подключения:</label>
           <div class="lobby-url-box">
@@ -153,9 +153,9 @@
         </div>
       </div>
       <div class="lobby-map">
-        <div class="lobby-map-title">Карта спавнов</div>
+        <div id="lobbySpawnMapTitle" class="lobby-map-title">Карта спавнов</div>
         <canvas id="lobbySpawnMap" width="280" height="280"></canvas>
-        <p class="muted" style="font-size:11px;margin-top:6px;text-align:center">Расположение фиксировано: дуэль напротив, 4 игрока квадратом</p>
+        <p id="lobbySpawnMapHint" class="muted" style="font-size:11px;margin-top:6px;text-align:center">Расположение фиксировано: дуэль по углам, 4 игрока квадратом</p>
       </div>
     </div>
   </div>
@@ -559,22 +559,24 @@
   <script src="https://cdn.jsdelivr.net/npm/pixi.js@8.6.6/dist/pixi.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/pixi-filters@6.1.1/dist/pixi-filters.min.js"></script>
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-  <script src="card-system.js?v=2"></script>
+  <script src="card-system.js?v=4"></script>
   <script src="utils.js?v=17"></script>
   <script src="noise.js?v=17"></script>
-  <script src="net.js?v=18"></script>
+  <script src="net.js?v=20"></script>
   <script src="formations.js?v=17"></script>
   <script src="combat.js?v=17"></script>
-  <script src="squad-logic.js?v=17"></script>
+  <script src="squad-logic.js?v=18"></script>
   <script src="faction-visuals.js?v=17"></script>
   <script src="vfx-pool.js?v=17"></script>
   <script src="lod-visual-policy.js?v=17"></script>
   <script src="zone-renderer.js?v=17"></script>
-  <script src="defense-renderer.js?v=17"></script>
+  <script src="defense-renderer.js?v=18"></script>
   <script src="ship-renderer.js?v=17"></script>
+  <script src="ship-sprite-renderer.js?v=6"></script>
   <script src="resource-flow.js?v=17"></script>
   <script src="combat-vfx.js?v=17"></script>
   <script src="ability-vfx-common.js?v=17"></script>
+  <script src="economy-ability-renderer.js?v=1"></script>
   <script src="pirate-raid-ability.js?v=1"></script>
   <script src="meteor-swarm-ability.js?v=1"></script>
   <script src="spatial-rift-ability.js?v=1"></script>
@@ -584,25 +586,25 @@
   <script src="black-hole-renderer.js?v=17"></script>
   <script src="ion-storm-renderer.js?v=17"></script>
   <script src="pirate-raid-renderer.js?v=1"></script>
-  <script src="meteor-renderer.js?v=21"></script>
-  <script src="meteor-swarm-renderer.js?v=1"></script>
+  <script src="meteor-renderer.js?v=23"></script>
+  <script src="meteor-swarm-renderer.js?v=3"></script>
   <script src="spatial-rift-renderer.js?v=1"></script>
   <script src="thermo-nuke-renderer.js?v=1"></script>
   <script src="grav-anchor-renderer.js?v=1"></script>
   <script src="nano-swarm-renderer.js?v=1"></script>
   <script src="time-rewind-renderer.js?v=17"></script>
   <script src="selection-and-orders.js?v=17"></script>
-  <script src="snapshot-sync.js?v=18"></script>
+  <script src="snapshot-sync.js?v=20"></script>
   <script src="socket-action-dispatch.js?v=17"></script>
-  <script src="front-planner.js?v=1"></script>
+  <script src="front-planner.js?v=3"></script>
   <script src="lobby-ui.js?v=17"></script>
   <script src="remote-client-runtime.js?v=17"></script>
   <script src="host-network-runtime.js?v=17"></script>
-  <script src="host-sim-runtime.js?v=18"></script>
-  <script src="visual-tick-runtime.js?v=18"></script>
+  <script src="host-sim-runtime.js?v=19"></script>
+  <script src="visual-tick-runtime.js?v=21"></script>
   <script src="off-map-ambience-renderer.js?v=1"></script>
   <script src="music-player.js?v=1"></script>
-  <script src="client.js?v=19"></script>
+  <script src="client.js?v=38"></script>
   <script src="test-mechanics.js?v=16"></script>
   <script>
   (function(){

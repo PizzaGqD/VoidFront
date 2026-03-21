@@ -34,7 +34,7 @@
     "fighter": {
       "name": "Корвет",
       "squadSize": 1,
-      "cost": 15,
+      "cost": 45,
       "hp": 45,
       "damage": 3,
       "attackRate": 0.8,
@@ -49,7 +49,7 @@
     "destroyer": {
       "name": "Эсминец",
       "squadSize": 1,
-      "cost": 150,
+      "cost": 450,
       "hp": 700,
       "damage": 14,
       "attackRate": 0.42,
@@ -64,7 +64,7 @@
     "cruiser": {
       "name": "Крейсер",
       "squadSize": 1,
-      "cost": 600,
+      "cost": 1800,
       "hp": 2200,
       "damage": 28,
       "attackRate": 0.3,
@@ -79,7 +79,7 @@
     "battleship": {
       "name": "Линкор",
       "squadSize": 1,
-      "cost": 1700,
+      "cost": 5100,
       "hp": 5500,
       "damage": 55,
       "attackRate": 0.22,
@@ -94,7 +94,7 @@
     "hyperDestroyer": {
       "name": "ГиперЛинкор",
       "squadSize": 1,
-      "cost": 4000,
+      "cost": 12000,
       "hp": 12000,
       "damage": 90,
       "attackRate": 0.18,

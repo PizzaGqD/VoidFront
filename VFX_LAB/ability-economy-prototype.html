@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ability Economy Prototype 01</title>
+  <link rel="stylesheet" href="./vfx-lab.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <h2 id="variantTitle">Ability Economy Prototype 01</h2>
+      <p id="variantSubtitle">Два независимых набора по шесть визуальных направлений: для `Воровства энергии` и для `Ресурсного всплеска`, с явным 2D-route language и LOD-профилями.</p>
+      <p>Главный вопрос лабы: какие формы маршрута и packet language лучше читаются поверх RTS-поля, не спорят с коридорами и остаются понятными на near/mid/far.</p>
+    </div>
+    <div class="controls">
+      <div class="control">
+        <label>Mode</label>
+        <select id="mode">
+          <option value="both">Both</option>
+          <option value="steal">Energy Steal</option>
+          <option value="burst">Resource Burst</option>
+        </select>
+      </div>
+      <div class="control">
+        <label>Steal Variant</label>
+        <select id="stealVariant"></select>
+      </div>
+      <div class="control">
+        <label>Burst Variant</label>
+        <select id="burstVariant"></select>
+      </div>
+      <div class="control">
+        <label>Steal Route Side</label>
+        <select id="routeSide">
+          <option value="auto">Auto</option>
+          <option value="clockwise">Clockwise bypass</option>
+          <option value="counter">Counter bypass</option>
+        </select>
+      </div>
+      <div class="control">
+        <label>LOD</label>
+        <select id="lodMode">
+          <option value="auto">Auto</option>
+          <option value="near">Near</option>
+          <option value="mid">Mid</option>
+          <option value="far">Far</option>
+        </select>
+      </div>
+      <div class="control">
+        <label>Burst Target</label>
+        <select id="burstTarget">
+          <option value="thief">Thief core</option>
+          <option value="victim">Victim core</option>
+        </select>
+      </div>
+      <div class="control">
+        <label>Tempo</label>
+        <input id="tempo" type="range" min="60" max="150" value="100">
+      </div>
+      <div class="control">
+        <label>Chain Density</label>
+        <input id="density" type="range" min="40" max="140" value="92">
+      </div>
+      <div class="control">
+        <label>Signal Length</label>
+        <input id="signalTail" type="range" min="30" max="120" value="82">
+      </div>
+    </div>
+    <div class="actions">
+      <button type="button" id="cycleSteal">Cycle Steal Variant</button>
+      <button type="button" id="cycleBurst">Cycle Burst Variant</button>
+      <button type="button" id="triggerSteal">Trigger Energy Steal</button>
+      <button type="button" id="triggerBurst">Trigger Resource Burst</button>
+      <button type="button" id="triggerBoth">Trigger Both</button>
+      <button type="button" id="swapRoles">Swap Roles</button>
+    </div>
+  </header>
+
+  <nav class="nav">
+    <a href="./index.html">Overview</a>
+    <a href="./cards-prototype.html">Card Prototype 01</a>
+    <a href="./ability-arsenal-prototype.html">Ability Arsenal Prototype 01</a>
+    <a href="./ability-cataclysm-prototype.html">Cataclysm Prototype 01</a>
+    <a href="./ability-rift-prototype.html">Rift Prototype 01</a>
+    <a href="./ability-grav-anchor-prototype.html">Grav Anchor Prototype 01</a>
+    <a href="./ability-nano-swarm-prototype.html">Nano Swarm Prototype 01</a>
+    <a href="./ability-economy-prototype.html" class="active">Economy Prototype 01</a>
+    <a href="./mine-flow-prototype.html">Mine Flow Prototype 01</a>
+    <a href="./off-map-ambience-prototype.html">Off-Map Ambience Prototype 01</a>
+  </nav>
+
+  <main class="scene-wrap">
+    <canvas id="scene"></canvas>
+  </main>
+
+  <div id="statusLine" class="status-line">
+    Economy prototype: 6 `Energy Steal` variants and 6 `Resource Burst` variants with route-aware LOD and separate path language.
+  </div>
+
+  <section class="legend">
+    <article class="legend-card">
+      <h3>Steal Variant Read</h3>
+      <p id="legendSteal">Выбранный вариант `Воровства энергии` задает форму дуги, тип сигнала, packet-chain и реакцию обоих ядер.</p>
+    </article>
+    <article class="legend-card">
+      <h3>Burst Variant Read</h3>
+      <p id="legendBurst">Выбранный вариант `Ресурсного всплеска` задает форму траектории от угла, packet language, source effect и финальный отклик ядра.</p>
+    </article>
+    <article class="legend-card">
+      <h3>Prototype Focus</h3>
+      <p id="legendFocus">Главный фокус: траектория воровства должна оставаться преимущественно дугой вне коридоров, а burst должен сохранять читаемый вход из ближайшего угла даже на упрощенном LOD.</p>
+    </article>
+  </section>
+
+  <script src="./ability-economy-prototype.js"></script>
+</body>
+</html>

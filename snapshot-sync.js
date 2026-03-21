@@ -28,8 +28,10 @@
       destroyOrbitalStrikeVisual,
       destroyThermoNukeVisual,
       destroyPirateRaidVisual,
+      destroyEconomyAbilityVisual,
       makeMineVisual,
       updateMineVisual,
+      syncSectorObjectivesFromSnapshot,
       resLayer,
       destroyBlackHoleVisual
     } = deps;
@@ -426,6 +428,30 @@
         state._pirateRaids = [];
       }
 
+      if (snap.economyAbilityFx) {
+        for (const effect of state._economyAbilityFx || []) destroyEconomyAbilityVisual(effect);
+        state._economyAbilityFx = snap.economyAbilityFx.map((effect) => ({
+          ...effect,
+          gfx: null,
+          trajGfx: null,
+          overlayGfx: null
+        }));
+      } else if (state._economyAbilityFx && state._economyAbilityFx.length) {
+        for (const effect of state._economyAbilityFx || []) destroyEconomyAbilityVisual(effect);
+        state._economyAbilityFx = [];
+      }
+
+      if (snap.abilityZoneEffects) {
+        for (const zone of state._abilityZoneEffects || []) destroyAbilityZoneVisual(zone);
+        state._abilityZoneEffects = snap.abilityZoneEffects.map((zone) => ({
+          ...zone,
+          gfx: null
+        }));
+      } else if (state._abilityZoneEffects && state._abilityZoneEffects.length) {
+        for (const zone of state._abilityZoneEffects || []) destroyAbilityZoneVisual(zone);
+        state._abilityZoneEffects = [];
+      }
+
       if (snap.abilityStorms && !state._multiIsHost) {
         while (state._abilityStorms.length > snap.abilityStorms.length) {
           const s = state._abilityStorms.pop();
@@ -543,6 +569,8 @@
               prev.spawnedAt = incoming.spawnedAt;
               prev.duration = incoming.duration;
               prev.radius = incoming.radius;
+              prev.damageScale = incoming.damageScale != null ? incoming.damageScale : 1;
+              prev.finalBurstPct = incoming.finalBurstPct != null ? incoming.finalBurstPct : 0.1;
               nextBlackHoles.push(prev);
             } else {
               nextBlackHoles.push({ ...incoming, _bodyContainer: null, _debrisGfx: null, phase: 0 });
@@ -583,6 +611,7 @@
       else if (isFull) state.squadFrontAssignments = {};
       if (snap.centerObjectives) state.centerObjectives = JSON.parse(JSON.stringify(snap.centerObjectives));
       else if (isFull) state.centerObjectives = { centerX: 0, centerY: 0, richMineId: null, centerMineIds: [], pirateBaseIds: [], livePirateBaseIds: [], securedByPlayerId: null, requiredMineCount: 0 };
+      if (typeof syncSectorObjectivesFromSnapshot === "function") syncSectorObjectivesFromSnapshot(snap.sectorObjectives, isFull);
 
       if (snap.squads && typeof SQUADLOGIC !== "undefined") {
         if (!state.squads) state.squads = new Map();

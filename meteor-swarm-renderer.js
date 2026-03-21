@@ -284,23 +284,24 @@
     var radius = preview.radius || 120;
     var shots = preview.shots || [];
 
-    g.beginFill(PALETTE.dark, 0.040 + pulse * 0.018);
+    var hasShots = !!shots.length;
+    g.beginFill(PALETTE.dark, hasShots ? 0.006 : (0.032 + pulse * 0.012));
     g.drawCircle(preview.x, preview.y, radius);
     g.endFill();
-    g.beginFill(PALETTE.core, 0.028 + pulse * 0.014);
+    g.beginFill(PALETTE.core, hasShots ? 0.004 : (0.022 + pulse * 0.010));
     g.drawCircle(preview.x, preview.y, radius * 0.82);
     g.endFill();
 
-    g.lineStyle(4.0, PALETTE.trim, 0.46 + pulse * 0.18);
+    g.lineStyle(4.0, PALETTE.trim, hasShots ? (0.16 + pulse * 0.05) : (0.34 + pulse * 0.12));
     g.drawCircle(preview.x, preview.y, radius);
-    g.lineStyle(2.4, PALETTE.line, 0.20 + pulse * 0.10);
+    g.lineStyle(2.4, PALETTE.line, hasShots ? (0.08 + pulse * 0.03) : (0.18 + pulse * 0.08));
     g.drawCircle(preview.x, preview.y, radius * 0.86);
-    g.lineStyle(1.6, PALETTE.core, 0.22 + pulse * 0.08);
+    g.lineStyle(1.6, PALETTE.core, hasShots ? (0.07 + pulse * 0.02) : (0.14 + pulse * 0.05));
     g.drawCircle(preview.x, preview.y, radius * 0.68);
-    g.beginFill(PALETTE.trim, 0.78);
+    g.beginFill(PALETTE.trim, hasShots ? 0.30 : 0.78);
     g.drawCircle(preview.x, preview.y, 5.0 + pulse * 1.4);
     g.endFill();
-    drawTelemetryBrackets(g, preview.x, preview.y, radius * 0.72, 0.24 + pulse * 0.06, 1.4);
+    drawTelemetryBrackets(g, preview.x, preview.y, radius * 0.72, hasShots ? (0.08 + pulse * 0.02) : (0.18 + pulse * 0.04), 1.4);
 
     if (!shots.length) {
       for (var tick = 0; tick < 12; tick++) {
@@ -321,7 +322,7 @@
       g.lineStyle(1.2, PALETTE.line, 0.10 + pulse * 0.05);
       g.moveTo(shot.entryX, shot.entryY);
       g.lineTo(aimX, aimY);
-      g.lineStyle(shot.swarmIndex === 0 ? 1.8 : 1.2, shot.swarmIndex === 0 ? PALETTE.trim : PALETTE.core, 0.24 + pulse * 0.08);
+        g.lineStyle(shot.swarmIndex === 0 ? 1.8 : 1.2, shot.swarmIndex === 0 ? PALETTE.trim : PALETTE.core, 0.12 + pulse * 0.04);
       g.drawCircle(aimX, aimY, shot.previewRadius || shot.aoeR || 30);
       g.beginFill(PALETTE.trim, 0.76);
       g.drawCircle(shot.entryX, shot.entryY, 3.0);
@@ -330,7 +331,7 @@
       g.drawCircle(aimX, aimY, 4.4);
       g.endFill();
       if (shot.predictedTargetRadius && shot.predictedTargetX != null && shot.predictedTargetY != null) {
-        g.lineStyle(1.4, PALETTE.trim, 0.42);
+        g.lineStyle(1.4, PALETTE.trim, 0.21);
         g.drawCircle(shot.predictedTargetX, shot.predictedTargetY, shot.predictedTargetRadius);
       }
     }

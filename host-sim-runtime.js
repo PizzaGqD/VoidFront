@@ -43,7 +43,8 @@
       stepOrbitalStrikes,
       stepThermoNukes,
       stepPirateRaids,
-      stepSurvivalWaves
+      stepSurvivalWaves,
+      stepLaneFighterWaves
     } = deps;
 
     function shouldRunPhase(counterKey, interval) {
@@ -68,12 +69,12 @@
       const units = state.units ? state.units.size : 0;
       const squads = state.squads ? state.squads.size : 0;
       const bullets = state.bullets ? state.bullets.length : 0;
-      const superExtremeLoad = units >= 500 || squads >= 460 || bullets >= 140;
-      const extremeLoad = units >= 520 || squads >= 460 || bullets >= 120;
-      const heavyLoad = units >= 320 || squads >= 220 || bullets >= 70;
+      const superExtremeLoad = units >= 300 || squads >= 220 || bullets >= 90;
+      const extremeLoad = units >= 220 || squads >= 150 || bullets >= 55;
+      const heavyLoad = units >= 120 || squads >= 80 || bullets >= 20;
       return {
-        cityInterval: extremeLoad ? 3 : (heavyLoad ? 2 : 1),
-        plannerInterval: superExtremeLoad ? 4 : (extremeLoad ? 3 : (heavyLoad ? 2 : 1)),
+        cityInterval: superExtremeLoad ? 3 : (heavyLoad ? 2 : 1),
+        plannerInterval: superExtremeLoad ? 5 : (extremeLoad ? 4 : (heavyLoad ? 2 : 1)),
         engagementInterval: extremeLoad ? 3 : (heavyLoad ? 2 : 1),
         combatInterval: superExtremeLoad ? 2 : 1
       };
@@ -111,7 +112,7 @@
       squadLogic.syncSquadsFromState(state);
       perfEndStep("syncSquads");
       const postSyncThrottle = getThrottleProfile();
-      if (frontPlanner && typeof frontPlanner.step === "function" && shouldRunPhase("_frontPlannerCounter", postSyncThrottle.plannerInterval)) {
+      if (!state._menuBackdropActive && frontPlanner && typeof frontPlanner.step === "function" && shouldRunPhase("_frontPlannerCounter", postSyncThrottle.plannerInterval)) {
         perfStartStep("frontPlanner");
         frontPlanner.step(state, dt, {
           squadLogic,
@@ -198,6 +199,7 @@
       stepThermoNukes(dt);
       stepPirateRaids(dt);
       stepSurvivalWaves(dt);
+      if (typeof stepLaneFighterWaves === "function") stepLaneFighterWaves(dt);
     }
 
     return { step };

@@ -32,20 +32,13 @@
 
     function getSoloModeConfig(modeId) {
       return modeId === "quad"
-        ? { id: "quad", label: "1v1v1v1", playerCount: 4, botCount: 3 }
-        : { id: "duel", label: "1v1", playerCount: 2, botCount: 1 };
+        ? { id: "quad", label: "3 бота", formatLabel: "1v1v1v1", playerCount: 4, botCount: 3, spawnCount: 4 }
+        : { id: "duel", label: "1 бот", formatLabel: "1v1", playerCount: 2, botCount: 1, spawnCount: 4 };
     }
 
     function getPreviewSpawnPositions(count, worldW, worldH) {
       const cx = worldW * 0.5;
       const cy = worldH * 0.5;
-      if (count <= 2) {
-        const halfSpan = Math.min(worldW, worldH) * 0.34;
-        return [
-          { x: cx - halfSpan, y: cy },
-          { x: cx + halfSpan, y: cy }
-        ];
-      }
       const halfSide = Math.min(worldW, worldH) * 0.28;
       return [
         { x: cx - halfSide, y: cy - halfSide },
@@ -60,6 +53,10 @@
       const hostBadge = document.getElementById("lobbyHostBadge");
       const roomCodeEl = document.getElementById("lobbyRoomCode");
       const startBtn = document.getElementById("lobbyStart");
+      const formatTitleEl = document.getElementById("lobbyFormatTitle");
+      const formatHintEl = document.getElementById("lobbyFormatHint");
+      const spawnMapTitleEl = document.getElementById("lobbySpawnMapTitle");
+      const spawnMapHintEl = document.getElementById("lobbySpawnMapHint");
       if (!slotsEl) return;
       const slots = state._lobbySlots || [];
       roomCodeEl.textContent = "Код: " + (state._roomId || "").replace("r_", "");
@@ -74,8 +71,28 @@
       if (startBtn) {
         startBtn.disabled = !canStart;
         startBtn.style.opacity = canStart ? "1" : "0.5";
-        startBtn.textContent = occupiedCount === 4 ? "Начать 1v1v1v1" : "Начать 1v1";
+        startBtn.textContent = occupiedCount === 4 ? "Начать 1v1v1v1" : (occupiedCount === 2 ? "Начать 1v1" : "Нужен полный формат");
         startBtn.title = canStart ? "" : "Нужно ровно 2 или 4 занятых слота.";
+      }
+      if (formatTitleEl) {
+        formatTitleEl.textContent = occupiedCount === 4 ? "Квадратная схватка 1v1v1v1" : (occupiedCount === 2 ? "Дуэль 1v1" : "Ожидание состава");
+      }
+      if (formatHintEl) {
+        formatHintEl.textContent = occupiedCount === 4
+          ? "Четыре базы по углам. Центр и два фланга быстро становятся общей зоной конфликта."
+          : occupiedCount === 2
+            ? "Две базы занимают противоположные углы той же квадратной карты. Два пустых сектора остаются нейтральными и работают как фланговые линии."
+            : "Соберите либо 2, либо 4 занятых слота. Другие составы не запускаются.";
+      }
+      if (spawnMapTitleEl) {
+        spawnMapTitleEl.textContent = occupiedCount === 4 ? "Карта квадрата 1v1v1v1" : (occupiedCount === 2 ? "Карта дуэли 1v1" : "Карта спавнов");
+      }
+      if (spawnMapHintEl) {
+        spawnMapHintEl.textContent = occupiedCount === 4
+          ? "Фиксированный квадрат: северо-запад, северо-восток, юго-восток, юго-запад."
+          : occupiedCount === 2
+            ? "Фиксированная дуэль: тот же квадрат, но два противоположных угла остаются пустыми нейтральными секторами."
+            : "Расположение фиксировано: дуэль по углам, 4 игрока квадратом.";
       }
       const urlEl = document.getElementById("lobbyServerUrl");
       const urlHintEl = document.getElementById("lobbyUrlHint");
@@ -149,8 +166,8 @@
         const H = (typeof CFG !== "undefined" ? CFG.WORLD_H : 4320) || 4320;
         const wCx = W * 0.5;
         const wCy = H * 0.5;
-        const spawnCount = occupiedCount === 2 ? 2 : 4;
-        const spawns = getPreviewSpawnPositions(spawnCount, W, H);
+        const spawns = getPreviewSpawnPositions(4, W, H);
+        const occupiedSpawnIndices = occupiedCount === 2 ? [0, 2] : [0, 1, 2, 3];
         const cw = spawnMapEl.width;
         const ch = spawnMapEl.height;
         const ctx = spawnMapEl.getContext("2d");
@@ -174,7 +191,7 @@
         for (let i = 0; i < spawns.length; i++) {
           const px = offX + spawns[i].x * scale;
           const py = offY + spawns[i].y * scale;
-          const ownerEntry = occupiedSlots[i] || null;
+          const ownerEntry = occupiedSlots[occupiedSpawnIndices.indexOf(i)] || null;
           const ownerSlot = ownerEntry ? ownerEntry.index : null;
           const occupied = !!ownerEntry;
           const slotData = ownerEntry ? ownerEntry.slot : null;
@@ -343,7 +360,7 @@
         if (!soloSpawnPicker) return;
         soloSpawnPicker.innerHTML = "";
         const mode = getSoloModeConfig(state._soloGameMode);
-        const total = mode.playerCount;
+        const total = mode.spawnCount;
         const current = Math.max(0, Math.min(total - 1, state._soloSpawnIndex ?? 0));
         state._soloSpawnIndex = current;
         for (let i = 0; i < total; i++) {
@@ -365,31 +382,16 @@
         state._quickStartScenario = null;
         state._mapVariation = 1;
         state._soloBotCount = getSoloModeConfig(state._soloGameMode).botCount;
+        state._customMapSeed = null;
         startGameSingle(nick);
       });
       renderSoloSpawnPicker();
 
-      const seedInput = document.getElementById("soloMapSeedInput");
-      const rerollBtn = document.getElementById("soloMapReroll");
-      if (rerollBtn) {
-        rerollBtn.addEventListener("click", () => {
-          const newSeed = (Date.now() >>> 0) ^ (Math.random() * 0xffffffff >>> 0);
-          if (seedInput) seedInput.value = newSeed;
-          state._customMapSeed = newSeed;
-        });
-      }
-      if (seedInput) {
-        seedInput.addEventListener("input", () => {
-          const val = seedInput.value.trim();
-          state._customMapSeed = val ? (parseInt(val, 10) || 0) : null;
-        });
-      }
-
       const soloModePicker = document.getElementById("soloModePicker");
       if (soloModePicker) {
         const modes = [
-          { id: "duel", label: "1v1" },
-          { id: "quad", label: "1v1v1v1" }
+          { id: "duel", label: "1 бот", subtitle: "Формат 1v1" },
+          { id: "quad", label: "3 бота", subtitle: "Формат 1v1v1v1" }
         ];
         const current = state._soloGameMode || "duel";
         modes.forEach((m, j) => {
@@ -397,6 +399,7 @@
           btn.type = "button";
           btn.className = "menu-btn " + (m.id === current ? "primary" : "secondary");
           btn.textContent = m.label;
+          btn.title = m.subtitle;
           btn.addEventListener("click", () => {
             state._soloGameMode = m.id;
             state._soloBotCount = getSoloModeConfig(m.id).botCount;

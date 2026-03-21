@@ -1567,9 +1567,10 @@
       if (city && !city.eliminated) {
         const pR = helpers.getPlanetRadius ? helpers.getPlanetRadius(city) : 0;
         const shR = helpers.shieldRadius ? helpers.shieldRadius(city) : 0;
+        const coreR = helpers.getCoreCollisionRadius ? helpers.getCoreCollisionRadius(city) : (pR + 20);
         // Keep siege fire valid after shield collapse. Squads often hold near range,
         // which can be farther than the old fixed city-center threshold.
-        const cityAttackRadius = Math.max(pR * 2.5, shR + 8, range * 0.95);
+        const cityAttackRadius = Math.max(pR * 2.9, shR + 10, coreR + 14, range * 0.95);
         if (d(u.x, u.y, city.x, city.y) <= cityAttackRadius) {
           u._currentTargetId = undefined;
           return { type: "city", city };

@@ -335,6 +335,19 @@
         }
       }
 
+      if (state.sectorObjectives && state.sectorObjectives.length > 0) {
+        gs.sectorObjectives = state.sectorObjectives.map((objective) => ({
+          id: objective.id,
+          anchorId: objective.anchorId,
+          x: roundN(objective.x || 0, 10),
+          y: roundN(objective.y || 0, 10),
+          ownerId: objective.ownerId,
+          captureRadius: roundN(objective.captureRadius || 0, 10),
+          visualRadius: roundN(objective.visualRadius || 0, 10),
+          linkedMineIds: Array.isArray(objective.linkedMineIds) ? objective.linkedMineIds.slice() : []
+        }));
+      }
+
       if (state._shieldHitEffects && state._shieldHitEffects.length > 0) {
         gs.shieldHitEffects = state._shieldHitEffects.map(e => ({
           px: roundN(e.px, 10), py: roundN(e.py, 10),
@@ -380,7 +393,9 @@
           ownerId: bh.ownerId,
           spawnedAt: roundN(bh.spawnedAt, 100),
           duration: bh.duration,
-          radius: bh.radius
+          radius: bh.radius,
+          damageScale: bh.damageScale != null ? roundN(bh.damageScale, 1000) : 1,
+          finalBurstPct: bh.finalBurstPct != null ? roundN(bh.finalBurstPct, 1000) : 0.1
         }));
       }
       if (state.pirateBase && state.pirateBase.hp > 0) {
@@ -421,9 +436,12 @@
           x: roundN(strike.x, 10),
           y: roundN(strike.y, 10),
           radius: strike.radius,
+          abilityId: strike.abilityId,
           ownerId: strike.ownerId,
           spawnedAt: roundN(strike.spawnedAt, 100),
           duration: strike.duration,
+          damageBase: strike.damageBase,
+          damageMaxHpPct: strike.damageMaxHpPct,
           seed: strike.seed,
           coreX: roundN(strike.coreX, 10),
           coreY: roundN(strike.coreY, 10),
@@ -492,6 +510,47 @@
           portalDistance: roundN(raid.portalDistance, 10),
           sideAngle: roundN(raid.sideAngle, 1000),
           attackAngle: roundN(raid.attackAngle, 1000)
+        }));
+      }
+      if (state._economyAbilityFx && state._economyAbilityFx.length > 0) {
+        gs.economyAbilityFx = state._economyAbilityFx.map(effect => ({
+          id: effect.id,
+          type: effect.type,
+          ownerId: effect.ownerId,
+          targetId: effect.targetId,
+          ownerColor: effect.ownerColor,
+          targetColor: effect.targetColor,
+          spawnedAt: roundN(effect.spawnedAt, 100),
+          duration: roundN(effect.duration, 1000),
+          signalDuration: effect.signalDuration != null ? roundN(effect.signalDuration, 1000) : undefined,
+          drainDuration: effect.drainDuration != null ? roundN(effect.drainDuration, 1000) : undefined,
+          burstDuration: effect.burstDuration != null ? roundN(effect.burstDuration, 1000) : undefined,
+          finishDuration: effect.finishDuration != null ? roundN(effect.finishDuration, 1000) : undefined,
+          startX: effect.startX != null ? roundN(effect.startX, 10) : undefined,
+          startY: effect.startY != null ? roundN(effect.startY, 10) : undefined,
+          targetX: effect.targetX != null ? roundN(effect.targetX, 10) : undefined,
+          targetY: effect.targetY != null ? roundN(effect.targetY, 10) : undefined,
+          amount: effect.amount,
+          variantKey: effect.variantKey
+        }));
+      }
+      if (state._abilityZoneEffects && state._abilityZoneEffects.length > 0) {
+        gs.abilityZoneEffects = state._abilityZoneEffects.map(effect => ({
+          id: effect.id,
+          type: effect.type,
+          x: effect.x != null ? roundN(effect.x, 10) : undefined,
+          y: effect.y != null ? roundN(effect.y, 10) : undefined,
+          radius: effect.radius,
+          ownerId: effect.ownerId,
+          spawnedAt: roundN(effect.spawnedAt || 0, 100),
+          duration: effect.duration != null ? roundN(effect.duration, 1000) : undefined,
+          armedAt: effect.armedAt != null ? roundN(effect.armedAt, 1000) : undefined,
+          triggerRadius: effect.triggerRadius,
+          blastRadius: effect.blastRadius,
+          damageBase: effect.damageBase,
+          damageMaxHpPct: effect.damageMaxHpPct,
+          blinkSpeed: effect.blinkSpeed,
+          sourceAbilityId: effect.sourceAbilityId
         }));
       }
       if (state._abilityStorms && state._abilityStorms.length > 0) {

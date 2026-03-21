@@ -13,8 +13,8 @@
   const CORE_DEFENSE_THREAT_RADIUS = 235;
   const CORE_DEFENSE_RESPONSE_RADIUS = 300;
   const SIDE_MINE_EDGE_T = 0.24;
-  const SIDE_LANE_HALF_WIDTH = 108;
-  const CENTER_LANE_HALF_WIDTH = 135;
+  const SIDE_LANE_HALF_WIDTH = 130;
+  const CENTER_LANE_HALF_WIDTH = 162;
   const SIDE_MINE_OUTER_OFFSET = SIDE_LANE_HALF_WIDTH + 34;
   const LANE_BATTLE_THREAT_RADIUS = 240;
 
@@ -218,19 +218,30 @@
     return { targetCoreId, waypoints: out };
   }
 
-  function buildDuelLaneWaypoint(a, b, side, center) {
-    const pivot = center || { x: 0, y: 0 };
-    const dx = (b.x || 0) - (a.x || 0);
-    const dy = (b.y || 0) - (a.y || 0);
-    const len = Math.hypot(dx, dy) || 1;
-    const nx = -dy / len;
-    const ny = dx / len;
-    const sign = side === "left" ? -1 : 1;
-    const laneOffset = Math.min(260, len * 0.32);
-    return {
-      x: pivot.x + nx * laneOffset * sign,
-      y: pivot.y + ny * laneOffset * sign
-    };
+  function buildDuelGhostRingEntries(entries, center) {
+    const ordered = sortCoreEntriesByAngle(entries, center);
+    if (ordered.length !== 2) return ordered;
+    const a = ordered[0];
+    const b = ordered[1];
+    const pivot = center || { x: (a.x + b.x) * 0.5, y: (a.y + b.y) * 0.5 };
+    const inset = 0.18;
+    const ghosts = [
+      {
+        id: "ghost:" + a.id + ":" + b.id + ":a",
+        x: lerp(a.x, pivot.x, inset),
+        y: lerp(b.y, pivot.y, inset),
+        eliminated: true,
+        isGhost: true
+      },
+      {
+        id: "ghost:" + a.id + ":" + b.id + ":b",
+        x: lerp(b.x, pivot.x, inset),
+        y: lerp(a.y, pivot.y, inset),
+        eliminated: true,
+        isGhost: true
+      }
+    ];
+    return sortCoreEntriesByAngle([a, b, ...ghosts], center);
   }
 
   function closestPointOnSegment(point, a, b) {
@@ -325,6 +336,30 @@
     };
   }
 
+  function buildLaneAdvanceWaypoints(segments, startProgress) {
+    const out = [];
+    const laneLength = getLaneLength(segments);
+    const start = clamp(startProgress || 0, 0, laneLength);
+    if (start > 8) {
+      const leadPoint = getPointOnLaneAtProgress(segments, Math.min(laneLength, start + 42));
+      if (leadPoint && leadPoint.progress > start + 6) pushUniqueWaypoint(out, leadPoint, 8);
+    }
+    let traveled = 0;
+    for (const segment of segments || []) {
+      if (!segment || !segment.from || !segment.to) continue;
+      const len = Math.hypot((segment.to.x || 0) - (segment.from.x || 0), (segment.to.y || 0) - (segment.from.y || 0));
+      if (len <= 1e-6) continue;
+      const segEnd = traveled + len;
+      if (segEnd <= start + 6) {
+        traveled = segEnd;
+        continue;
+      }
+      pushUniqueWaypoint(out, segment.to, 8);
+      traveled = segEnd;
+    }
+    return out;
+  }
+
   function pushUniqueWaypoint(waypoints, point, minDist) {
     if (!Array.isArray(waypoints) || !point) return;
     const last = waypoints.length ? waypoints[waypoints.length - 1] : null;
@@ -334,48 +369,10 @@
   }
 
   function buildSideLaneMinePlacements(entries, center) {
-    const ordered = sortCoreEntriesByAngle(entries, center);
-    if (ordered.length === 2) {
-      const a = ordered[0];
-      const b = ordered[1];
-      const leftLane = buildDuelLaneWaypoint(a, b, "left", center);
-      const rightLane = buildDuelLaneWaypoint(a, b, "right", center);
-      return [
-        {
-          x: leftLane.x,
-          y: leftLane.y,
-          resourceType: "money",
-          laneRole: "mid",
-          pairKey: a.id + ":" + b.id + ":left",
-          triggerTo: { x: leftLane.x, y: leftLane.y }
-        },
-        {
-          x: leftLane.x + 36,
-          y: leftLane.y,
-          resourceType: "xp",
-          laneRole: "mid",
-          pairKey: a.id + ":" + b.id + ":left",
-          triggerTo: { x: leftLane.x, y: leftLane.y }
-        },
-        {
-          x: rightLane.x,
-          y: rightLane.y,
-          resourceType: "money",
-          laneRole: "mid",
-          pairKey: a.id + ":" + b.id + ":right",
-          triggerTo: { x: rightLane.x, y: rightLane.y }
-        },
-        {
-          x: rightLane.x - 36,
-          y: rightLane.y,
-          resourceType: "xp",
-          laneRole: "mid",
-          pairKey: a.id + ":" + b.id + ":right",
-          triggerTo: { x: rightLane.x, y: rightLane.y }
-        }
-      ];
-    }
-    const pairs = buildAdjacentCorePairs(entries, center);
+    const laneEntries = Array.isArray(entries) && entries.length === 2
+      ? buildDuelGhostRingEntries(entries, center)
+      : entries;
+    const pairs = buildAdjacentCorePairs(laneEntries, center);
     const out = [];
     for (const pair of pairs) {
       const dx = pair.b.x - pair.a.x;
@@ -436,7 +433,7 @@
 
     const pirateBases = getPirateBases(state);
     const livePirateBaseIds = pirateBases.filter((pb) => pb && (pb.hp == null || pb.hp > 0)).map((pb) => pb.id);
-    const requiredMineCount = Math.max(2, Math.ceil(centerMineIds.length * 0.5));
+    const requiredMineCount = centerMineIds.length > 0 ? Math.max(1, Math.ceil(centerMineIds.length * 0.5)) : 0;
     let securedByPlayerId = null;
     if (livePirateBaseIds.length === 0) {
       let bestOwner = null;
@@ -471,27 +468,21 @@
     const liveCores = allCores.filter((core) => !core.eliminated);
 
     if (allCores.length === 2) {
+      const ringEntries = buildDuelGhostRingEntries(allCores, center);
       const nextGraph = {};
-      for (let i = 0; i < allCores.length; i++) {
-        const core = allCores[i];
+      for (let i = 0; i < ringEntries.length; i++) {
+        const core = ringEntries[i];
         if (!core || core.eliminated) continue;
-        const enemy = allCores[(i + 1) % allCores.length];
-        if (!enemy) continue;
-        const leftLane = buildDuelLaneWaypoint(core, enemy, "left", center);
-        const rightLane = buildDuelLaneWaypoint(core, enemy, "right", center);
+        const leftRoute = buildDirectionalRoute(ringEntries, i, -1);
+        const rightRoute = buildDirectionalRoute(ringEntries, i, 1);
+        const enemyCoreIds = liveCores.filter((entry) => entry.id !== core.id).map((entry) => entry.id);
         nextGraph[core.id] = {
           coreId: core.id,
-          leftTargetCoreId: enemy.id,
-          rightTargetCoreId: enemy.id,
-          leftPath: [
-            { x: leftLane.x, y: leftLane.y },
-            { x: enemy.x || 0, y: enemy.y || 0, coreId: enemy.id, eliminated: !!enemy.eliminated }
-          ],
-          rightPath: [
-            { x: rightLane.x, y: rightLane.y },
-            { x: enemy.x || 0, y: enemy.y || 0, coreId: enemy.id, eliminated: !!enemy.eliminated }
-          ],
-          enemyCoreIds: enemy && !enemy.eliminated ? [enemy.id] : [],
+          leftTargetCoreId: leftRoute.targetCoreId,
+          rightTargetCoreId: rightRoute.targetCoreId,
+          leftPath: leftRoute.waypoints,
+          rightPath: rightRoute.waypoints,
+          enemyCoreIds,
           centerMode: state.centerObjectives && state.centerObjectives.securedByPlayerId === core.id ? "fanout" : "secure"
         };
       }
@@ -520,16 +511,41 @@
     return nextGraph;
   }
 
-  function listOwnerSquads(state, squadLogic, ownerId) {
+  function buildOwnerSquadLists(state, squadLogic) {
+    const byOwner = new Map();
+    if (!state.squads) return byOwner;
+    for (const sq of state.squads.values()) {
+      if (!sq) continue;
+      const unitCount = squadLogic.getSquadUnits(state, sq).length;
+      if (unitCount <= 0) continue;
+      let list = byOwner.get(sq.ownerId);
+      if (!list) {
+        list = [];
+        byOwner.set(sq.ownerId, list);
+      }
+      list.push({ squad: sq, unitCount });
+    }
+    for (const list of byOwner.values()) {
+      list.sort((a, b) => b.unitCount - a.unitCount || a.squad.id - b.squad.id);
+    }
+    return byOwner;
+  }
+
+  function listOwnerSquads(state, squadLogic, ownerId, ownerSquadLists) {
+    const out = ownerSquadLists instanceof Map
+      ? (ownerSquadLists.get(ownerId) || [])
+      : [];
+    if (out.length > 0) return out.map((entry) => entry.squad);
     if (!state.squads) return [];
-    const out = [];
+    const fallback = [];
     for (const sq of state.squads.values()) {
       if (!sq || sq.ownerId !== ownerId) continue;
       const unitCount = squadLogic.getSquadUnits(state, sq).length;
-      if (unitCount > 0) out.push({ squad: sq, unitCount });
+      if (unitCount > 0) fallback.push({ squad: sq, unitCount });
     }
-    out.sort((a, b) => b.unitCount - a.unitCount || a.squad.id - b.squad.id);
-    return out.map((entry) => entry.squad);
+    const source = fallback.length > 0 ? fallback : out;
+    source.sort((a, b) => b.unitCount - a.unitCount || a.squad.id - b.squad.id);
+    return source.map((entry) => entry.squad);
   }
 
   function makeFrontTargets(policy, graph, centerObjectives) {
@@ -649,10 +665,10 @@
     return centerSquads;
   }
 
-  function rebuildAssignmentsForOwner(state, squadLogic, ownerId, graph, helpers) {
+  function rebuildAssignmentsForOwner(state, squadLogic, ownerId, graph, helpers, ownerSquadLists) {
     const policy = getCoreFrontPolicy(state, ownerId);
     const fronts = makeFrontTargets(policy, graph, state.centerObjectives);
-    const squads = listOwnerSquads(state, squadLogic, ownerId);
+    const squads = listOwnerSquads(state, squadLogic, ownerId, ownerSquadLists);
 
     for (const squadId of Object.keys(state.squadFrontAssignments)) {
       const entry = state.squadFrontAssignments[squadId];
@@ -1053,7 +1069,6 @@
       if (entry.frontType === "left" || entry.frontType === "right") {
         const graph = state.frontGraph && state.frontGraph[entry.ownerId] ? state.frontGraph[entry.ownerId] : null;
         let target = state.players.get(entry.targetCoreId);
-        const routeWaypoints = getFrontWaypoint(state, entry.ownerId, entry.frontType);
         if ((!target || target.eliminated) && graph) {
           const routePath = entry.frontType === "left" ? graph.leftPath : graph.rightPath;
           for (const point of routePath || []) {
@@ -1065,6 +1080,19 @@
           }
         }
         if (!target || target.eliminated) continue;
+        const canTrimRoute = !!(
+          squad.order &&
+          squad.order.type === "siege" &&
+          squad.order.targetCityId === target.id
+        );
+        const routeProgress = canTrimRoute
+          ? Math.max(
+              entry._laneMaxProgress || 0,
+              laneReturnPoint && Number.isFinite(laneReturnPoint.progress) ? laneReturnPoint.progress : 0,
+              laneProjection && Number.isFinite(laneProjection.progress) ? laneProjection.progress : 0
+            )
+          : 0;
+        const routeWaypoints = buildLaneAdvanceWaypoints(laneSegments, routeProgress);
         const desiredWaypoints = [];
         if (laneReturnPoint) desiredWaypoints.push({ x: laneReturnPoint.x, y: laneReturnPoint.y });
         desiredWaypoints.push(...routeWaypoints.map((point) => ({ x: point.x, y: point.y })));
@@ -1198,10 +1226,11 @@
 
     buildCenterObjectives(state);
     const frontGraph = buildFrontGraph(state);
+    const ownerSquadLists = buildOwnerSquadLists(state, squadLogic);
     const helpers = { getFormationOffsets: context && context.getFormationOffsets };
 
     for (const ownerId of Object.keys(frontGraph).map(Number)) {
-      rebuildAssignmentsForOwner(state, squadLogic, ownerId, frontGraph[ownerId], helpers);
+      rebuildAssignmentsForOwner(state, squadLogic, ownerId, frontGraph[ownerId], helpers, ownerSquadLists);
     }
 
     applyAssignments(state, squadLogic);

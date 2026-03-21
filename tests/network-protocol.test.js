@@ -90,7 +90,19 @@ function makeState(unitCount) {
       livePirateBaseIds: ["pb1"],
       securedByPlayerId: null,
       requiredMineCount: 3
-    }
+    },
+    sectorObjectives: [
+      {
+        id: "sector:1",
+        anchorId: -2,
+        x: 720,
+        y: 180,
+        ownerId: 1,
+        captureRadius: 132,
+        visualRadius: 54,
+        linkedMineIds: [21, 22]
+      }
+    ]
   };
 }
 
@@ -112,6 +124,7 @@ function testLightSnapshot() {
   assert(snap.players[0].buffHand === undefined, "light: card hand omitted");
   assert(snap.resources === undefined, "light: resources omitted (delta)");
   assert(snap.turrets === undefined, "light: turrets omitted (delta)");
+  assert(Array.isArray(snap.sectorObjectives), "light: sector objectives present");
   // Bullets are in EVERY packet now for smooth visuals
   assert(Array.isArray(snap.bullets), "light: bullets always present");
 
@@ -164,6 +177,7 @@ function testFullSnapshot() {
   assert(snap.frontGraph[0].centerMode === "fanout", "full: front graph present");
   assert(snap.squadFrontAssignments[7].targetCoreId === 2, "full: squad front assignments present");
   assert(snap.centerObjectives.richMineId === 10, "full: center objectives present");
+  assert(snap.sectorObjectives[0].anchorId === -2, "full: sector objectives present");
 
   const u = snap.units[0];
   assert(!Array.isArray(u), "full: unit is object (not compact)");
@@ -270,6 +284,7 @@ function testJsonRoundtrip() {
   }
   assert(rt.coreFrontPolicies["0"].center.mode === "hold", "roundtrip: front policy preserved");
   assert(rt.centerObjectives.centerMineIds.length === 3, "roundtrip: center objectives preserved");
+  assert(rt.sectorObjectives[0].linkedMineIds.length === 2, "roundtrip: sector objectives preserved");
 
   console.log("  [OK] testJsonRoundtrip");
 }
