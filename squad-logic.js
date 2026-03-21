@@ -26,6 +26,9 @@
     steeringRadius: 40
   };
 
+  const SIDE_LANE_HALF_WIDTH = 130;
+  const CENTER_LANE_HALF_WIDTH = 162;
+
   let config = { ...DEFAULT_CFG };
 
   function loadConfig(balanceObj) {
@@ -47,6 +50,14 @@
 
   function clonePoint(p) { return p ? { x: p.x, y: p.y } : null; }
 
+  function getOrderWaypointReachRadius(order) {
+    const base = config.waypointReachRadius || 28;
+    if (order && order.strictLaneApproach) {
+      return Math.max(base, Math.min(84, SIDE_LANE_HALF_WIDTH * 0.55));
+    }
+    return base;
+  }
+
   function cloneWaypoints(wp) {
     return Array.isArray(wp) ? wp.map(clonePoint).filter(Boolean) : [];
   }
@@ -66,6 +77,7 @@
       type: order.type || "idle",
       waypoints: cloneWaypoints(order.waypoints),
       holdPoint: clonePoint(order.holdPoint),
+      laneHoldPoint: clonePoint(order.laneHoldPoint),
       targetUnitId: order.targetUnitId,
       targetCityId: order.targetCityId,
       targetPirateBase: !!order.targetPirateBase,
@@ -73,7 +85,8 @@
       captureQueue: cloneCaptureQueue(order.captureQueue),
       commandQueue: [],
       angle: order.angle,
-      suppressPathPreview: !!order.suppressPathPreview
+      suppressPathPreview: !!order.suppressPathPreview,
+      strictLaneApproach: !!order.strictLaneApproach
     };
   }
 
@@ -86,6 +99,10 @@
     if (!out) return null;
     out.commandQueue = cloneCommandQueue(order.commandQueue);
     return out;
+  }
+
+  function clamp(value, min, max) {
+    return Math.max(min, Math.min(max, value));
   }
 
   function isFrontLaneTag(tag) {
@@ -516,13 +533,15 @@
     return setSquadOrder(state, squadId, order);
   }
 
-  function issueSiegeOrder(state, squadId, targetCityId, waypoints, commandQueue) {
+  function issueSiegeOrder(state, squadId, targetCityId, waypoints, commandQueue, opts) {
     const order = {
       type: "siege",
       targetCityId,
       waypoints: cloneWaypoints(waypoints),
       commandQueue: cloneCommandQueue(commandQueue),
-      suppressPathPreview: true
+      suppressPathPreview: true,
+      strictLaneApproach: !!opts?.strictLaneApproach,
+      laneHoldPoint: clonePoint(opts?.laneHoldPoint)
     };
     const queued = queueIfLocked(state, squadId, order);
     if (queued) return queued;
@@ -1260,9 +1279,10 @@
       }
       if (order.waypoints && order.waypoints.length > 0) {
         const wp = order.waypoints[0];
+        const waypointReachRadius = getOrderWaypointReachRadius(order);
         desX = wp.x; desY = wp.y;
         desFacing = order.angle ?? Math.atan2(wp.y - center.y, wp.x - center.x);
-        if (d(center.x, center.y, wp.x, wp.y) <= config.waypointReachRadius) {
+        if (d(center.x, center.y, wp.x, wp.y) <= waypointReachRadius) {
           order.holdPoint = clonePoint(wp);
           order.waypoints.shift();
           if (order.waypoints.length > 0) {
@@ -1297,9 +1317,10 @@
         return;
       } else if (order.waypoints && order.waypoints.length > 0) {
         const wp = order.waypoints[0];
+        const waypointReachRadius = getOrderWaypointReachRadius(order);
         desX = wp.x; desY = wp.y;
         desFacing = Math.atan2(wp.y - center.y, wp.x - center.x);
-        if (d(center.x, center.y, wp.x, wp.y) <= config.waypointReachRadius) order.waypoints.shift();
+        if (d(center.x, center.y, wp.x, wp.y) <= waypointReachRadius) order.waypoints.shift();
       } else {
         desX = target.x; desY = target.y;
         desFacing = Math.atan2(target.y - center.y, target.x - center.x);
@@ -1309,9 +1330,10 @@
       if (!city || city.eliminated) {
         if (order.waypoints && order.waypoints.length > 0) {
           const wp = order.waypoints[0];
+          const waypointReachRadius = getOrderWaypointReachRadius(order);
           desX = wp.x; desY = wp.y;
           desFacing = Math.atan2(wp.y - center.y, wp.x - center.x);
-          if (d(center.x, center.y, wp.x, wp.y) <= config.waypointReachRadius) {
+          if (d(center.x, center.y, wp.x, wp.y) <= waypointReachRadius) {
             order.waypoints.shift();
             if (order.waypoints.length > 0) {
               desX = order.waypoints[0].x;
@@ -1332,9 +1354,14 @@
         }
       } else if (order.waypoints && order.waypoints.length > 0) {
         const wp = order.waypoints[0];
+        const waypointReachRadius = getOrderWaypointReachRadius(order);
         desX = wp.x; desY = wp.y;
         desFacing = Math.atan2(wp.y - center.y, wp.x - center.x);
-        if (d(center.x, center.y, wp.x, wp.y) <= config.waypointReachRadius) order.waypoints.shift();
+        if (d(center.x, center.y, wp.x, wp.y) <= waypointReachRadius) order.waypoints.shift();
+      } else if (order.strictLaneApproach && order.laneHoldPoint) {
+        desX = order.laneHoldPoint.x;
+        desY = order.laneHoldPoint.y;
+        desFacing = Math.atan2(city.y - center.y, city.x - center.x);
       } else {
         const avgR = getAvgAttackRange(units, helpers);
         const shR = helpers.shieldRadius ? helpers.shieldRadius(city) : 0;
@@ -1354,9 +1381,10 @@
         return;
       } else if (order.waypoints && order.waypoints.length > 0) {
         const wp = order.waypoints[0];
+        const waypointReachRadius = getOrderWaypointReachRadius(order);
         desX = wp.x; desY = wp.y;
         desFacing = Math.atan2(wp.y - center.y, wp.x - center.x);
-        if (d(center.x, center.y, wp.x, wp.y) <= config.waypointReachRadius) order.waypoints.shift();
+        if (d(center.x, center.y, wp.x, wp.y) <= waypointReachRadius) order.waypoints.shift();
       } else {
         const avgR = getAvgAttackRange(units, helpers);
         const stopR = Math.max(52, avgR * 0.85);
@@ -1399,6 +1427,192 @@
     return { sx: -nx * strength, sy: -ny * strength, strength };
   }
 
+  function buildLaneSegmentsForFrontType(state, ownerId, frontType, targetCityId) {
+    if (!frontType) return [];
+    const owner = state.players.get(ownerId);
+    if (!owner || owner.eliminated) return [];
+    const centerPoint = {
+      x: Number.isFinite(state.centerObjectives?.centerX) ? state.centerObjectives.centerX : (owner.x || 0),
+      y: Number.isFinite(state.centerObjectives?.centerY) ? state.centerObjectives.centerY : (owner.y || 0)
+    };
+    const halfWidth = frontType === "center" ? CENTER_LANE_HALF_WIDTH : SIDE_LANE_HALF_WIDTH;
+    if (frontType === "center") {
+      const segments = [{
+        from: { x: owner.x || 0, y: owner.y || 0 },
+        to: centerPoint,
+        halfWidth
+      }];
+      if (targetCityId != null) {
+        const city = state.players.get(targetCityId);
+        if (city && !city.eliminated) {
+          segments.push({
+            from: centerPoint,
+            to: { x: city.x || 0, y: city.y || 0 },
+            halfWidth
+          });
+        }
+      }
+      return segments;
+    }
+    const graph = state.frontGraph && state.frontGraph[ownerId] ? state.frontGraph[ownerId] : null;
+    const path = frontType === "left" ? graph?.leftPath : graph?.rightPath;
+    if (!Array.isArray(path) || path.length === 0) return [];
+    const points = [{ x: owner.x || 0, y: owner.y || 0 }].concat(path.map((point) => ({ x: point.x || 0, y: point.y || 0 })));
+    const out = [];
+    for (let i = 1; i < points.length; i++) {
+      out.push({
+        from: points[i - 1],
+        to: points[i],
+        halfWidth
+      });
+    }
+    return out;
+  }
+
+  function getFrontTypeForSquad(state, sq) {
+    if (!sq) return null;
+    const assignment = state.squadFrontAssignments && state.squadFrontAssignments[sq.id];
+    if (assignment && assignment.frontType) return assignment.frontType;
+    if (isFrontLaneTag(sq.sourceTag)) return String(sq.sourceTag).slice(6);
+    const targetCityId = sq.order?.targetCityId ?? null;
+    const ownerGraph = state.frontGraph && state.frontGraph[sq.ownerId] ? state.frontGraph[sq.ownerId] : null;
+    if (!ownerGraph) return null;
+    const squadCenter = getSquadCenter(state, sq);
+    let best = null;
+    const candidates = ["left", "center", "right"];
+    for (const frontType of candidates) {
+      const segments = buildLaneSegmentsForFrontType(state, sq.ownerId, frontType, targetCityId);
+      if (!segments.length) continue;
+      const sample = projectPointOnLaneSegments(squadCenter.x || 0, squadCenter.y || 0, segments);
+      if (!sample) continue;
+      let score = sample.score;
+      if (frontType === "left" && ownerGraph.leftTargetCoreId === targetCityId) score -= 24;
+      if (frontType === "right" && ownerGraph.rightTargetCoreId === targetCityId) score -= 24;
+      if (frontType === "center" && targetCityId != null && ownerGraph.leftTargetCoreId !== targetCityId && ownerGraph.rightTargetCoreId !== targetCityId) score -= 12;
+      if (!best || score < best.score) best = { frontType, score };
+    }
+    return best ? best.frontType : null;
+  }
+
+  function getLaneSegmentsForSquad(state, sq) {
+    const frontType = getFrontTypeForSquad(state, sq);
+    if (!frontType) return [];
+    return buildLaneSegmentsForFrontType(state, sq.ownerId, frontType, sq.order?.targetCityId ?? null);
+  }
+
+  function projectPointOnLaneSegments(x, y, segments) {
+    let best = null;
+    let traveled = 0;
+    for (const segment of segments || []) {
+      if (!segment || !segment.from || !segment.to) continue;
+      const dx = (segment.to.x || 0) - (segment.from.x || 0);
+      const dy = (segment.to.y || 0) - (segment.from.y || 0);
+      const len2 = dx * dx + dy * dy;
+      const len = Math.sqrt(len2);
+      if (len <= 1e-6) continue;
+      const t = clamp((((x || 0) - (segment.from.x || 0)) * dx + ((y || 0) - (segment.from.y || 0)) * dy) / len2, 0, 1);
+      const px = (segment.from.x || 0) + dx * t;
+      const py = (segment.from.y || 0) + dy * t;
+      const dist = Math.hypot((x || 0) - px, (y || 0) - py);
+      const score = dist - (segment.halfWidth || 0);
+      if (!best || score < best.score) {
+        best = {
+          x: px,
+          y: py,
+          dist,
+          halfWidth: segment.halfWidth || 0,
+          progress: traveled + len * t,
+          score
+        };
+      }
+      traveled += len;
+    }
+    return best;
+  }
+
+  function getPointOnLaneAtProgress(segments, progress) {
+    let remaining = Math.max(0, progress || 0);
+    for (const segment of segments || []) {
+      if (!segment || !segment.from || !segment.to) continue;
+      const len = Math.hypot((segment.to.x || 0) - (segment.from.x || 0), (segment.to.y || 0) - (segment.from.y || 0));
+      if (len <= 1e-6) continue;
+      if (remaining <= len) {
+        const t = clamp(remaining / len, 0, 1);
+        return {
+          x: (segment.from.x || 0) + ((segment.to.x || 0) - (segment.from.x || 0)) * t,
+          y: (segment.from.y || 0) + ((segment.to.y || 0) - (segment.from.y || 0)) * t,
+          progress
+        };
+      }
+      remaining -= len;
+    }
+    const last = segments && segments.length ? segments[segments.length - 1] : null;
+    return last && last.to ? { x: last.to.x || 0, y: last.to.y || 0, progress: progress || 0 } : null;
+  }
+
+  function keepTargetInsideLane(target, sample, margin) {
+    if (!target || !sample) return target;
+    const safeMargin = margin != null ? margin : 10;
+    const allowed = Math.max(0, (sample.halfWidth || 0) - safeMargin);
+    if (sample.dist <= allowed + 1e-3) return target;
+    const dx = (target.x || 0) - sample.x;
+    const dy = (target.y || 0) - sample.y;
+    const len = Math.hypot(dx, dy);
+    if (len <= 1e-6) return { x: sample.x, y: sample.y };
+    const scale = allowed / len;
+    return { x: sample.x + dx * scale, y: sample.y + dy * scale };
+  }
+
+  function constrainTargetToSquadLane(u, sq, target, moveMode, state) {
+    if (!target || !sq || moveMode === "stop") return target;
+    const frontType = getFrontTypeForSquad(state, sq);
+    const strict = !!(sq.order && sq.order.strictLaneApproach);
+    if (!strict && frontType !== "left" && frontType !== "right") return target;
+    const laneSegments = getLaneSegmentsForSquad(state, sq);
+    if (!laneSegments.length) return target;
+    const unitSample = projectPointOnLaneSegments(u.x || 0, u.y || 0, laneSegments);
+    const targetSample = projectPointOnLaneSegments(target.x || 0, target.y || 0, laneSegments);
+    if (!targetSample) return target;
+    if (unitSample && unitSample.dist > Math.max(18, unitSample.halfWidth * 0.78)) {
+      return { x: unitSample.x, y: unitSample.y };
+    }
+    const clampedTarget = keepTargetInsideLane(target, targetSample, 10);
+    if (!unitSample) return clampedTarget;
+    const desiredProgress = Math.max(unitSample.progress || 0, targetSample.progress || 0);
+    const lookAhead = strict ? 68 : 54;
+    const cappedProgress = Math.min(desiredProgress, (unitSample.progress || 0) + lookAhead);
+    if (cappedProgress + 4 < desiredProgress) {
+      const lanePoint = getPointOnLaneAtProgress(laneSegments, cappedProgress);
+      if (lanePoint) return { x: lanePoint.x, y: lanePoint.y };
+    }
+    return clampedTarget;
+  }
+
+  function getLaneClampForUnit(u, state, margin) {
+    if (!u || u.squadId == null) return null;
+    const sq = state.squads.get(u.squadId);
+    if (!sq) return null;
+    const frontType = getFrontTypeForSquad(state, sq);
+    const strict = !!(sq.order && sq.order.strictLaneApproach);
+    if (!strict && frontType !== "left" && frontType !== "right") return null;
+    const laneSegments = getLaneSegmentsForSquad(state, sq);
+    if (!laneSegments.length) return null;
+    const sample = projectPointOnLaneSegments(u.x || 0, u.y || 0, laneSegments);
+    if (!sample) return null;
+    const safeMargin = margin != null ? margin : 12;
+    const allowed = Math.max(8, (sample.halfWidth || 0) - safeMargin);
+    if (sample.dist <= allowed + 1e-3) return null;
+    const dx = (u.x || 0) - sample.x;
+    const dy = (u.y || 0) - sample.y;
+    const len = Math.hypot(dx, dy);
+    if (len <= 1e-6) return { x: sample.x, y: sample.y };
+    const scale = allowed / len;
+    return {
+      x: sample.x + dx * scale,
+      y: sample.y + dy * scale
+    };
+  }
+
   function getUnitMovementTarget(u, state, helpers) {
     ensureRuntime(state);
     const sq = u.squadId != null ? state.squads.get(u.squadId) : null;
@@ -1434,15 +1648,27 @@
 
       if (targetPos && zone) {
         const clamped = clampToZone(targetPos.x, targetPos.y, zone);
-        return { tx: clamped.x, ty: clamped.y, moveMode: "free_chase" };
+        const laneClamped = constrainTargetToSquadLane(u, sq, { x: clamped.x, y: clamped.y }, "free_chase", state);
+        return { tx: laneClamped.x, ty: laneClamped.y, moveMode: "free_chase" };
       }
-      if (targetPos) return { tx: targetPos.x, ty: targetPos.y, moveMode: "free_chase" };
+      if (targetPos) {
+        const laneClamped = constrainTargetToSquadLane(u, sq, { x: targetPos.x, y: targetPos.y }, "free_chase", state);
+        return { tx: laneClamped.x, ty: laneClamped.y, moveMode: "free_chase" };
+      }
 
       return { tx: u.x, ty: u.y, moveMode: "stop" };
     }
 
     // ── Siege circle formation around target ──
-    if ((sq.order.type === "siege" || sq.order.type === "attackPirateBase") && sq.order.waypoints && sq.order.waypoints.length === 0) {
+    const frontType = getFrontTypeForSquad(state, sq);
+    if (
+      (sq.order.type === "siege" || sq.order.type === "attackPirateBase") &&
+      sq.order.waypoints &&
+      sq.order.waypoints.length === 0 &&
+      !sq.order.strictLaneApproach &&
+      frontType !== "left" &&
+      frontType !== "right"
+    ) {
       const pirateBase = sq.order.type === "attackPirateBase" ? (state.pirateBase && state.pirateBase.hp > 0 ? state.pirateBase : null) : null;
       const city = sq.order.targetCityId != null ? state.players.get(sq.order.targetCityId) : null;
       const target = pirateBase || (city && !city.eliminated ? city : null);
@@ -1455,7 +1681,8 @@
         const angle = (idx / units.length) * Math.PI * 2;
         const tx = target.x + Math.cos(angle) * circleR;
         const ty = target.y + Math.sin(angle) * circleR;
-        return { tx, ty, moveMode: "squad_anchor" };
+        const laneClamped = constrainTargetToSquadLane(u, sq, { x: tx, y: ty }, "squad_anchor", state);
+        return { tx: laneClamped.x, ty: laneClamped.y, moveMode: "squad_anchor" };
       }
     }
 
@@ -1465,12 +1692,15 @@
     const anchorY = sq.anchor.y ?? leader.y;
 
     if (u.id === sq.leaderUnitId) {
-      return { tx: anchorX, ty: anchorY, moveMode: sq.combat.mode === "approach" ? "formation_approach" : (sq.order.type !== "idle" ? "squad_anchor" : "formation_hold") };
+      const moveMode = sq.combat.mode === "approach" ? "formation_approach" : (sq.order.type !== "idle" ? "squad_anchor" : "formation_hold");
+      const laneClamped = constrainTargetToSquadLane(u, sq, { x: anchorX, y: anchorY }, moveMode, state);
+      return { tx: laneClamped.x, ty: laneClamped.y, moveMode };
     }
 
     const target = getSlotPosition(state, sq, u, leader, anchorX, anchorY, facing);
     const mode = sq.combat.mode === "approach" ? "formation_approach" : (sq.order.type !== "idle" && sq.order.type != null ? "formation_move" : "formation_hold");
-    return { tx: target.x, ty: target.y, moveMode: mode };
+    const laneClamped = constrainTargetToSquadLane(u, sq, target, mode, state);
+    return { tx: laneClamped.x, ty: laneClamped.y, moveMode: mode };
   }
 
   function getSlotPosition(state, sq, u, leader, anchorX, anchorY, facing) {
@@ -1766,6 +1996,7 @@
     getUnitMovementTarget,
     getUnitFirePlan,
     getZoneBoundarySteer,
+    getLaneClampForUnit,
     recordDamageSource,
     cloneOrder,
     getSquadSpeed,

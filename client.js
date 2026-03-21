@@ -8213,14 +8213,14 @@
             pb._respawnTimer = 0;
             pb._initialSpawned = true;
             const oc = pb.orbitCenter || { x: pb.x, y: pb.y };
-            const oR = pb.orbitRadius || 240;
+            const oR = pb.orbitRadius || 280;
             const batchTag = `${pb.id}-${Math.floor(state.t)}`;
             for (let i = 0; i < PIRATE_FULL_SQUAD.length; i++) {
               const t = PIRATE_FULL_SQUAD[i];
               const a = (Math.PI * 2 * i) / PIRATE_FULL_SQUAD.length + Math.random() * 0.2;
               const spawnU = spawnUnitAt(
-                oc.x + Math.cos(a) * oR * 0.42,
-                oc.y + Math.sin(a) * oR * 0.42,
+                oc.x + Math.cos(a) * oR * 0.52,
+                oc.y + Math.sin(a) * oR * 0.52,
                 PIRATE_OWNER_ID,
                 t,
                 [],
@@ -8238,7 +8238,7 @@
         }
 
         const oc = pb.orbitCenter || { x: pb.x, y: pb.y };
-        const patrolRadius = Math.max(84, (pb.orbitRadius || 220) * 0.96);
+        const patrolRadius = Math.max(108, (pb.orbitRadius || 260) * 1.15);
         const baseUnderAttack = pb._lastAttackedAt && (state.t - pb._lastAttackedAt) < 5;
 
         if (typeof SQUADLOGIC !== "undefined") {
@@ -8472,16 +8472,16 @@
         routeSamples: severeLoad ? 3 : (heavyLoad ? 4 : 6),
         maxPacketsPerMine: 0,
         maxTotalPackets: severeLoad ? 10 : (heavyLoad ? 16 : 24),
-        beamAlpha: severeLoad ? 0.10 : (heavyLoad ? 0.16 : 0.26),
+        beamAlpha: severeLoad ? 0.10 : (heavyLoad ? 0.18 : 0.30),
         shimmer: false,
         bridges: false,
-        packetScale: severeLoad ? 0.42 : (heavyLoad ? 0.48 : 0.56),
+        packetScale: severeLoad ? 0.42 : (heavyLoad ? 0.50 : 0.60),
         updateEveryFrames: severeLoad ? 6 : (heavyLoad ? 5 : 4),
         roughCullPad: heavyLoad ? 120 : 150,
         allowDashes: false,
         simplePackets: true,
         singleLane: true,
-        maxRoutes: severeLoad ? 10 : (heavyLoad ? 14 : 18)
+        maxRoutes: severeLoad ? 10 : (heavyLoad ? 15 : 20)
       };
     }
     if (level === LOD.LEVELS.MID) {
@@ -8489,32 +8489,32 @@
         routeSamples: severeLoad ? 4 : (heavyLoad ? 6 : 8),
         maxPacketsPerMine: severeLoad ? 0 : 1,
         maxTotalPackets: severeLoad ? 14 : (heavyLoad ? 22 : 32),
-        beamAlpha: severeLoad ? 0.14 : (heavyLoad ? 0.22 : 0.34),
+        beamAlpha: severeLoad ? 0.14 : (heavyLoad ? 0.24 : 0.40),
         shimmer: false,
         bridges: false,
-        packetScale: severeLoad ? 0.46 : (heavyLoad ? 0.56 : 0.66),
+        packetScale: severeLoad ? 0.46 : (heavyLoad ? 0.58 : 0.72),
         updateEveryFrames: severeLoad ? 5 : (heavyLoad ? 4 : 3),
         roughCullPad: heavyLoad ? 150 : 190,
         allowDashes: false,
         simplePackets: true,
         singleLane: true,
-        maxRoutes: severeLoad ? 12 : (heavyLoad ? 16 : 22)
+        maxRoutes: severeLoad ? 12 : (heavyLoad ? 18 : 24)
       };
     }
     return {
       routeSamples: severeLoad ? 5 : (heavyLoad ? 7 : 10),
       maxPacketsPerMine: severeLoad ? 0 : (heavyLoad ? 1 : 2),
       maxTotalPackets: severeLoad ? 18 : (heavyLoad ? 28 : 42),
-      beamAlpha: severeLoad ? 0.18 : (heavyLoad ? 0.28 : 0.46),
+      beamAlpha: severeLoad ? 0.18 : (heavyLoad ? 0.30 : 0.54),
       shimmer: false,
       bridges: false,
-      packetScale: severeLoad ? 0.52 : (heavyLoad ? 0.62 : 0.74),
+      packetScale: severeLoad ? 0.52 : (heavyLoad ? 0.64 : 0.82),
       updateEveryFrames: severeLoad ? 4 : (heavyLoad ? 3 : 2),
       roughCullPad: heavyLoad ? 180 : 220,
-      allowDashes: false,
-      simplePackets: true,
-      singleLane: heavyLoad || packetCount >= 16,
-      maxRoutes: severeLoad ? 14 : (heavyLoad ? 18 : 26)
+      allowDashes: !heavyLoad,
+      simplePackets: severeLoad || heavyLoad || packetCount >= 24,
+      singleLane: severeLoad || heavyLoad || packetCount >= 28,
+      maxRoutes: severeLoad ? 14 : (heavyLoad ? 20 : 30)
     };
   }
 
@@ -10137,7 +10137,9 @@
       ? graph && graph.leftTargetCoreId
       : frontType === "right"
         ? graph && graph.rightTargetCoreId
-        : null;
+        : (state.centerObjectives && state.centerObjectives.securedByPlayerId === ownerId
+            ? (graph && Array.isArray(graph.enemyCoreIds) ? (graph.enemyCoreIds[0] || null) : null)
+            : null);
     state.squadFrontAssignments = state.squadFrontAssignments || {};
     const existing = state.squadFrontAssignments[squadId] || {};
     state.squadFrontAssignments[squadId] = {
@@ -11603,6 +11605,14 @@
     }
   }
 
+  function applyFrontLaneClamp(u) {
+    if (typeof SQUADLOGIC === "undefined" || !SQUADLOGIC.getLaneClampForUnit) return;
+    const clampPoint = SQUADLOGIC.getLaneClampForUnit(u, state, 12);
+    if (!clampPoint) return;
+    u.x = clampPoint.x;
+    u.y = clampPoint.y;
+  }
+
   function isUnitCombatHot(u) {
     const cs = u && u._combatState;
     return !!(u && (u._engagementZoneId != null || cs === "acquire" || cs === "chase" || cs === "attack" || cs === "siege"));
@@ -11671,7 +11681,10 @@
       // 7. enemy collision
       if (runNeighborOps) applyEnemyCollision(u, dt);
 
-      // 8. final clamp
+      // 8. hard lane clamp for flank fronts after all pushes
+      applyFrontLaneClamp(u);
+
+      // 9. final clamp
       applyFinalWorldClamp(u);
 
       if (u.gfx) {
@@ -14858,7 +14871,7 @@
       }
       if (!bestMine) continue;
       pb.orbitCenter = { x: bestMine.x || 0, y: bestMine.y || 0 };
-      pb.orbitRadius = Math.max(120, Math.min(260, bestDist * 1.18));
+      pb.orbitRadius = Math.max(160, Math.min(330, bestDist * 1.34));
     }
   }
 
@@ -16132,6 +16145,7 @@
     };
     for (const u of state.units.values()) {
       if (!u || u.hp <= 0) continue;
+      if (u.owner === mine.ownerId) continue;
       const hitR = (mine.blastRadius || 0) + Math.max(6, getUnitHitRadius(u) * 0.35);
       const dx = u.x - mine.x;
       const dy = u.y - mine.y;
@@ -17763,6 +17777,7 @@
         let triggered = false;
         for (const u of state.units.values()) {
           if (!u || u.hp <= 0) continue;
+          if (u.owner === z.ownerId) continue;
           const triggerR = (z.triggerRadius || 0) + Math.max(6, getUnitHitRadius(u) * 0.38);
           const dx = (u.x || 0) - (z.x || 0);
           const dy = (u.y || 0) - (z.y || 0);
@@ -19615,8 +19630,13 @@
     const realDt = state.t - (state._lastVictoryCheckT || 0);
     state._lastVictoryCheckT = state.t;
 
-    const aliveCount = state.players.size;
-    if (aliveCount === 1) {
+    const aliveCorePlayers = [...state.players.values()].filter((p) => p && p.id > 0 && !p.eliminated);
+    const enemyCorePlayers = aliveCorePlayers.filter((p) => p.id !== state.myPlayerId);
+    if (aliveCorePlayers.length === 1 && aliveCorePlayers[0].id === state.myPlayerId) {
+      triggerVictory("Все вражеские города уничтожены!");
+      return;
+    }
+    if (enemyCorePlayers.length === 0) {
       triggerVictory("Все вражеские города уничтожены!");
       return;
     }

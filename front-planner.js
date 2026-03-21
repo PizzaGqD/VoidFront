@@ -223,24 +223,34 @@
     if (ordered.length !== 2) return ordered;
     const a = ordered[0];
     const b = ordered[1];
-    const pivot = center || { x: (a.x + b.x) * 0.5, y: (a.y + b.y) * 0.5 };
-    const inset = 0.18;
-    const ghosts = [
+    if (Math.abs((a.x || 0) - (b.x || 0)) < 8 || Math.abs((a.y || 0) - (b.y || 0)) < 8) {
+      return ordered;
+    }
+    const candidates = [
       {
         id: "ghost:" + a.id + ":" + b.id + ":a",
-        x: lerp(a.x, pivot.x, inset),
-        y: lerp(b.y, pivot.y, inset),
+        x: a.x || 0,
+        y: b.y || 0,
         eliminated: true,
         isGhost: true
       },
       {
         id: "ghost:" + a.id + ":" + b.id + ":b",
-        x: lerp(b.x, pivot.x, inset),
-        y: lerp(a.y, pivot.y, inset),
+        x: b.x || 0,
+        y: a.y || 0,
         eliminated: true,
         isGhost: true
       }
     ];
+    const ghosts = candidates.filter((ghost, index) => {
+      if (Math.hypot((ghost.x || 0) - (a.x || 0), (ghost.y || 0) - (a.y || 0)) < 8) return false;
+      if (Math.hypot((ghost.x || 0) - (b.x || 0), (ghost.y || 0) - (b.y || 0)) < 8) return false;
+      for (let i = 0; i < index; i++) {
+        const other = candidates[i];
+        if (Math.hypot((ghost.x || 0) - (other.x || 0), (ghost.y || 0) - (other.y || 0)) < 8) return false;
+      }
+      return true;
+    });
     return sortCoreEntriesByAngle([a, b, ...ghosts], center);
   }
 
@@ -358,6 +368,14 @@
       traveled = segEnd;
     }
     return out;
+  }
+
+  function getLaneSiegeHoldPoint(segments, standOff) {
+    const laneLength = getLaneLength(segments);
+    if (!(laneLength > 1)) return null;
+    const desiredStandOff = Math.max(56, standOff || 96);
+    const progress = clamp(laneLength - desiredStandOff, 0, laneLength);
+    return getPointOnLaneAtProgress(segments, progress);
   }
 
   function pushUniqueWaypoint(waypoints, point, minDist) {
@@ -774,10 +792,13 @@
         centerEntries[i].frontId = ownerId + ":center:" + (centerEntries[i].targetCoreId ?? "secure");
       }
     } else {
+      const securedCenterTargetId = state.centerObjectives && state.centerObjectives.securedByPlayerId === ownerId
+        ? (graph.enemyCoreIds[0] || null)
+        : null;
       for (const entry of Object.values(state.squadFrontAssignments)) {
         if (!entry || entry.ownerId !== ownerId || entry.frontType !== "center") continue;
-        entry.targetCoreId = null;
-        entry.frontId = ownerId + ":center";
+        entry.targetCoreId = securedCenterTargetId;
+        entry.frontId = ownerId + ":center:" + (securedCenterTargetId ?? "secure");
       }
     }
   }
@@ -1093,9 +1114,16 @@
             )
           : 0;
         const routeWaypoints = buildLaneAdvanceWaypoints(laneSegments, routeProgress);
+        const laneHoldPoint = getLaneSiegeHoldPoint(laneSegments, 104);
         const desiredWaypoints = [];
         if (laneReturnPoint) desiredWaypoints.push({ x: laneReturnPoint.x, y: laneReturnPoint.y });
-        desiredWaypoints.push(...routeWaypoints.map((point) => ({ x: point.x, y: point.y })));
+        const routeTail = laneHoldPoint && routeWaypoints.length > 0
+          ? routeWaypoints.slice(0, -1)
+          : routeWaypoints;
+        desiredWaypoints.push(...routeTail.map((point) => ({ x: point.x, y: point.y })));
+        if (laneHoldPoint) {
+          pushUniqueWaypoint(desiredWaypoints, laneHoldPoint, 12);
+        }
         if (
           squad.order &&
           squad.order.type === "siege" &&
@@ -1111,7 +1139,10 @@
         ].join("|");
         if (currentSig === desiredSignature) continue;
         issuePlannerOrder(state, squadLogic, squad, entry, desiredSignature, () => {
-          squadLogic.issueSiegeOrder(state, squad.id, target.id, desiredWaypoints);
+          squadLogic.issueSiegeOrder(state, squad.id, target.id, desiredWaypoints, undefined, {
+            strictLaneApproach: true,
+            laneHoldPoint
+          });
         });
         continue;
       }
