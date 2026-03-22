@@ -7,6 +7,7 @@
       NET,
       CFG,
       netPing,
+      matchSession,
       applyGameState,
       rebuildZoneGrid,
       updateUnitVisualsOnly,
@@ -18,18 +19,32 @@
     } = deps;
 
     function step(dt) {
-      if (state._pendingFullSnap) {
-        applyGameState(state._pendingFullSnap);
-        state._pendingFullSnap = null;
-        state._pendingSnap = null;
-      } else if (state._pendingSnap) {
-        applyGameState(state._pendingSnap);
-        state._pendingSnap = null;
+      const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+      const interpMs = Math.max(
+        NET.SEND_INTERVAL_MS,
+        state._lastRemoteSnapIntervalMs || netPing.getInterpDurationMs()
+      );
+      const renderDelayMs = Math.max(
+        NET.SEND_INTERVAL_MS * 1.5,
+        Math.min(120, interpMs * 1.5)
+      );
+      const nextSnap = matchSession && matchSession.consumePendingSnapshot
+        ? matchSession.consumePendingSnapshot({
+          now,
+          cadenceMs: Math.max(8, interpMs * 0.9),
+          bufferLeadMs: renderDelayMs,
+          maxHoldMs: Math.max(renderDelayMs * 1.75, NET.SEND_INTERVAL_MS * 3)
+        })
+        : (state._pendingFullSnap || state._pendingSnap || null);
+      if (nextSnap) {
+        applyGameState(nextSnap);
+        if (!matchSession || !matchSession.consumePendingSnapshot) {
+          state._pendingFullSnap = null;
+          state._pendingSnap = null;
+        }
       }
 
       if (state._frameCtr % 4 === 0) rebuildZoneGrid();
-
-      const interpMs = netPing.getInterpDurationMs();
 
       for (const u of state.units.values()) {
         NET.Interp.tickUnit(u, interpMs);

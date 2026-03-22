@@ -469,6 +469,7 @@
   // ------------------------------------------------------------
   // UI
   // ------------------------------------------------------------
+  const netEl = document.getElementById("net");
   const fpsEl = document.getElementById("fps");
   // city/army stats are split into two elements, see updateHUD
   // Removed old sendCount/sendBtn -- now using unit purchase buttons
@@ -21101,6 +21102,7 @@
   let hostSimRuntimeApi = null;
   let visualTickRuntimeApi = null;
   let authorityAdapterApi = null;
+  let runtimeObservabilityApi = null;
 
   const installRuntime = appBootstrapApi && appBootstrapApi.installRuntime
     ? appBootstrapApi.installRuntime
@@ -21122,6 +21124,14 @@
   function applyGameState(snap) {
     requireRuntime(snapshotSyncApi, "SnapshotSync").applyGameState(snap);
   }
+
+  runtimeObservabilityApi = installRuntime(window.RuntimeObservability, {
+    state,
+    matchSession: matchSessionApi,
+    netPing: _netPing,
+    netEl,
+    fpsEl
+  });
 
   snapshotSyncApi = installRuntime(window.SnapshotSync, {
     state,
@@ -21154,7 +21164,10 @@
     updateMineVisual,
     syncSectorObjectivesFromSnapshot,
     resLayer,
-    destroyBlackHoleVisual
+    destroyBlackHoleVisual,
+    reportError: runtimeObservabilityApi && runtimeObservabilityApi.captureError
+      ? runtimeObservabilityApi.captureError
+      : null
   });
 
   socketActionDispatchApi = installRuntime(window.SocketActionDispatch, {
@@ -21207,6 +21220,7 @@
     NET,
     CFG,
     netPing: _netPing,
+    matchSession: matchSessionApi,
     applyGameState,
     rebuildZoneGrid,
     updateUnitVisualsOnly,
@@ -21345,9 +21359,27 @@
   });
 
   if (socketSessionApi) {
+    socketSessionApi.on("connect", () => {
+      if (runtimeObservabilityApi && runtimeObservabilityApi.logEvent) {
+        runtimeObservabilityApi.logEvent("info", "Socket connected", { url: socketUrlEarly });
+      }
+    });
+    socketSessionApi.on("disconnect", (reason) => {
+      if (runtimeObservabilityApi && runtimeObservabilityApi.logEvent) {
+        runtimeObservabilityApi.logEvent("warn", "Socket disconnected", { reason: reason || null });
+      }
+    });
+    socketSessionApi.on("connect_error", (err) => {
+      if (runtimeObservabilityApi && runtimeObservabilityApi.captureError) {
+        runtimeObservabilityApi.captureError("socket.connect_error", err, { url: socketUrlEarly });
+      }
+    });
     socketSessionApi.on("sessionAssigned", (auth) => {
       if (platformApi && platformApi.saveSessionAuth) platformApi.saveSessionAuth(auth);
       if (matchSessionApi && matchSessionApi.setSessionAuth) matchSessionApi.setSessionAuth(auth);
+      if (runtimeObservabilityApi && runtimeObservabilityApi.logEvent) {
+        runtimeObservabilityApi.logEvent("info", "Session assigned", { sessionId: auth && auth.sessionId ? auth.sessionId : null });
+      }
     });
     socketSessionApi.on("reconnectGranted", (data) => {
       if (platformApi && platformApi.saveSessionAuth) platformApi.saveSessionAuth(data);
@@ -21356,12 +21388,30 @@
         matchSessionApi.updateLobbyContext(data);
         if (Array.isArray(data.slots)) matchSessionApi.applyRoomSnapshot({ slots: data.slots, hostSlot: data.hostSlot });
       }
+      if (runtimeObservabilityApi && runtimeObservabilityApi.logEvent) {
+        runtimeObservabilityApi.logEvent("warn", "Reconnect granted", {
+          matchId: data && data.matchId ? data.matchId : null,
+          roomId: data && data.roomId ? data.roomId : null
+        });
+      }
+    });
+    socketSessionApi.on("reconnectFailed", (payload) => {
+      if (runtimeObservabilityApi && runtimeObservabilityApi.logEvent) {
+        runtimeObservabilityApi.logEvent("error", "Reconnect failed", payload || null);
+      }
     });
     socketSessionApi.on("net:pong", (seq) => _netPing.onPong(seq));
     socketSessionApi.on("gameStart", (data) => {
       console.log("[MP] gameStart received. _mySlot=", state._mySlot, "_isHost=", state._isHost, "seed=", data.seed);
       state._gameSeed = typeof data.seed === "number" ? data.seed : null;
       if (matchSessionApi && matchSessionApi.updateLobbyContext) matchSessionApi.updateLobbyContext(data);
+      if (runtimeObservabilityApi && runtimeObservabilityApi.logEvent) {
+        runtimeObservabilityApi.logEvent("info", "Game start", {
+          matchId: data && data.matchId ? data.matchId : null,
+          matchType: data && data.matchType ? data.matchType : null,
+          seed: data && typeof data.seed === "number" ? data.seed : null
+        });
+      }
       _netPing.start(socket);
       _netSerializer.reset();
       _netSendScheduler.start();
@@ -21459,12 +21509,25 @@
       if (remoteClientRuntimeApi && remoteClientRuntimeApi.step) {
         remoteClientRuntimeApi.step(dt);
       } else {
-        if (state._pendingFullSnap) {
-          applyGameState(state._pendingFullSnap);
+        const fallbackInterpMs = Math.max(
+          NET.SEND_INTERVAL_MS,
+          state._lastRemoteSnapIntervalMs || _netPing.getInterpDurationMs()
+        );
+        const fallbackRenderDelayMs = Math.max(
+          NET.SEND_INTERVAL_MS * 1.5,
+          Math.min(120, fallbackInterpMs * 1.5)
+        );
+        const fallbackSnap = matchSessionApi && matchSessionApi.consumePendingSnapshot
+          ? matchSessionApi.consumePendingSnapshot({
+            now: performance.now(),
+            cadenceMs: Math.max(8, fallbackInterpMs * 0.9),
+            bufferLeadMs: fallbackRenderDelayMs,
+            maxHoldMs: Math.max(fallbackRenderDelayMs * 1.75, NET.SEND_INTERVAL_MS * 3)
+          })
+          : (state._pendingFullSnap || state._pendingSnap || null);
+        if (fallbackSnap) {
+          applyGameState(fallbackSnap);
           state._pendingFullSnap = null;
-          state._pendingSnap = null;
-        } else if (state._pendingSnap) {
-          applyGameState(state._pendingSnap);
           state._pendingSnap = null;
         }
       }
@@ -21494,6 +21557,9 @@
 
     const frameMs = performance.now() - frameStart;
     perfTick(frameMs);
+    if (runtimeObservabilityApi && runtimeObservabilityApi.updateNetDebugHud && state._frameCtr % 12 === 0) {
+      runtimeObservabilityApi.updateNetDebugHud();
+    }
 
     flushDestroyQueue();
   });

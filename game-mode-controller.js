@@ -15,6 +15,8 @@
       state._multiIsHost = false;
       state._multiSlots = null;
       state._slotToPid = null;
+      state._remoteSnapshotClock = null;
+      state._lastRemoteSnapIntervalMs = null;
       state._pendingFullSnap = null;
       state._pendingSnap = null;
     }
@@ -28,6 +30,8 @@
       state._multiIsHost = !!state._isHost;
       state._multiSlots = data.slots || null;
       state._slotToPid = data.slotToPid || null;
+      state._remoteSnapshotClock = null;
+      state._lastRemoteSnapIntervalMs = null;
       state._pendingFullSnap = null;
       state._pendingSnap = null;
     }

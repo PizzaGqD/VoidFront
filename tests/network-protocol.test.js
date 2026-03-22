@@ -364,13 +364,14 @@ function testPingTracker() {
 function testInterpolation() {
   const unit = { x: 0, y: 0, vx: 0, vy: 0, hp: 25 };
 
-  NET.Interp.setTarget(unit, 100, 200, 1, 2, 24);
+  NET.Interp.setTarget(unit, 100, 200, 1, 2, 24, 90);
 
   assert(unit._interpFromX === 0, "interp: fromX saved");
   assert(unit._interpFromY === 0, "interp: fromY saved");
   assert(unit._interpToX === 100, "interp: toX set");
   assert(unit._interpToY === 200, "interp: toY set");
   assert(unit.hp === 24, "interp: hp updated immediately");
+  assert(unit._interpDurationMs === 90, "interp: per-target duration stored");
   assert(typeof unit._interpStart === "number", "interp: _interpStart set");
 
   console.log("  [OK] testInterpolation");

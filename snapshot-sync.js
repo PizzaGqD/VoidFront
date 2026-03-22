@@ -33,7 +33,8 @@
       updateMineVisual,
       syncSectorObjectivesFromSnapshot,
       resLayer,
-      destroyBlackHoleVisual
+      destroyBlackHoleVisual,
+      reportError
     } = deps;
 
     function applyGameState(snap) {
@@ -42,7 +43,49 @@
         applyGameStateInner(snap);
       } catch (e) {
         console.error("[MP-SYNC] ERROR in applyGameState:", e);
+        if (typeof reportError === "function") {
+          reportError("snapshot-sync.applyGameState", e, {
+            seq: snap._seq ?? null,
+            fullSync: !!snap._fullSync,
+            units: Array.isArray(snap.units) ? snap.units.length : 0,
+            players: Array.isArray(snap.players) ? snap.players.length : 0
+          });
+        }
       }
+    }
+
+    function deriveInterpDuration(entity, snap, fallbackMs, options) {
+      const opts = options || {};
+      const fallback = Math.max(8, fallbackMs || NET.SEND_INTERVAL_MS);
+      let durationMs = fallback;
+      if (
+        entity
+        && entity._lastNetServerTime != null
+        && snap
+        && snap._st != null
+        && snap._st > entity._lastNetServerTime
+      ) {
+        durationMs = snap._st - entity._lastNetServerTime;
+      } else if (
+        entity
+        && entity._lastNetSeq != null
+        && snap
+        && snap._seq != null
+        && snap._seq > entity._lastNetSeq
+      ) {
+        durationMs = (snap._seq - entity._lastNetSeq) * NET.SEND_INTERVAL_MS;
+      }
+      durationMs = NET.clamp(
+        durationMs,
+        opts.minMs != null ? opts.minMs : Math.max(8, fallback * 0.7),
+        opts.maxMs != null ? opts.maxMs : Math.max(fallback * 3.5, fallback + 32)
+      );
+      if (entity && snap) {
+        if (snap._seq != null) entity._lastNetSeq = snap._seq;
+        if (snap._st != null) entity._lastNetServerTime = snap._st;
+        entity._lastInterpDurationMs = durationMs;
+      }
+      return durationMs;
     }
 
     function applyGameStateInner(snap) {
@@ -68,6 +111,13 @@
 
       const isRemote = !!(state._multiSlots && !state._multiIsHost);
       const isFull = !!snap._fullSync;
+      const remoteUnitInterpMs = deriveInterpDuration(
+        state._remoteSnapshotClock || (state._remoteSnapshotClock = {}),
+        snap,
+        NET.SEND_INTERVAL_MS,
+        { minMs: 12, maxMs: 180 }
+      );
+      state._lastRemoteSnapIntervalMs = remoteUnitInterpMs;
 
       const wantPlayerIds = new Set((snap.players || []).map((p) => p.id));
       const oldPlayerColors = new Map();
@@ -87,7 +137,11 @@
         const pKeys = isFull ? PLAYER_FULL_SYNC_KEYS : PLAYER_LIGHT_SYNC_KEYS;
         for (const k of pKeys) {
           if (k === "influenceRayDistances" && isRemote && p.influenceRayDistances) {
-            NET.Interp.setZoneTarget(pl, p.influenceRayDistances);
+            const zoneInterpMs = deriveInterpDuration(pl, snap, NET.ZONE_SYNC_INTERVAL_MS, {
+              minMs: NET.ZONE_SYNC_INTERVAL_MS * 0.5,
+              maxMs: NET.ZONE_SYNC_INTERVAL_MS * 3
+            });
+            NET.Interp.setZoneTarget(pl, p.influenceRayDistances, zoneInterpMs);
             continue;
           }
           if (k === "_patrols" && isRemote && Array.isArray(p._patrols)) {
@@ -102,6 +156,7 @@
               dst._interpFromT = dst._interpDisplayT ?? dst.t ?? 0;
               dst._interpToT = src && typeof src.t === "number" ? src.t : dst.t;
               dst._interpStart = performance.now();
+              dst._interpDurationMs = Math.max(12, remoteUnitInterpMs);
               dst.t = dst._interpToT;
               if (src && src.atkCd != null) dst.atkCd = src.atkCd;
             }
@@ -240,7 +295,13 @@
         if (isCompact) {
           const sx = raw[1], sy = raw[2], svx = raw[3], svy = raw[4], shp = raw[5];
           if (!un) continue;
-          if (isRemote) NET.Interp.setTarget(un, sx, sy, svx, svy, shp);
+          if (isRemote) {
+            const unitInterpMs = deriveInterpDuration(un, snap, remoteUnitInterpMs, {
+              minMs: 12,
+              maxMs: 220
+            });
+            NET.Interp.setTarget(un, sx, sy, svx, svy, shp, unitInterpMs);
+          }
           else {
             un.x = sx;
             un.y = sy;
@@ -252,9 +313,19 @@
           if (!un) {
             un = { ...raw, gfx: null };
             state.units.set(un.id, un);
-            if (isRemote) NET.Interp.setTarget(un, raw.x, raw.y, raw.vx || 0, raw.vy || 0, raw.hp);
+            if (isRemote) {
+              const unitInterpMs = deriveInterpDuration(un, snap, remoteUnitInterpMs, {
+                minMs: 12,
+                maxMs: 220
+              });
+              NET.Interp.setTarget(un, raw.x, raw.y, raw.vx || 0, raw.vy || 0, raw.hp, unitInterpMs);
+            }
           } else if (isRemote) {
-            NET.Interp.setTarget(un, raw.x, raw.y, raw.vx || 0, raw.vy || 0, raw.hp);
+            const unitInterpMs = deriveInterpDuration(un, snap, remoteUnitInterpMs, {
+              minMs: 12,
+              maxMs: 220
+            });
+            NET.Interp.setTarget(un, raw.x, raw.y, raw.vx || 0, raw.vy || 0, raw.hp, unitInterpMs);
             for (const k of UNIT_FULL_SYNC_KEYS) {
               if (k === "x" || k === "y") continue;
               if (raw[k] !== undefined) un[k] = raw[k];
@@ -306,7 +377,11 @@
           const [id, x, y, targetCity] = entry;
           const res = state.res.get(id);
           if (res) {
-            NET.Interp.setResTarget(res, x, y);
+            const resInterpMs = deriveInterpDuration(res, snap, NET.ZONE_SYNC_INTERVAL_MS, {
+              minMs: NET.ZONE_SYNC_INTERVAL_MS * 0.45,
+              maxMs: NET.ZONE_SYNC_INTERVAL_MS * 3
+            });
+            NET.Interp.setResTarget(res, x, y, resInterpMs);
             if (targetCity !== undefined) res._targetCity = targetCity;
           }
         }
@@ -320,7 +395,11 @@
             state.res.set(res.id, res);
             makeResVisual(res);
           } else {
-            NET.Interp.setResTarget(res, r.x, r.y);
+            const resInterpMs = deriveInterpDuration(res, snap, NET.ZONE_SYNC_INTERVAL_MS, {
+              minMs: NET.ZONE_SYNC_INTERVAL_MS * 0.45,
+              maxMs: NET.ZONE_SYNC_INTERVAL_MS * 3
+            });
+            NET.Interp.setResTarget(res, r.x, r.y, resInterpMs);
             res.xp = r.xp;
             res.type = r.type;
             res.color = r.color;
@@ -370,9 +449,17 @@
           }
         } else if (!state.storm) {
           state.storm = { ...snap.storm, gfx: null, particles: [] };
-          NET.Interp.setStormTarget(state.storm, snap.storm.x, snap.storm.y, snap.storm.vx, snap.storm.vy);
+          const stormInterpMs = deriveInterpDuration(state.storm, snap, remoteUnitInterpMs, {
+            minMs: 12,
+            maxMs: 220
+          });
+          NET.Interp.setStormTarget(state.storm, snap.storm.x, snap.storm.y, snap.storm.vx, snap.storm.vy, stormInterpMs);
         } else {
-          NET.Interp.setStormTarget(state.storm, snap.storm.x, snap.storm.y, snap.storm.vx, snap.storm.vy);
+          const stormInterpMs = deriveInterpDuration(state.storm, snap, remoteUnitInterpMs, {
+            minMs: 12,
+            maxMs: 220
+          });
+          NET.Interp.setStormTarget(state.storm, snap.storm.x, snap.storm.y, snap.storm.vx, snap.storm.vy, stormInterpMs);
           if (isFull) {
             state.storm.spawnedAt = snap.storm.spawnedAt;
             state.storm.lastDirChange = snap.storm.lastDirChange;

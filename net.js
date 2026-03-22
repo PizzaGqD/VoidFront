@@ -641,13 +641,14 @@
      * Called when a new server snapshot arrives for this unit.
      * Saves current visual position as "from" and sets the server target.
      */
-    setTarget(unit, x, y, vx, vy, hp) {
+    setTarget(unit, x, y, vx, vy, hp, durationMs) {
       unit._interpFromX = unit.x;
       unit._interpFromY = unit.y;
       unit._interpToX   = x;
       unit._interpToY   = y;
       unit._srvVx       = vx;
       unit._srvVy       = vy;
+      unit._interpDurationMs = Math.max(8, durationMs != null ? durationMs : (unit._interpDurationMs || SEND_INTERVAL_MS));
       unit._interpStart = performance.now();
       if (hp != null) unit.hp = hp;
     },
@@ -659,6 +660,7 @@
     tickUnit(unit, interpDurationMs) {
       if (unit._interpStart == null) return;
 
+      const durationMs = Math.max(8, unit._interpDurationMs || interpDurationMs || SEND_INTERVAL_MS);
       const elapsed = performance.now() - unit._interpStart;
       const fromX   = unit._interpFromX ?? unit._interpToX;
       const fromY   = unit._interpFromY ?? unit._interpToY;
@@ -672,12 +674,12 @@
         return;
       }
 
-      if (elapsed <= interpDurationMs) {
-        const t = clamp(elapsed / interpDurationMs, 0, 1);
+      if (elapsed <= durationMs) {
+        const t = clamp(elapsed / durationMs, 0, 1);
         unit.x = lerpVal(fromX, toX, t);
         unit.y = lerpVal(fromY, toY, t);
       } else {
-        const extra = Math.min((elapsed - interpDurationMs) / 1000, MAX_EXTRAP_SEC);
+        const extra = Math.min((elapsed - durationMs) / 1000, MAX_EXTRAP_SEC);
         unit.x = toX + (unit._srvVx || 0) * extra;
         unit.y = toY + (unit._srvVy || 0) * extra;
       }
@@ -687,28 +689,30 @@
     },
 
     /** Same idea for the storm entity. */
-    setStormTarget(storm, x, y, vx, vy) {
+    setStormTarget(storm, x, y, vx, vy, durationMs) {
       storm._interpFromX = storm.x;
       storm._interpFromY = storm.y;
       storm._interpToX   = x;
       storm._interpToY   = y;
       storm._srvVx       = vx;
       storm._srvVy       = vy;
+      storm._interpDurationMs = Math.max(8, durationMs != null ? durationMs : (storm._interpDurationMs || SEND_INTERVAL_MS));
       storm._interpStart = performance.now();
     },
 
     tickStorm(storm, interpDurationMs) {
       if (!storm || storm._interpStart == null) return;
+      const durationMs = Math.max(8, storm._interpDurationMs || interpDurationMs || SEND_INTERVAL_MS);
       const elapsed = performance.now() - storm._interpStart;
       const fromX = storm._interpFromX ?? storm._interpToX;
       const fromY = storm._interpFromY ?? storm._interpToY;
 
-      if (elapsed <= interpDurationMs) {
-        const t = clamp(elapsed / interpDurationMs, 0, 1);
+      if (elapsed <= durationMs) {
+        const t = clamp(elapsed / durationMs, 0, 1);
         storm.x = lerpVal(fromX, storm._interpToX, t);
         storm.y = lerpVal(fromY, storm._interpToY, t);
       } else {
-        const extra = Math.min((elapsed - interpDurationMs) / 1000, MAX_EXTRAP_SEC);
+        const extra = Math.min((elapsed - durationMs) / 1000, MAX_EXTRAP_SEC);
         storm.x = storm._interpToX + (storm._srvVx || 0) * extra;
         storm.y = storm._interpToY + (storm._srvVy || 0) * extra;
       }
@@ -721,11 +725,12 @@
      * Saves the current interpolated rays as "from" and the new server values as "to".
      * tickZoneRays will then interpolate linearly over ZONE_SYNC_INTERVAL_MS.
      */
-    setZoneTarget(player, newRays) {
+    setZoneTarget(player, newRays, durationMs) {
       player._fromRayDistances = player.influenceRayDistances
         ? player.influenceRayDistances.slice()
         : newRays.slice();
       player._toRayDistances  = newRays.slice();
+      player._rayInterpDurationMs = Math.max(8, durationMs != null ? durationMs : (player._rayInterpDurationMs || ZONE_SYNC_INTERVAL_MS));
       player._rayInterpStart  = performance.now();
     },
 
@@ -738,11 +743,12 @@
      * Called when a resource position update arrives (resDelta or full sync).
      * Saves current position as "from" and the server value as "to".
      */
-    setResTarget(res, x, y) {
+    setResTarget(res, x, y, durationMs) {
       res._interpFromX = res.x;
       res._interpFromY = res.y;
       res._interpToX   = x;
       res._interpToY   = y;
+      res._interpDurationMs = Math.max(8, durationMs != null ? durationMs : (res._interpDurationMs || ZONE_SYNC_INTERVAL_MS));
       res._interpStart = performance.now();
     },
 
@@ -752,8 +758,9 @@
      */
     tickRes(res, intervalMs, players) {
       if (res._interpStart == null) return;
+      const durationMs = Math.max(8, res._interpDurationMs || intervalMs || ZONE_SYNC_INTERVAL_MS);
       const elapsed = performance.now() - res._interpStart;
-      const t = clamp(elapsed / Math.max(intervalMs, 1), 0, 1);
+      const t = clamp(elapsed / Math.max(durationMs, 1), 0, 1);
       const fromX = res._interpFromX ?? res._interpToX;
       const fromY = res._interpFromY ?? res._interpToY;
       res.x = lerpVal(fromX, res._interpToX, t);
@@ -765,7 +772,7 @@
           const dx = p.x - res.x, dy = p.y - res.y;
           const dl = Math.hypot(dx, dy);
           if (dl > 5) {
-            const extrapSec = Math.min((elapsed - intervalMs) / 1000, MAX_EXTRAP_SEC);
+            const extrapSec = Math.min((elapsed - durationMs) / 1000, MAX_EXTRAP_SEC);
             const speed = 90;
             res.x += (dx / dl) * speed * extrapSec;
             res.y += (dy / dl) * speed * extrapSec;
@@ -779,8 +786,9 @@
       if (!player.influenceRayDistances || player.influenceRayDistances.length !== numRays)
         player.influenceRayDistances = player._toRayDistances.slice();
 
+      const durationMs = Math.max(8, player._rayInterpDurationMs || intervalMs || ZONE_SYNC_INTERVAL_MS);
       const elapsed = performance.now() - (player._rayInterpStart || 0);
-      const t = clamp(elapsed / Math.max(intervalMs, 1), 0, 1);
+      const t = clamp(elapsed / Math.max(durationMs, 1), 0, 1);
 
       for (let i = 0; i < numRays; i++) {
         const from = player._fromRayDistances

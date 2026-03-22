@@ -22,9 +22,33 @@
       isHost: false,
       sessionId: null,
       reconnectToken: null,
+      snapshotQueue: [],
+      snapshotStats: null,
       pendingFullSnap: null,
       pendingSnap: null
     };
+
+    function makeSnapshotStats() {
+      return {
+        received: 0,
+        applied: 0,
+        dropped: 0,
+        fullReceived: 0,
+        deltaReceived: 0,
+        queuePeak: 0,
+        queueLength: 0,
+        lastReceivedSeq: null,
+        lastAppliedSeq: null,
+        seqGap: 0,
+        lastReceiveAt: null,
+        lastAppliedAt: null,
+        lastArrivalGapMs: null,
+        lastBufferLeadMs: null,
+        lastHeadAgeMs: null
+      };
+    }
+
+    multiplayer.snapshotStats = multiplayer.snapshotStats || makeSnapshotStats();
 
     function syncLegacyFields() {
       state._roomId = multiplayer.roomId;
@@ -39,9 +63,23 @@
       state._multiIsHost = multiplayer.isHost;
       state._sessionId = multiplayer.sessionId;
       state._reconnectToken = multiplayer.reconnectToken;
+      state._snapshotQueueLength = multiplayer.snapshotQueue.length;
+      state._snapshotStats = multiplayer.snapshotStats;
       state._pendingFullSnap = multiplayer.pendingFullSnap;
       state._pendingSnap = multiplayer.pendingSnap;
       if (typeof updateMultiHostOnlyControls === "function") updateMultiHostOnlyControls();
+    }
+
+    function clearSnapshotPipeline() {
+      multiplayer.snapshotQueue = [];
+      multiplayer.snapshotStats = makeSnapshotStats();
+      multiplayer.pendingFullSnap = null;
+      multiplayer.pendingSnap = null;
+    }
+
+    function resetSnapshots() {
+      clearSnapshotPipeline();
+      syncLegacyFields();
     }
 
     function applyRoomSnapshot(payload) {
@@ -78,8 +116,7 @@
       if (Number.isInteger(data.mySlot)) multiplayer.mySlot = data.mySlot;
       if (Number.isInteger(data.hostSlot)) multiplayer.hostSlot = data.hostSlot;
       if (typeof data.isHost === "boolean") multiplayer.isHost = data.isHost;
-      multiplayer.pendingFullSnap = null;
-      multiplayer.pendingSnap = null;
+      clearSnapshotPipeline();
       syncLegacyFields();
       return {
         roomId: multiplayer.roomId,
@@ -100,8 +137,7 @@
       multiplayer.mySlot = null;
       multiplayer.hostSlot = null;
       multiplayer.isHost = false;
-      multiplayer.pendingFullSnap = null;
-      multiplayer.pendingSnap = null;
+      clearSnapshotPipeline();
       syncLegacyFields();
     }
 
@@ -118,23 +154,90 @@
 
     function setPendingSnapshot(snap) {
       if (!snap) return;
-      if (snap._fullSync) multiplayer.pendingFullSnap = snap;
-      else multiplayer.pendingSnap = snap;
+      const now = snap._arrivalAt != null
+        ? snap._arrivalAt
+        : (typeof performance !== "undefined" ? performance.now() : Date.now());
+      const stats = multiplayer.snapshotStats || (multiplayer.snapshotStats = makeSnapshotStats());
+      stats.received += 1;
+      if (snap._fullSync) stats.fullReceived += 1;
+      else stats.deltaReceived += 1;
+      if (stats.lastReceivedSeq != null && snap._seq != null && snap._seq > stats.lastReceivedSeq + 1) {
+        stats.seqGap += (snap._seq - stats.lastReceivedSeq - 1);
+      }
+      if (stats.lastReceiveAt != null) stats.lastArrivalGapMs = now - stats.lastReceiveAt;
+      stats.lastReceivedSeq = snap._seq ?? stats.lastReceivedSeq;
+      stats.lastReceiveAt = now;
+      if (snap._fullSync) {
+        multiplayer.snapshotQueue = [{ snap, arrivalAt: now, full: true, seq: snap._seq ?? null }];
+        multiplayer.pendingFullSnap = snap;
+        multiplayer.pendingSnap = null;
+      } else {
+        multiplayer.snapshotQueue.push({ snap, arrivalAt: now, full: false, seq: snap._seq ?? null });
+        multiplayer.pendingSnap = snap;
+        while (multiplayer.snapshotQueue.length > 8) {
+          multiplayer.snapshotQueue.shift();
+          stats.dropped += 1;
+        }
+      }
+      stats.queueLength = multiplayer.snapshotQueue.length;
+      if (stats.queueLength > stats.queuePeak) stats.queuePeak = stats.queueLength;
       syncLegacyFields();
     }
 
-    function consumePendingSnapshot() {
-      let snap = null;
-      if (multiplayer.pendingFullSnap) {
-        snap = multiplayer.pendingFullSnap;
-        multiplayer.pendingFullSnap = null;
-        multiplayer.pendingSnap = null;
-      } else if (multiplayer.pendingSnap) {
-        snap = multiplayer.pendingSnap;
-        multiplayer.pendingSnap = null;
+    function consumePendingSnapshot(options) {
+      const opts = options || {};
+      const stats = multiplayer.snapshotStats || (multiplayer.snapshotStats = makeSnapshotStats());
+      if (!multiplayer.snapshotQueue.length) return null;
+      const now = opts.now != null ? opts.now : (typeof performance !== "undefined" ? performance.now() : Date.now());
+      const cadenceMs = Math.max(1, opts.cadenceMs != null ? opts.cadenceMs : 33);
+      const bufferLeadMs = Math.max(0, opts.bufferLeadMs != null ? opts.bufferLeadMs : 0);
+      const maxHoldMs = Math.max(cadenceMs, opts.maxHoldMs != null ? opts.maxHoldMs : Math.max(cadenceMs * 2, bufferLeadMs * 2));
+      const head = multiplayer.snapshotQueue[0];
+      const headAgeMs = Math.max(0, now - (head.arrivalAt != null ? head.arrivalAt : now));
+      const elapsedSinceApply = stats.lastAppliedAt != null ? (now - stats.lastAppliedAt) : Infinity;
+      const hasAppliedBefore = stats.applied > 0;
+      const shouldApply = !!head.full
+        || !!opts.force
+        || multiplayer.snapshotQueue.length > 2
+        || (
+          !hasAppliedBefore
+            ? headAgeMs >= Math.min(bufferLeadMs, cadenceMs)
+            : (
+                headAgeMs >= maxHoldMs
+                || (multiplayer.snapshotQueue.length > 1 && (elapsedSinceApply >= cadenceMs * 0.75 || headAgeMs >= bufferLeadMs))
+                || (elapsedSinceApply >= cadenceMs && headAgeMs >= bufferLeadMs)
+              )
+        );
+      if (!shouldApply) return null;
+      const next = multiplayer.snapshotQueue.shift();
+      let snap = next ? next.snap : null;
+      multiplayer.pendingFullSnap = null;
+      multiplayer.pendingSnap = null;
+      for (const entry of multiplayer.snapshotQueue) {
+        if (entry.full) multiplayer.pendingFullSnap = entry.snap;
+        else multiplayer.pendingSnap = entry.snap;
       }
+      if (snap) {
+        stats.applied += 1;
+        stats.lastAppliedSeq = next.seq;
+        stats.lastAppliedAt = now;
+      }
+      stats.lastBufferLeadMs = bufferLeadMs;
+      stats.lastHeadAgeMs = headAgeMs;
+      stats.queueLength = multiplayer.snapshotQueue.length;
       syncLegacyFields();
       return snap;
+    }
+
+    function getNetDebugStats() {
+      const stats = multiplayer.snapshotStats || makeSnapshotStats();
+      return {
+        ...stats,
+        matchId: multiplayer.matchId,
+        matchType: multiplayer.matchType,
+        roomId: multiplayer.roomId,
+        queueLength: multiplayer.snapshotQueue.length
+      };
     }
 
     function setSessionAuth(auth) {
@@ -166,8 +269,10 @@
       resetForSinglePlayer,
       setQueueStatus,
       clearQueueStatus,
+      resetSnapshots,
       setPendingSnapshot,
       consumePendingSnapshot,
+      getNetDebugStats,
       setSessionAuth,
       getSessionAuth,
       isRemoteGameplayClient,
