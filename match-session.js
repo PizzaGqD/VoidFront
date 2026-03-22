@@ -11,7 +11,7 @@
   function install(deps) {
     const state = deps && deps.state;
     const updateMultiHostOnlyControls = deps && deps.updateMultiHostOnlyControls;
-    const multiplayer = state._multiplayer = state._multiplayer || {
+    const multiplayerDefaults = {
       roomId: null,
       matchId: null,
       matchType: null,
@@ -27,6 +27,11 @@
       pendingFullSnap: null,
       pendingSnap: null
     };
+    const multiplayer = state._multiplayer = Object.assign(
+      {},
+      multiplayerDefaults,
+      state._multiplayer || {}
+    );
 
     function makeSnapshotStats() {
       return {
@@ -48,6 +53,7 @@
       };
     }
 
+    multiplayer.snapshotQueue = Array.isArray(multiplayer.snapshotQueue) ? multiplayer.snapshotQueue : [];
     multiplayer.snapshotStats = multiplayer.snapshotStats || makeSnapshotStats();
 
     function syncLegacyFields() {
