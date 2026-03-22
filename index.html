@@ -95,7 +95,16 @@
   <!-- Мультиплеер: создать или войти -->
   <div id="multiConnectScreen" class="menu-overlay menu-screen" style="display:none">
     <div class="menu-box">
-      <p class="menu-subtitle">Создать комнату или войти по коду</p>
+      <p class="menu-subtitle">Быстрый матч, своя комната или вход по коду</p>
+      <div class="lobby-list-section" style="margin-bottom:16px">
+        <p class="menu-subtitle" style="margin-bottom:8px">Быстрый матч</p>
+        <div class="row" style="gap:8px; flex-wrap:wrap">
+          <button type="button" id="btnQueueDuel" class="menu-btn primary">В очередь 1v1</button>
+          <button type="button" id="btnQueueFfa4" class="menu-btn primary">В очередь 1v1v1v1</button>
+          <button type="button" id="btnQueueLeave" class="menu-btn secondary" style="display:none">Покинуть очередь</button>
+        </div>
+        <p id="queueStatusText" class="muted" style="margin-top:8px">Выбери режим, и сервер начнет подбор матча. Если людей не хватит, через время недостающие слоты будут заполнены ботами.</p>
+      </div>
       <div class="menu-buttons">
         <button type="button" id="btnCreateRoom" class="menu-btn">Создать комнату (я хост)</button>
         <div class="row" style="margin-top:12px; gap:8px;">
@@ -597,6 +606,13 @@
   <script src="snapshot-sync.js?v=20"></script>
   <script src="socket-action-dispatch.js?v=17"></script>
   <script src="front-planner.js?v=6"></script>
+  <script src="platform-adapter.js?v=1"></script>
+  <script src="app-bootstrap.js?v=1"></script>
+  <script src="match-session.js?v=1"></script>
+  <script src="socket-session.js?v=1"></script>
+  <script src="action-gateway.js?v=1"></script>
+  <script src="authority-adapter.js?v=1"></script>
+  <script src="game-mode-controller.js?v=1"></script>
   <script src="lobby-ui.js?v=17"></script>
   <script src="remote-client-runtime.js?v=17"></script>
   <script src="host-network-runtime.js?v=17"></script>

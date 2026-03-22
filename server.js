@@ -3,10 +3,25 @@ const { Server } = require("socket.io");
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
+const { createQueueManager } = require("./queue-manager");
+const {
+  DEFAULT_QUEUE_BOT_FILL_MS,
+  normalizeMatchType,
+  getRequiredPlayers
+} = require("./bot-fill-policy");
+const {
+  createMatchRecord,
+  buildGameStartPayload,
+  inferMatchTypeFromSlots
+} = require("./match-lifecycle");
 
 const PORT = process.env.PORT || 3040;
 const SLOTS = 4;
 const COLOR_COUNT = 36;
+const RECONNECT_GRACE_MS = 30 * 1000;
+const queueManager = createQueueManager({ timeoutMs: DEFAULT_QUEUE_BOT_FILL_MS });
+const sessions = new Map();
+const matches = new Map();
 
 // ─── LAN / VPN detection ──────────────────────────────────────────
 
@@ -179,6 +194,63 @@ const rooms = new Map();
 /** Комнаты без игроков показываем в списке ещё N мс (хост мог отключиться) */
 const ROOM_GRACE_MS = 5 * 60 * 1000;
 
+function makeOpaqueId(prefix) {
+  return prefix + Math.random().toString(36).slice(2, 12) + Date.now().toString(36);
+}
+
+function sanitizeNickname(nickname) {
+  return String(nickname || "Игрок").trim().slice(0, 24) || "Игрок";
+}
+
+function toSessionAuth(session) {
+  return {
+    sessionId: session.sessionId,
+    reconnectToken: session.reconnectToken,
+    nickname: session.nickname || "Игрок"
+  };
+}
+
+function getSessionFromAuth(auth) {
+  if (!auth || typeof auth !== "object") return null;
+  if (!auth.sessionId || !auth.reconnectToken) return null;
+  const session = sessions.get(String(auth.sessionId));
+  if (!session) return null;
+  if (session.reconnectToken !== String(auth.reconnectToken)) return null;
+  return session;
+}
+
+function bindSessionToSocket(socket, session, nickname) {
+  if (nickname) session.nickname = sanitizeNickname(nickname);
+  session.lastSocketId = socket.id;
+  session.connectedAt = Date.now();
+  socket.sessionId = session.sessionId;
+  socket.reconnectToken = session.reconnectToken;
+  socket.emit("sessionAssigned", toSessionAuth(session));
+  return session;
+}
+
+function ensureSessionRecord(socket, auth, nickname) {
+  let session = getSessionFromAuth(auth);
+  if (!session && socket && socket.sessionId) {
+    session = sessions.get(socket.sessionId) || null;
+  }
+  if (!session) {
+    session = {
+      sessionId: makeOpaqueId("sess_"),
+      reconnectToken: makeOpaqueId("reco_"),
+      nickname: sanitizeNickname(nickname),
+      roomId: null,
+      slotIndex: null,
+      matchId: null,
+      matchType: null,
+      lastSocketId: socket.id,
+      connectedAt: Date.now()
+    };
+    sessions.set(session.sessionId, session);
+  }
+  return bindSessionToSocket(socket, session, nickname);
+}
+
 function getRoom(roomId) {
   return roomId ? (rooms.get(roomId) || null) : null;
 }
@@ -188,8 +260,12 @@ function createRoom(roomId) {
     hostId: null,
     createdAt: Date.now(),
     emptySince: null,
+    matchId: null,
+    matchType: null,
+    seed: null,
+    startedAt: null,
     slots: Array.from({ length: SLOTS }, (_, i) => ({
-      id: null, name: null, colorIndex: i, isBot: false, spawnIndex: i
+      id: null, sessionId: null, name: null, colorIndex: i, isBot: false, spawnIndex: i, disconnected: false, reservedUntil: null
     })),
     chat: []
   };
@@ -205,6 +281,10 @@ function roomHasHumanPlayers(room) {
   return !!(room && room.slots.some((s) => !!s.id));
 }
 
+function roomHasReservedPlayers(room, now) {
+  return !!(room && room.slots.some((s) => !!s.sessionId && !s.isBot && s.reservedUntil != null && s.reservedUntil > (now || Date.now())));
+}
+
 function roomHasOccupants(room) {
   return !!(room && room.slots.some((s) => !!(s.id || s.isBot)));
 }
@@ -217,7 +297,7 @@ function touchRoomOccupancy(room) {
 function pruneRooms() {
   const now = Date.now();
   for (const [roomId, room] of rooms) {
-    if (roomHasHumanPlayers(room)) {
+    if (roomHasHumanPlayers(room) || roomHasReservedPlayers(room, now)) {
       room.emptySince = null;
       continue;
     }
@@ -284,7 +364,8 @@ function slotSummary(room) {
     name: s.name || (s.isBot ? "Бот" : "Пусто"),
     colorIndex: s.colorIndex,
     isBot: s.isBot,
-    spawnIndex: s.spawnIndex != null ? s.spawnIndex : i
+    spawnIndex: s.spawnIndex != null ? s.spawnIndex : i,
+    disconnected: !!s.disconnected
   }));
 }
 
@@ -297,6 +378,125 @@ function roomSnapshot(room) {
 
 function emitRoomSlots(roomId, room) {
   io.to(roomId).emit("slots", roomSnapshot(room));
+}
+
+function getLiveQueueEntries(matchType) {
+  const type = normalizeMatchType(matchType);
+  return queueManager.queues[type].filter((entry) => io.sockets.sockets.get(entry.socketId));
+}
+
+function broadcastQueueStatus(matchType) {
+  const type = normalizeMatchType(matchType);
+  const liveEntries = getLiveQueueEntries(type);
+  const status = queueManager.getStatus(type, Date.now());
+  for (const entry of liveEntries) {
+    const queuedSocket = io.sockets.sockets.get(entry.socketId);
+    if (queuedSocket) queuedSocket.emit("queueStatus", status);
+  }
+}
+
+function broadcastAllQueues() {
+  broadcastQueueStatus("duel");
+  broadcastQueueStatus("ffa4");
+}
+
+function attachSessionToRoomSlot(sessionId, roomId, slotIndex, matchId, matchType) {
+  const session = sessionId ? sessions.get(sessionId) : null;
+  if (!session) return;
+  session.roomId = roomId;
+  session.slotIndex = slotIndex;
+  session.matchId = matchId;
+  session.matchType = matchType;
+}
+
+function buildMatchForQueue(matchType, humanEntries) {
+  const type = normalizeMatchType(matchType);
+  const roomId = makeRoomId();
+  const room = createRoom(roomId);
+  const seed = (Date.now() >>> 0);
+  const requiredPlayers = getRequiredPlayers(type);
+  const liveHumans = (humanEntries || []).filter((entry) => io.sockets.sockets.get(entry.socketId));
+  const matchId = makeOpaqueId("match_");
+  room.matchId = matchId;
+  room.matchType = type;
+  room.seed = seed;
+  room.startedAt = Date.now();
+  let slotIndex = 0;
+  for (const entry of liveHumans) {
+    const playerSocket = io.sockets.sockets.get(entry.socketId);
+    if (!playerSocket) continue;
+    const session = ensureSessionRecord(playerSocket, { sessionId: entry.sessionId, reconnectToken: playerSocket.reconnectToken }, entry.nickname);
+    room.slots[slotIndex] = {
+      id: playerSocket.id,
+      sessionId: session.sessionId,
+      name: sanitizeNickname(entry.nickname),
+      colorIndex: nextFreeColor(room, slotIndex),
+      isBot: false,
+      spawnIndex: nextFreeSpawn(room, slotIndex),
+      disconnected: false,
+      reservedUntil: null
+    };
+    if (!room.hostId) room.hostId = playerSocket.id;
+    playerSocket.join(roomId);
+    playerSocket.roomId = roomId;
+    playerSocket.slotIndex = slotIndex;
+    playerSocket.isHost = room.hostId === playerSocket.id;
+    playerSocket.queueMatchType = null;
+    attachSessionToRoomSlot(session.sessionId, roomId, slotIndex, matchId, type);
+    slotIndex++;
+  }
+  while (slotIndex < requiredPlayers && slotIndex < SLOTS) {
+    room.slots[slotIndex] = {
+      id: null,
+      sessionId: null,
+      name: "Бот",
+      colorIndex: nextFreeColor(room, slotIndex),
+      isBot: true,
+      spawnIndex: nextFreeSpawn(room, slotIndex),
+      disconnected: false,
+      reservedUntil: null
+    };
+    slotIndex++;
+  }
+  const slots = slotSummary(room);
+  matches.set(matchId, createMatchRecord({ matchId, roomId, matchType: type, seed, slots }));
+  emitRoomSlots(roomId, room);
+  for (const slot of room.slots) {
+    if (!slot.id) continue;
+    const playerSocket = io.sockets.sockets.get(slot.id);
+    if (!playerSocket) continue;
+    const session = sessions.get(slot.sessionId);
+    playerSocket.emit("queueStatus", { active: false, matchType: type, playersInQueue: 0, requiredPlayers, botFillAfterMs: DEFAULT_QUEUE_BOT_FILL_MS });
+    playerSocket.emit("matchFound", {
+      roomId,
+      matchId,
+      matchType: type,
+      seed,
+      slots,
+      mySlot: playerSocket.slotIndex,
+      hostSlot: getHostSlot(room),
+      isHost: playerSocket.isHost
+    });
+    playerSocket.emit("sessionAssigned", toSessionAuth(session || { sessionId: playerSocket.sessionId, reconnectToken: playerSocket.reconnectToken, nickname: slot.name }));
+  }
+  io.to(roomId).emit("gameStart", buildGameStartPayload({
+    roomId,
+    matchId,
+    matchType: type,
+    seed,
+    slots
+  }));
+}
+
+function attemptQueueMatch(matchType) {
+  const type = normalizeMatchType(matchType);
+  const group = queueManager.takeReadyGroup(type, Date.now());
+  if (!group || group.length === 0) {
+    broadcastAllQueues();
+    return;
+  }
+  buildMatchForQueue(type, group);
+  broadcastAllQueues();
 }
 
 function removePlayerFromRoom(socket) {
@@ -312,11 +512,36 @@ function removePlayerFromRoom(socket) {
 
   for (let i = 0; i < SLOTS; i++) {
     if (room.slots[i].id === socket.id) {
-      room.slots[i] = {
-        id: null, name: null,
-        colorIndex: room.slots[i].colorIndex, isBot: false,
-        spawnIndex: room.slots[i].spawnIndex
-      };
+      const existing = room.slots[i];
+      if (room.startedAt && existing.sessionId) {
+        room.slots[i] = {
+          ...existing,
+          id: null,
+          disconnected: true,
+          reservedUntil: Date.now() + RECONNECT_GRACE_MS
+        };
+        attachSessionToRoomSlot(existing.sessionId, roomId, i, room.matchId, room.matchType);
+      } else {
+        room.slots[i] = {
+          id: null,
+          sessionId: null,
+          name: null,
+          colorIndex: room.slots[i].colorIndex,
+          isBot: false,
+          spawnIndex: room.slots[i].spawnIndex,
+          disconnected: false,
+          reservedUntil: null
+        };
+        if (existing.sessionId) {
+          const session = sessions.get(existing.sessionId);
+          if (session) {
+            session.roomId = null;
+            session.slotIndex = null;
+            session.matchId = null;
+            session.matchType = null;
+          }
+        }
+      }
       break;
     }
   }
@@ -334,6 +559,7 @@ function removePlayerFromRoom(socket) {
   socket.roomId = null;
   socket.slotIndex = null;
   socket.isHost = false;
+  socket.queueMatchType = null;
   socket.leave(roomId);
   emitRoomSlots(roomId, room);
   pruneRooms();
@@ -344,6 +570,7 @@ function removePlayerFromRoom(socket) {
 io.on("connection", (socket) => {
   const clientIp = socket.handshake.address || "?";
   console.log("[Socket] connect:", socket.id, "IP:", clientIp);
+  ensureSessionRecord(socket, null, "Игрок");
 
   const lanUrl = getServerLanUrl();
   if (lanUrl) socket.emit("serverUrl", lanUrl);
@@ -353,24 +580,114 @@ io.on("connection", (socket) => {
     socket.emit("net:pong", seq);
   });
 
+  socket.on("reconnectAttempt", (auth) => {
+    const session = getSessionFromAuth(auth);
+    if (!session) {
+      socket.emit("reconnectFailed", { reason: "invalid_session" });
+      return;
+    }
+    bindSessionToSocket(socket, session, session.nickname);
+    if (!session.roomId || session.slotIndex == null) return;
+    const room = getRoom(session.roomId);
+    if (!room) {
+      socket.emit("reconnectFailed", { reason: "room_missing" });
+      return;
+    }
+    const slot = room.slots[session.slotIndex];
+    if (!slot || slot.sessionId !== session.sessionId) {
+      socket.emit("reconnectFailed", { reason: "slot_missing" });
+      return;
+    }
+    if (slot.reservedUntil != null && slot.reservedUntil < Date.now() && !slot.id) {
+      socket.emit("reconnectFailed", { reason: "reconnect_expired" });
+      return;
+    }
+    socket.join(session.roomId);
+    slot.id = socket.id;
+    slot.disconnected = false;
+    slot.reservedUntil = null;
+    socket.roomId = session.roomId;
+    socket.slotIndex = session.slotIndex;
+    if (!room.hostId) room.hostId = socket.id;
+    socket.isHost = room.hostId === socket.id;
+    emitRoomSlots(session.roomId, room);
+    socket.emit("reconnectGranted", {
+      roomId: session.roomId,
+      matchId: room.matchId,
+      matchType: room.matchType || inferMatchTypeFromSlots(slotSummary(room)),
+      slots: slotSummary(room),
+      mySlot: session.slotIndex,
+      hostSlot: getHostSlot(room),
+      isHost: socket.isHost,
+      seed: room.seed
+    });
+    if (room.startedAt) {
+      socket.emit("gameStart", buildGameStartPayload({
+        roomId: session.roomId,
+        matchId: room.matchId,
+        matchType: room.matchType,
+        seed: room.seed,
+        slots: slotSummary(room),
+        reconnected: true
+      }));
+    }
+  });
+
+  socket.on("queueJoin", (payload) => {
+    const data = (payload && typeof payload === "object") ? payload : {};
+    const matchType = normalizeMatchType(data.matchType);
+    const name = sanitizeNickname(data.nickname);
+    const previousQueueType = socket.queueMatchType ? normalizeMatchType(socket.queueMatchType) : null;
+    ensureSessionRecord(socket, data, name);
+    removePlayerFromRoom(socket);
+    queueManager.join(matchType, {
+      socketId: socket.id,
+      sessionId: socket.sessionId,
+      nickname: name,
+      joinedAt: Date.now()
+    });
+    socket.queueMatchType = matchType;
+    if (previousQueueType && previousQueueType !== matchType) broadcastAllQueues();
+    broadcastAllQueues();
+    attemptQueueMatch(matchType);
+    setTimeout(() => attemptQueueMatch(matchType), DEFAULT_QUEUE_BOT_FILL_MS + 50);
+  });
+
+  socket.on("queueLeave", () => {
+    const type = socket.queueMatchType ? normalizeMatchType(socket.queueMatchType) : null;
+    queueManager.leaveBySocket(socket.id);
+    socket.queueMatchType = null;
+    if (type) broadcastAllQueues();
+    socket.emit("queueStatus", { active: false, matchType: type || "duel", playersInQueue: 0, requiredPlayers: type === "ffa4" ? 4 : 2, botFillAfterMs: DEFAULT_QUEUE_BOT_FILL_MS });
+  });
+
   // ── Lobby: create room ──
   socket.on("create", (nickname, cb) => {
     pruneRooms();
+    const previousQueueType = socket.queueMatchType ? normalizeMatchType(socket.queueMatchType) : null;
+    queueManager.leaveBySocket(socket.id);
+    socket.queueMatchType = null;
+    broadcastAllQueues();
+    if (previousQueueType) {
+      socket.emit("queueStatus", { active: false, matchType: previousQueueType, playersInQueue: 0, requiredPlayers: previousQueueType === "ffa4" ? 4 : 2, botFillAfterMs: DEFAULT_QUEUE_BOT_FILL_MS });
+    }
     removePlayerFromRoom(socket);
-    const name = String(nickname || "Игрок").trim().slice(0, 24) || "Игрок";
+    const name = sanitizeNickname(nickname);
+    const session = ensureSessionRecord(socket, null, name);
     const roomId = makeRoomId();
     const room = createRoom(roomId);
     room.hostId = socket.id;
     room.emptySince = null;
-    room.slots[0] = { id: socket.id, name, colorIndex: 0, isBot: false, spawnIndex: 0 };
+    room.slots[0] = { id: socket.id, sessionId: session.sessionId, name, colorIndex: 0, isBot: false, spawnIndex: 0, disconnected: false, reservedUntil: null };
     socket.join(roomId);
     socket.roomId = roomId;
     socket.slotIndex = 0;
     socket.isHost = true;
+    attachSessionToRoomSlot(session.sessionId, roomId, 0, null, null);
     console.log("[Socket] create room", roomId.replace(/^r_/, ""),
       "host:", name, "IP:", clientIp);
     if (typeof cb === "function")
-      cb({ roomId, slots: slotSummary(room), mySlot: 0, isHost: true, hostSlot: 0 });
+      cb({ roomId, slots: slotSummary(room), mySlot: 0, isHost: true, hostSlot: 0, sessionId: session.sessionId, matchType: room.matchType });
   });
 
   // ── Lobby: list rooms ──
@@ -379,6 +696,7 @@ io.on("connection", (socket) => {
     const list = [];
     const now = Date.now();
     for (const [roomId, room] of rooms) {
+      if (room.startedAt) continue;
       const hasPlayers = roomHasHumanPlayers(room);
       const recent = room.emptySince != null
         ? (now - room.emptySince) < ROOM_GRACE_MS
@@ -400,8 +718,16 @@ io.on("connection", (socket) => {
   // ── Lobby: join room ──
   socket.on("join", (roomId, nickname, cb) => {
     pruneRooms();
+    const previousQueueType = socket.queueMatchType ? normalizeMatchType(socket.queueMatchType) : null;
+    queueManager.leaveBySocket(socket.id);
+    socket.queueMatchType = null;
+    broadcastAllQueues();
+    if (previousQueueType) {
+      socket.emit("queueStatus", { active: false, matchType: previousQueueType, playersInQueue: 0, requiredPlayers: previousQueueType === "ffa4" ? 4 : 2, botFillAfterMs: DEFAULT_QUEUE_BOT_FILL_MS });
+    }
     removePlayerFromRoom(socket);
-    const name = String(nickname || "Игрок").trim().slice(0, 24) || "Игрок";
+    const name = sanitizeNickname(nickname);
+    const session = ensureSessionRecord(socket, null, name);
     let rid = String(roomId || "").trim();
     if (rid && !rid.startsWith("r_")) rid = "r_" + rid;
     const room = getRoom(rid);
@@ -414,7 +740,9 @@ io.on("connection", (socket) => {
 
     let slotIndex = -1;
     for (let i = 0; i < SLOTS; i++) {
-      if (!room.slots[i].id && !room.slots[i].isBot) { slotIndex = i; break; }
+      const slot = room.slots[i];
+      const reserved = slot.reservedUntil != null && slot.reservedUntil > Date.now();
+      if (!slot.id && !slot.isBot && !reserved) { slotIndex = i; break; }
     }
     if (slotIndex < 0) {
       console.log("[Socket] join FAIL room:", rid.replace(/^r_/, ""),
@@ -424,10 +752,12 @@ io.on("connection", (socket) => {
     }
 
     room.slots[slotIndex] = {
-      id: socket.id, name,
+      id: socket.id, sessionId: session.sessionId, name,
       colorIndex: nextFreeColor(room, slotIndex),
       isBot: false,
-      spawnIndex: nextFreeSpawn(room, slotIndex)
+      spawnIndex: nextFreeSpawn(room, slotIndex),
+      disconnected: false,
+      reservedUntil: null
     };
     if (!room.hostId) {
       room.hostId = socket.id;
@@ -437,12 +767,13 @@ io.on("connection", (socket) => {
     socket.roomId = rid;
     socket.slotIndex = slotIndex;
     socket.isHost = room.hostId === socket.id;
+    attachSessionToRoomSlot(session.sessionId, rid, slotIndex, room.matchId, room.matchType);
     console.log("[Socket] join OK room:", rid.replace(/^r_/, ""),
       "slot:", slotIndex, "nick:", name, "isHost:", socket.isHost, "IP:", clientIp);
     emitRoomSlots(rid, room);
     if (typeof cb === "function")
       cb({ roomId: rid, slots: slotSummary(room),
-           mySlot: slotIndex, isHost: socket.isHost, hostSlot: getHostSlot(room) });
+           mySlot: slotIndex, isHost: socket.isHost, hostSlot: getHostSlot(room), sessionId: session.sessionId, matchType: room.matchType });
   });
 
   // ── Lobby: slot / color / chat ──
@@ -455,16 +786,20 @@ io.on("connection", (socket) => {
     if (slotIndex < 0 || slotIndex >= SLOTS) return;
     if (isBot) {
       room.slots[slotIndex] = {
-        id: null, name: "Бот",
+        id: null, sessionId: null, name: "Бот",
         colorIndex: nextFreeColor(room, slotIndex),
         isBot: true,
-        spawnIndex: nextFreeSpawn(room, slotIndex)
+        spawnIndex: nextFreeSpawn(room, slotIndex),
+        disconnected: false,
+        reservedUntil: null
       };
     } else {
       room.slots[slotIndex] = {
-        id: null, name: null,
+        id: null, sessionId: null, name: null,
         colorIndex: room.slots[slotIndex].colorIndex, isBot: false,
-        spawnIndex: room.slots[slotIndex].spawnIndex
+        spawnIndex: room.slots[slotIndex].spawnIndex,
+        disconnected: false,
+        reservedUntil: null
       };
     }
     touchRoomOccupancy(room);
@@ -573,6 +908,7 @@ io.on("connection", (socket) => {
     payload._senderSlot = senderSlot;
     payload._senderSocketId = socket.id;
     payload._senderPlayerId = senderSlot + 1;
+    payload._senderSessionId = socket.sessionId || room.slots[senderSlot].sessionId || null;
     io.to(room.hostId).emit("playerAction", payload);
   });
 
@@ -611,12 +947,36 @@ io.on("connection", (socket) => {
     const seed = (payload && typeof payload.seed === "number")
       ? payload.seed
       : (Date.now() >>> 0);
-    io.to(roomId).emit("gameStart", { slots, seed });
+    room.matchId = room.matchId || makeOpaqueId("match_");
+    room.matchType = normalizeMatchType((payload && payload.matchType) || inferMatchTypeFromSlots(slots));
+    room.seed = seed;
+    room.startedAt = Date.now();
+    matches.set(room.matchId, createMatchRecord({
+      matchId: room.matchId,
+      roomId,
+      matchType: room.matchType,
+      seed,
+      slots
+    }));
+    for (let i = 0; i < room.slots.length; i++) {
+      if (room.slots[i].sessionId) attachSessionToRoomSlot(room.slots[i].sessionId, roomId, i, room.matchId, room.matchType);
+    }
+    io.to(roomId).emit("gameStart", buildGameStartPayload({
+      roomId,
+      matchId: room.matchId,
+      matchType: room.matchType,
+      seed,
+      slots
+    }));
   });
 
   // ── Disconnect ──
   socket.on("disconnect", (reason) => {
     console.log("[Socket] disconnect:", socket.id, "reason:", reason);
+    if (socket.queueMatchType) {
+      queueManager.leaveBySocket(socket.id);
+      broadcastAllQueues();
+    }
     removePlayerFromRoom(socket);
   });
 

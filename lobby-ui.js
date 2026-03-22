@@ -4,7 +4,10 @@
   function install(deps) {
     const {
       state,
-      socket,
+      socket: directSocket,
+      socketSession,
+      actionGateway,
+      matchSession,
       socketUrl,
       showScreen,
       startGameSingle,
@@ -14,12 +17,45 @@
       LOBBY_COLORS,
       CFG
     } = deps;
+    const socket = socketSession && socketSession.getSocket ? socketSession.getSocket() : directSocket;
 
     function nickForSocket() {
       return (state._myNickname || window._myNickname || "Игрок").trim().slice(0, 24) || "Игрок";
     }
 
+    function createRoomRequest(callback) {
+      if (actionGateway && actionGateway.createRoom) return actionGateway.createRoom(nickForSocket(), callback);
+      if (!socket) return false;
+      socket.emit("create", nickForSocket(), callback);
+      return true;
+    }
+
+    function joinRoomRequest(roomId, callback) {
+      if (actionGateway && actionGateway.joinRoom) return actionGateway.joinRoom(roomId, nickForSocket(), callback);
+      if (!socket) return false;
+      socket.emit("join", roomId, nickForSocket(), callback);
+      return true;
+    }
+
+    function refreshLobbyRequest(callback) {
+      if (actionGateway && actionGateway.listRooms) return actionGateway.listRooms(callback);
+      if (!socket) return false;
+      socket.emit("listRooms", callback);
+      return true;
+    }
+
+    function sendChat(text) {
+      if (actionGateway && actionGateway.sendChat) return actionGateway.sendChat(text);
+      if (!socket) return false;
+      socket.emit("chat", text);
+      return true;
+    }
+
     function applyRoomSnapshot(payload) {
+      if (matchSession && matchSession.applyRoomSnapshot) {
+        matchSession.applyRoomSnapshot(payload);
+        return;
+      }
       const data = Array.isArray(payload) ? { slots: payload } : (payload || {});
       state._lobbySlots = Array.isArray(data.slots) ? data.slots : [];
       state._hostSlot = Number.isInteger(data.hostSlot) ? data.hostSlot : null;
@@ -153,7 +189,7 @@
           btn.style.fontSize = "12px";
           btn.textContent = s.isBot ? "Убрать бота" : "Бот";
           btn.addEventListener("click", () => {
-            socket.emit("setSlot", i, !s.isBot);
+            if (actionGateway && actionGateway.setSlot) actionGateway.setSlot(i, !s.isBot);
           });
           div.appendChild(btn);
         }
@@ -274,8 +310,11 @@
           } else {
             const colorIdx = i;
             sw.addEventListener("click", () => {
-              if (state._isHost && targetSlot !== state._mySlot) socket.emit("setSlotColor", targetSlot, colorIdx);
-              else socket.emit("setColor", colorIdx);
+              if (state._isHost && targetSlot !== state._mySlot) {
+                if (actionGateway && actionGateway.setSlotColor) actionGateway.setSlotColor(targetSlot, colorIdx);
+              } else if (actionGateway && actionGateway.setColor) {
+                actionGateway.setColor(colorIdx);
+              }
             });
           }
           pickerEl.appendChild(sw);
@@ -295,17 +334,19 @@
         btn.textContent = r.code + " — " + r.hostName + " (" + r.slotsUsed + "/" + r.slotsTotal + ")";
         btn.addEventListener("click", () => {
           if (!socket) return;
-          const nick = nickForSocket();
-          socket.emit("join", r.roomId, nick, (data) => {
+          joinRoomRequest(r.roomId, (data) => {
             if (data.error) {
               alert(data.error);
               return;
             }
-            state._lobbySlots = data.slots;
-            state._mySlot = data.mySlot;
-            state._isHost = data.isHost;
-            state._hostSlot = Number.isInteger(data.hostSlot) ? data.hostSlot : null;
-            state._roomId = data.roomId;
+            if (matchSession && matchSession.updateLobbyContext) matchSession.updateLobbyContext(data);
+            else {
+              state._lobbySlots = data.slots;
+              state._mySlot = data.mySlot;
+              state._isHost = data.isHost;
+              state._hostSlot = Number.isInteger(data.hostSlot) ? data.hostSlot : null;
+              state._roomId = data.roomId;
+            }
             renderLobby();
             showScreen("lobbyScreen");
           });
@@ -321,12 +362,35 @@
     }
 
     function refreshLobbyList() {
-      if (!socket) return;
-      socket.emit("listRooms", (list) => {
+      refreshLobbyRequest((list) => {
         state._lobbyList = list || [];
         console.log("[Лобби] Список комнат:", (list || []).length, list);
         renderLobbyList();
       });
+    }
+
+    function renderQueueStatus() {
+      const textEl = document.getElementById("queueStatusText");
+      const leaveBtn = document.getElementById("btnQueueLeave");
+      const duelBtn = document.getElementById("btnQueueDuel");
+      const ffaBtn = document.getElementById("btnQueueFfa4");
+      const queue = state._queueStatus || null;
+      const active = !!(queue && queue.active);
+      if (leaveBtn) leaveBtn.style.display = active ? "inline-block" : "none";
+      if (duelBtn) duelBtn.disabled = active;
+      if (ffaBtn) ffaBtn.disabled = active;
+      if (!textEl) return;
+      if (!active) {
+        textEl.textContent = "Выбери режим, и сервер начнет подбор матча. Если людей не хватит, через время недостающие слоты будут заполнены ботами.";
+        return;
+      }
+      const modeLabel = queue.matchType === "ffa4" ? "1v1v1v1" : "1v1";
+      const queued = queue.playersInQueue || 0;
+      const required = queue.requiredPlayers || (queue.matchType === "ffa4" ? 4 : 2);
+      const suffix = queue.canFillWithBots
+        ? " Таймаут истек: матч может быть добит ботами."
+        : " Ищем живых игроков, затем при необходимости добавим ботов.";
+      textEl.textContent = "Очередь " + modeLabel + ": " + queued + "/" + required + "." + suffix;
     }
 
     function setupMenuButtons() {
@@ -420,16 +484,19 @@
           return;
         }
         state._myNickname = state._myNickname || window._myNickname || nicknameInputEl?.value?.trim() || "Игрок";
-        socket.emit("create", nickForSocket(), (data) => {
+        createRoomRequest((data) => {
           if (data.error) {
             alert(data.error);
             return;
           }
-          state._lobbySlots = data.slots;
-          state._mySlot = data.mySlot;
-          state._isHost = data.isHost;
-          state._hostSlot = Number.isInteger(data.hostSlot) ? data.hostSlot : null;
-          state._roomId = data.roomId;
+          if (matchSession && matchSession.updateLobbyContext) matchSession.updateLobbyContext(data);
+          else {
+            state._lobbySlots = data.slots;
+            state._mySlot = data.mySlot;
+            state._isHost = data.isHost;
+            state._hostSlot = Number.isInteger(data.hostSlot) ? data.hostSlot : null;
+            state._roomId = data.roomId;
+          }
           renderLobby();
           showScreen("lobbyScreen");
         });
@@ -446,15 +513,18 @@
           return;
         }
         state._myNickname = state._myNickname || window._myNickname || nicknameInputEl?.value?.trim() || "Игрок";
-        socket.emit("join", code, nickForSocket(), (data) => {
+        joinRoomRequest(code, (data) => {
           if (data.error) {
             alert(data.error);
             return;
           }
-          state._lobbySlots = data.slots;
-          state._mySlot = data.mySlot;
-          state._isHost = data.isHost;
-          state._roomId = data.roomId;
+          if (matchSession && matchSession.updateLobbyContext) matchSession.updateLobbyContext(data);
+          else {
+            state._lobbySlots = data.slots;
+            state._mySlot = data.mySlot;
+            state._isHost = data.isHost;
+            state._roomId = data.roomId;
+          }
           renderLobby();
           showScreen("lobbyScreen");
         });
@@ -466,12 +536,12 @@
     function bindSocketUi() {
       state._socket = socket;
       console.log("[Лобби] Подключение к серверу:", socketUrl, socket ? "OK" : "io не найден");
-      if (!socket) return;
+      if (!socketSession) return;
 
-      socket.on("connect", () => console.log("[Лобби] Socket подключён, id:", socket.id));
-      socket.on("connect_error", (err) => console.error("[Лобби] Ошибка подключения:", err.message || err));
-      socket.on("disconnect", (reason) => console.log("[Лобби] Socket отключён, причина:", reason));
-      socket.on("serverUrl", (url) => {
+      socketSession.on("connect", () => console.log("[Лобби] Socket подключён, id:", socket && socket.id));
+      socketSession.on("connect_error", (err) => console.error("[Лобби] Ошибка подключения:", err.message || err));
+      socketSession.on("disconnect", (reason) => console.log("[Лобби] Socket отключён, причина:", reason));
+      socketSession.on("serverUrl", (url) => {
         console.log("[Лобби] Адрес сервера для сети:", url);
         state._serverUrl = url;
         if (lobbyScreenEl && lobbyScreenEl.style.display === "flex") renderLobby();
@@ -481,14 +551,36 @@
           urlEl.title = url;
         }
       });
-      socket.on("slots", (payload) => {
+      socketSession.on("slots", (payload) => {
         applyRoomSnapshot(payload);
         if (lobbyScreenEl && lobbyScreenEl.style.display === "flex") renderLobby();
       });
-      socket.on("startRejected", (message) => {
+      socketSession.on("queueStatus", (payload) => {
+        if (matchSession && matchSession.setQueueStatus) matchSession.setQueueStatus(payload);
+        else state._queueStatus = payload || null;
+        renderQueueStatus();
+      });
+      socketSession.on("matchFound", (payload) => {
+        if (matchSession && matchSession.updateLobbyContext) {
+          matchSession.updateLobbyContext(payload);
+          if (Array.isArray(payload.slots)) matchSession.applyRoomSnapshot({ slots: payload.slots, hostSlot: payload.hostSlot });
+        } else {
+          state._roomId = payload.roomId || state._roomId;
+          state._matchId = payload.matchId || state._matchId;
+          state._matchType = payload.matchType || state._matchType;
+        }
+        renderQueueStatus();
+      });
+      socketSession.on("reconnectGranted", (payload) => {
+        if (payload && Array.isArray(payload.slots)) {
+          applyRoomSnapshot({ slots: payload.slots, hostSlot: payload.hostSlot });
+          renderLobby();
+        }
+      });
+      socketSession.on("startRejected", (message) => {
         alert(message || "Матч можно запускать только в формате 1v1 или 1v1v1v1.");
       });
-      socket.on("chat", (msg) => {
+      socketSession.on("chat", (msg) => {
         const safeText = (msg.text || "").replace(/</g, "&lt;");
         const safeName = msg.name || "?";
         const list = document.getElementById("chatMessages");
@@ -533,6 +625,30 @@
     }
 
     function bindLobbyButtons() {
+      const queueDuelBtn = document.getElementById("btnQueueDuel");
+      const queueFfaBtn = document.getElementById("btnQueueFfa4");
+      const queueLeaveBtn = document.getElementById("btnQueueLeave");
+      if (queueDuelBtn) {
+        queueDuelBtn.addEventListener("click", () => {
+          state._myNickname = state._myNickname || window._myNickname || nicknameInputEl?.value?.trim() || "Игрок";
+          if (actionGateway && actionGateway.queueJoin) actionGateway.queueJoin("duel", nickForSocket());
+        });
+      }
+      if (queueFfaBtn) {
+        queueFfaBtn.addEventListener("click", () => {
+          state._myNickname = state._myNickname || window._myNickname || nicknameInputEl?.value?.trim() || "Игрок";
+          if (actionGateway && actionGateway.queueJoin) actionGateway.queueJoin("ffa4", nickForSocket());
+        });
+      }
+      if (queueLeaveBtn) {
+        queueLeaveBtn.addEventListener("click", () => {
+          if (actionGateway && actionGateway.queueLeave) actionGateway.queueLeave();
+          if (matchSession && matchSession.clearQueueStatus) matchSession.clearQueueStatus();
+          else state._queueStatus = null;
+          renderQueueStatus();
+        });
+      }
+
       const copyUrlBtn = document.getElementById("lobbyCopyUrl");
       if (copyUrlBtn) {
         copyUrlBtn.addEventListener("click", () => {
@@ -557,7 +673,7 @@
       const leaveBtn = document.getElementById("lobbyLeave");
       if (leaveBtn) {
         leaveBtn.addEventListener("click", () => {
-          if (socket && state._roomId) socket.emit("leave");
+          if (actionGateway && actionGateway.leaveRoom) actionGateway.leaveRoom();
           state._roomId = null;
           state._mySlot = null;
           state._isHost = false;
@@ -574,7 +690,9 @@
             alert("Матч можно запускать только в формате 1v1 или 1v1v1v1.");
             return;
           }
-          if (socket && state._isHost) socket.emit("start", { seed: (Date.now() >>> 0) + Math.floor(Math.random() * 0xffff) });
+          if (actionGateway && actionGateway.startRoom && state._isHost) {
+            actionGateway.startRoom((Date.now() >>> 0) + Math.floor(Math.random() * 0xffff));
+          }
         });
       }
 
@@ -583,8 +701,8 @@
       if (chatSendBtn) {
         chatSendBtn.addEventListener("click", () => {
           const t = chatInputEl && chatInputEl.value.trim();
-          if (t && socket) {
-            socket.emit("chat", t);
+          if (t) {
+            sendChat(t);
             chatInputEl.value = "";
           }
         });
@@ -601,6 +719,7 @@
     bindGlobalActions();
     bindSocketUi();
     bindLobbyButtons();
+    renderQueueStatus();
 
     return {
       refreshLobbyList,

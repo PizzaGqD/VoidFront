@@ -5,104 +5,88 @@
     _myNickname: window._myNickname || null,
     _lobbySlots: [],
     _roomId: null,
+    _matchId: null,
+    _matchType: null,
+    _queueStatus: null,
     _isHost: false,
     _mySlot: null,
     _lobbyList: [],
     _colorEditSlot: null
   };
-  const socketUrlEarly = window.GAME_SERVER_URL || location.origin;
-  const socket = typeof io !== "undefined" ? io(socketUrlEarly, { transports: ["websocket", "polling"] }) : null;
-  state._socket = socket;
-  const CardSystemApi = (typeof window !== "undefined" && window.CardSystem) ? window.CardSystem : null;
-
-  const EARLY_LOBBY_COLORS = [0xff6600,0xcc2222,0xffcc00,0x44aa44,0x4488ff,0xaa44cc,0xff8844,0xee4444,0xdddd00,0x22cc66,0x6699ff,0xcc66aa,0xcc4400,0xaa2222,0xaaaa00,0x228844,0x4466dd,0x8844aa,0xffaa66,0xff6666,0xcccc44,0x66cc88,0x88aaff,0xbb88cc,0x993300,0x881111,0x888800,0x116633,0x2244bb,0x663388,0xdd8844,0xcc5555,0xbbbb66,0x44aa66,0x6688dd,0x9966aa];
-
-  function earlyShowScreen(visibleId) {
-    ["mainMenu","nicknameScreen","multiConnectScreen","lobbyScreen"].forEach(id => {
-      const el = document.getElementById(id);
-      if (el) el.style.display = id === visibleId ? "flex" : "none";
-    });
-    const gw = document.getElementById("gameWrap");
-    if (gw) gw.style.display = visibleId === "gameWrap" ? "block" : "none";
-  }
-
-  function earlyRenderLobby() {
-    const slotsEl = document.getElementById("lobbySlots");
-    if (!slotsEl) return;
-    const slots = state._lobbySlots || [];
-    const roomCodeEl = document.getElementById("lobbyRoomCode");
-    const hostBadge = document.getElementById("lobbyHostBadge");
-    const startBtn = document.getElementById("lobbyStart");
-    if (roomCodeEl) { roomCodeEl.textContent = "Код: " + (state._roomId || "").replace("r_",""); roomCodeEl.style.display = "inline-block"; }
-    if (hostBadge) hostBadge.style.display = state._isHost ? "inline-block" : "none";
-    if (startBtn) startBtn.style.display = state._isHost ? "inline-block" : "none";
-    slotsEl.innerHTML = "";
-    for (let i = 0; i < 6; i++) {
-      const s = slots[i] || {};
-      const div = document.createElement("div");
-      div.className = "lobby-slot" + (!s.id && !s.isBot ? " empty" : "");
-      const colorHex = "#" + (EARLY_LOBBY_COLORS[s.colorIndex||0]||0x888888).toString(16).padStart(6,"0");
-      div.innerHTML = '<span class="slot-color" style="background:'+colorHex+'"></span><span class="slot-name">'+(s.name||"Пусто")+'</span>'+(s.isBot?'<span class="slot-badge">Бот</span>':"");
-      slotsEl.appendChild(div);
+  const appBootstrapApi = (typeof window !== "undefined" && window.AppBootstrap && window.AppBootstrap.install)
+    ? window.AppBootstrap.install({ state })
+    : null;
+  const platformApi = (typeof window !== "undefined" && window.PlatformAdapter && window.PlatformAdapter.install)
+    ? window.PlatformAdapter.install({ storagePrefix: "voidfront" })
+    : null;
+  if (platformApi && typeof platformApi.init === "function") {
+    try {
+      await platformApi.init();
+    } catch (err) {
+      console.warn("[Platform]", err && err.message ? err.message : err);
     }
   }
+  const socketUrlEarly = platformApi && typeof platformApi.getServerUrl === "function"
+    ? platformApi.getServerUrl()
+    : (window.GAME_SERVER_URL || location.origin);
+  let matchSessionApi = (typeof window !== "undefined" && window.MatchSession && window.MatchSession.install)
+    ? window.MatchSession.install({ state })
+    : null;
+  const socketSessionApi = (typeof window !== "undefined" && window.SocketSession && window.SocketSession.install)
+    ? window.SocketSession.install({ state, socketUrl: socketUrlEarly, platformAdapter: platformApi })
+    : null;
+  const socket = socketSessionApi && socketSessionApi.getSocket ? socketSessionApi.getSocket() : (typeof io !== "undefined" ? io(socketUrlEarly, { transports: ["websocket", "polling"] }) : null);
+  state._socket = socket;
+  const actionGatewayApi = (typeof window !== "undefined" && window.ActionGateway && window.ActionGateway.install)
+    ? window.ActionGateway.install({ state, getSocket: () => (socketSessionApi && socketSessionApi.getSocket ? socketSessionApi.getSocket() : state._socket) })
+    : null;
+  let gameModeControllerApi = null;
+  const CardSystemApi = (typeof window !== "undefined" && window.CardSystem) ? window.CardSystem : null;
+  function showLoadingAlert() {
+    alert("Игра ещё загружается. Подождите 2–3 сек.");
+  }
 
-  const getNick = () => (state._myNickname || window._myNickname || "Игрок").trim().slice(0,24) || "Игрок";
+  window.__createRoom = showLoadingAlert;
+  window.__joinRoom = showLoadingAlert;
+  window.__refreshLobbyList = function () {};
 
-  window.__createRoom = function() {
-    var btn = document.getElementById("btnCreateRoom");
-    if (!socket) { alert("Сервер не подключён. Запустите server.js (node server.js)."); return; }
-    state._myNickname = state._myNickname || window._myNickname || "Игрок";
-    if (btn) { btn.disabled = true; btn.textContent = "Создаём комнату…"; }
-    socket.emit("create", getNick(), function(data) {
-      if (btn) { btn.disabled = false; btn.textContent = "Создать комнату (я хост)"; }
-      if (data.error) { alert(data.error); return; }
-      state._lobbySlots = data.slots; state._mySlot = data.mySlot;
-      state._isHost = data.isHost; state._roomId = data.roomId;
-      earlyRenderLobby(); earlyShowScreen("lobbyScreen");
-    });
-  };
+  function sendPlayerAction(payload) {
+    if (actionGatewayApi && actionGatewayApi.sendPlayerAction) {
+      return actionGatewayApi.sendPlayerAction(payload);
+    }
+    if (!payload || !(state._multiSlots && !state._multiIsHost && state._socket)) return false;
+    state._socket.emit("playerAction", payload);
+    return true;
+  }
 
-  window.__joinRoom = function() {
-    if (!socket) { alert("Сервер не подключён."); return; }
-    const codeEl = document.getElementById("roomCodeInput");
-    const code = (codeEl && codeEl.value || "").trim();
-    if (!code) { alert("Введите код комнаты."); return; }
-    state._myNickname = state._myNickname || window._myNickname || "Игрок";
-    socket.emit("join", code, getNick(), function(data) {
-      if (data.error) { alert(data.error); return; }
-      state._lobbySlots = data.slots; state._mySlot = data.mySlot;
-      state._isHost = data.isHost; state._roomId = data.roomId;
-      earlyRenderLobby(); earlyShowScreen("lobbyScreen");
-    });
-  };
+  function sendCardState(payload) {
+    if (actionGatewayApi && actionGatewayApi.sendCardState) {
+      return actionGatewayApi.sendCardState(payload);
+    }
+    if (!payload || !state._multiIsHost || !state._socket || !state._roomId) return false;
+    state._socket.emit("cardState", payload);
+    return true;
+  }
 
-  window.__refreshLobbyList = function() {
-    if (!socket) return;
-    socket.emit("listRooms", function(list) {
-      state._lobbyList = list || [];
-      const listEl = document.getElementById("lobbyList");
-      if (!listEl) return;
-      listEl.innerHTML = "";
-      (list || []).forEach(function(r) {
-        const btn = document.createElement("button");
-        btn.type = "button"; btn.className = "menu-btn lobby-list-item";
-        btn.textContent = (r.code||"")+" — "+(r.hostName||"?")+" ("+(r.slotsUsed||0)+"/"+(r.slotsTotal||6)+")";
-        btn.addEventListener("click", function() {
-          socket.emit("join", r.roomId||r.code, getNick(), function(data) {
-            if (data.error) { alert(data.error); return; }
-            state._lobbySlots = data.slots; state._mySlot = data.mySlot;
-            state._isHost = data.isHost; state._roomId = data.roomId;
-            earlyRenderLobby(); earlyShowScreen("lobbyScreen");
-          });
-        });
-        listEl.appendChild(btn);
-      });
-      if (!list || !list.length) { const p = document.createElement("p"); p.className = "muted"; p.textContent = "Нет открытых комнат."; listEl.appendChild(p); }
-    });
-  };
+  function sendMapRegenerate(payload) {
+    if (actionGatewayApi && actionGatewayApi.sendMapRegenerate) {
+      return actionGatewayApi.sendMapRegenerate(payload);
+    }
+    if (!(state._multiSlots && state._multiIsHost && state._socket && state._roomId)) return false;
+    state._socket.emit("mapRegenerate", payload || {});
+    return true;
+  }
 
-  console.log("[Меню] Сокет готов, __createRoom задан (кнопки через onclick в HTML).");
+  function sendChatMessage(text) {
+    if (actionGatewayApi && actionGatewayApi.sendChat) {
+      return actionGatewayApi.sendChat(text);
+    }
+    if (!state._socket) return false;
+    const normalized = String(text || "").trim();
+    if (!normalized) return false;
+    state._socket.emit("chat", normalized);
+    return true;
+  }
 
   // ------------------------------------------------------------
   // Build version & changelog
@@ -671,7 +655,7 @@
     applyFormationToSquad(squad, formationType, formationRows, dirX, dirY, formationPigWidth);
     // Sync to host in multiplayer: host applies to authoritative state → full sync distributes
     if (state._multiSlots && !state._multiIsHost && state._socket) {
-      state._socket.emit("playerAction", {
+      sendPlayerAction({
         type: "formation",
         pid: state.myPlayerId,
         leaderId: leader.id,
@@ -806,7 +790,7 @@
       SQUADLOGIC.recalculateFormation(state, merged.id, { getFormationOffsets }, true);
     }
     if (state._multiSlots && !state._multiIsHost && state._socket) {
-      state._socket.emit("playerAction", {
+      sendPlayerAction({
         type: "mergeSquad",
         pid: state.myPlayerId,
         squadIds,
@@ -847,7 +831,7 @@
       if (firstSquad) SQUADLOGIC.recalculateFormation(state, firstSquad.id, { getFormationOffsets }, true);
       if (secondSquad) SQUADLOGIC.recalculateFormation(state, secondSquad.id, { getFormationOffsets }, true);
       if (state._multiSlots && !state._multiIsHost && state._socket) {
-        state._socket.emit("playerAction", { type: "splitSquad", unitIds: squad.map(u => u.id) });
+        sendPlayerAction({ type: "splitSquad", unitIds: squad.map(u => u.id) });
       }
       return;
     }
@@ -874,7 +858,7 @@
     applyFormationToSquad(first, leader1.formationType || "pig", leader1.formationRows ?? 1, null, null, leader1.formationPigWidth);
     applyFormationToSquad(second, leader2.formationType || "pig", leader2.formationRows ?? 1, null, null, leader2.formationPigWidth);
     if (state._multiSlots && !state._multiIsHost && state._socket) {
-      state._socket.emit("playerAction", { type: "splitSquad", leader1Id: leader1.id, leader2Id: leader2.id, unitIds: squad.map(u => u.id) });
+      sendPlayerAction({ type: "splitSquad", leader1Id: leader1.id, leader2Id: leader2.id, unitIds: squad.map(u => u.id) });
     }
   }
   if (splitSquadBtn) splitSquadBtn.addEventListener("click", doSplitSquad);
@@ -890,7 +874,7 @@
       SQUADLOGIC.recalculateFormation(state, nextSquad.id, { getFormationOffsets }, true);
     }
     if (state._multiSlots && !state._multiIsHost && state._socket) {
-      state._socket.emit("playerAction", { type: "splitSquadByType", squadId: squadState.id });
+      sendPlayerAction({ type: "splitSquadByType", squadId: squadState.id });
     }
   }
   if (splitByTypeBtn) splitByTypeBtn.addEventListener("click", doSplitSquadByType);
@@ -3460,9 +3444,9 @@
   }
 
   function emitCardStateForPlayer(pid) {
-    if (!state._multiIsHost || !state._socket || !state._roomId) return;
+    if (!state._multiIsHost || !state._roomId) return;
     const payload = getCardStatePayloadForPlayer(pid);
-    if (payload) state._socket.emit("cardState", payload);
+    if (payload) sendCardState(payload);
   }
 
   function markPlayerCardStateDirty(p, shouldBroadcast) {
@@ -12986,7 +12970,8 @@
       pathPreviewLayer,
       drawShipShape,
       getSquads,
-      rallyPointHintEl
+      rallyPointHintEl,
+      sendPlayerAction
     });
   }
 
@@ -13000,7 +12985,7 @@
     if (state._multiSlots && state._multiIsHost && state._socket && state._roomId) {
       const seed = (Date.now() >>> 0) + Math.floor(Math.random() * 0xffff);
       state._gameSeed = seed;
-      state._socket.emit("mapRegenerate", { seed });
+      sendMapRegenerate({ seed });
       rebuildMap(seed);
       rebuildGrid();
       resetWorldMulti(state._multiSlots, state._slotToPid);
@@ -13063,7 +13048,7 @@
     if (!me) return false;
     if (!isCoreRosterUnitType(unitTypeKey)) return false;
     if (state._multiSlots && !state._multiIsHost && state._socket) {
-      state._socket.emit("playerAction", { type: "purchaseFrontTriplet", pid: state.myPlayerId, unitType: unitTypeKey });
+      sendPlayerAction({ type: "purchaseFrontTriplet", pid: state.myPlayerId, unitType: unitTypeKey });
       const optRes = purchaseFrontTriplet(me.id, unitTypeKey);
       if (!optRes.ok) { showPurchaseError(optRes.reason); return false; }
       state.targetPoints = [];
@@ -13173,7 +13158,9 @@
   }
 
   function isRemoteGameplayClient() {
-    return !!(state._multiSlots && state._socket && !state._multiIsHost);
+    return matchSessionApi && typeof matchSessionApi.isRemoteGameplayClient === "function"
+      ? matchSessionApi.isRemoteGameplayClient()
+      : !!(state._multiSlots && state._socket && !state._multiIsHost);
   }
 
   function getCardRarityLabel(card) {
@@ -13272,7 +13259,7 @@
     if (cardDef.kind === "buff") {
       triggerCardPlayFlashByRarity(cardDef.rarity);
       if (isRemoteGameplayClient()) {
-        state._socket.emit("playerAction", { type: "activateBuffCard", pid: state.myPlayerId, instanceId: instance.instanceId });
+        sendPlayerAction({ type: "activateBuffCard", pid: state.myPlayerId, instanceId: instance.instanceId });
       } else {
         activateBuffCardForPlayer(state.myPlayerId, instance.instanceId);
       }
@@ -13283,7 +13270,7 @@
     if (!cardDef.targeting || cardDef.targeting === "instant") {
       triggerCardPlayFlashByRarity(cardDef.rarity);
       if (isRemoteGameplayClient()) {
-        state._socket.emit("playerAction", { type: "castAbilityCard", pid: state.myPlayerId, instanceId: instance.instanceId });
+        sendPlayerAction({ type: "castAbilityCard", pid: state.myPlayerId, instanceId: instance.instanceId });
       } else {
         castAbilityCardForPlayer({ pid: state.myPlayerId, instanceId: instance.instanceId });
       }
@@ -13305,7 +13292,7 @@
       instanceId
     }, extraPayload || {});
     if (cardDef) triggerCardPlayFlashByRarity(cardDef.rarity);
-    if (isRemoteGameplayClient()) state._socket.emit("playerAction", payload);
+    if (isRemoteGameplayClient()) sendPlayerAction(payload);
     else castAbilityCardForPlayer(payload);
     state._pendingAbilityCardInstanceId = null;
     if (me) me.pendingAbilityCardId = null;
@@ -14164,7 +14151,7 @@
         div.addEventListener("click", () => {
           if (cardTooltipEl) { cardTooltipEl.remove(); cardTooltipEl = null; }
           if (state._socket && !state._multiIsHost) {
-            state._socket.emit("playerAction", { type: "cardChoice", pid: state.myPlayerId, card: card });
+            sendPlayerAction({ type: "cardChoice", pid: state.myPlayerId, card: card });
           }
           applyCard(me, card);
           me.pendingCardPicks = picks - 1;
@@ -15090,7 +15077,7 @@
       ? { durationSec: 3 }
       : null;
     if (state._multiSlots && !state._multiIsHost && state._socket) {
-      state._socket.emit("playerAction", { type: "useAbility", abilityId: castAbilityId, pid: state.myPlayerId, x: wx, y: wy });
+      sendPlayerAction({ type: "useAbility", abilityId: castAbilityId, pid: state.myPlayerId, x: wx, y: wy });
     } else {
       _spawnIonNebulaLocal(wx, wy, state.myPlayerId, spawnOpts);
       setAbilityCooldown(state.myPlayerId, castAbilityId, def.cooldown);
@@ -15635,7 +15622,7 @@
   function useMeteor(targetX, targetY, angle) {
     const def = ABILITY_DEFS.find(d => d.id === "meteor");
     if (state._multiSlots && !state._multiIsHost && state._socket) {
-      state._socket.emit("playerAction", { type: "useAbility", abilityId: "meteor", pid: state.myPlayerId, x: targetX, y: targetY, angle });
+      sendPlayerAction({ type: "useAbility", abilityId: "meteor", pid: state.myPlayerId, x: targetX, y: targetY, angle });
     } else {
       _spawnMeteorLocal(targetX, targetY, angle, state.myPlayerId);
       setAbilityCooldown(state.myPlayerId, "meteor", def.cooldown);
@@ -16976,7 +16963,7 @@
     if (!def || def.oneTime && (state._abilityUsedByPlayer[state.myPlayerId] || []).includes("timeJump")) return;
     if (state._timeRewindFx && state._timeRewindFx.active) return;
     if (state._multiSlots && !state._multiIsHost && state._socket) {
-      state._socket.emit("playerAction", { type: "useAbility", abilityId: "timeJump", pid: state.myPlayerId });
+      sendPlayerAction({ type: "useAbility", abilityId: "timeJump", pid: state.myPlayerId });
       cancelAbilityTargeting();
       hideAbilityPicker();
       return;
@@ -19385,7 +19372,7 @@
         if (confirmPendingAbilityCardCast(payload)) return;
         const def = ABILITY_DEFS.find((d) => d.id === state._abilityTargeting);
         if (state._multiSlots && !state._multiIsHost && state._socket) {
-          state._socket.emit("playerAction", { type: "useAbility", abilityId: state._abilityTargeting, pid: state.myPlayerId, ...payload });
+          sendPlayerAction({ type: "useAbility", abilityId: state._abilityTargeting, pid: state.myPlayerId, ...payload });
         } else {
           const result = state._abilityTargeting === "droneSwarm"
             ? useDroneSwarm(state.myPlayerId, laneSelection.frontType)
@@ -19404,7 +19391,7 @@
         const cooldownKey = abilityId;
         const cooldownValue = ABILITY_DEFS.find((d) => d.id === abilityId)?.cooldown || CFG.BLACKHOLE_COOLDOWN;
         if (state._multiSlots && !state._multiIsHost && state._socket) {
-          state._socket.emit("playerAction", { type: "useAbility", abilityId, pid: state.myPlayerId, x: wx, y: wy });
+          sendPlayerAction({ type: "useAbility", abilityId, pid: state.myPlayerId, x: wx, y: wy });
           if (me) {
             if (!state._abilityCooldownsByPlayer[me.id]) state._abilityCooldownsByPlayer[me.id] = {};
             state._abilityCooldownsByPlayer[me.id][cooldownKey] = toSimSeconds(cooldownValue);
@@ -19431,7 +19418,7 @@
         if (confirmPendingAbilityCardCast()) return;
         const def = ABILITY_DEFS.find(d => d.id === "activeShield");
         if (state._multiSlots && !state._multiIsHost && state._socket) {
-          state._socket.emit("playerAction", { type: "useAbility", abilityId: "activeShield", pid: state.myPlayerId });
+          sendPlayerAction({ type: "useAbility", abilityId: "activeShield", pid: state.myPlayerId });
         } else {
           useActiveShield(state.myPlayerId);
           if (def) setAbilityCooldown(state.myPlayerId, "activeShield", def.cooldown);
@@ -19442,7 +19429,7 @@
         if (confirmPendingAbilityCardCast()) return;
         const def = ABILITY_DEFS.find(d => d.id === "loan");
         if (state._multiSlots && !state._multiIsHost && state._socket) {
-          state._socket.emit("playerAction", { type: "useAbility", abilityId: "loan", pid: state.myPlayerId });
+          sendPlayerAction({ type: "useAbility", abilityId: "loan", pid: state.myPlayerId });
         } else {
           useLoan(state.myPlayerId);
           if (def) setAbilityCooldown(state.myPlayerId, "loan", def.cooldown);
@@ -19453,7 +19440,7 @@
         if (confirmPendingAbilityCardCast()) return;
         const def = ABILITY_DEFS.find(d => d.id === "gloriousBattleMarch");
         if (state._multiSlots && !state._multiIsHost && state._socket) {
-          state._socket.emit("playerAction", { type: "useAbility", abilityId: "gloriousBattleMarch", pid: state.myPlayerId });
+          sendPlayerAction({ type: "useAbility", abilityId: "gloriousBattleMarch", pid: state.myPlayerId });
         } else {
           useGloriousBattleMarch(state.myPlayerId);
           if (def) setAbilityCooldown(state.myPlayerId, "gloriousBattleMarch", def.cooldown);
@@ -19472,7 +19459,7 @@
           if (confirmPendingAbilityCardCast({ targetCityId })) return;
           const def = ABILITY_DEFS.find(d => d.id === abilityId);
           if (state._multiSlots && !state._multiIsHost && state._socket) {
-            state._socket.emit("playerAction", { type: "useAbility", abilityId, pid: state.myPlayerId, targetCityId });
+            sendPlayerAction({ type: "useAbility", abilityId, pid: state.myPlayerId, targetCityId });
           } else {
             if (abilityId === "cosmicGodHand") useCosmicGodHand(state.myPlayerId, targetCityId);
             else useRaiderCapture(state.myPlayerId, targetCityId);
@@ -19486,7 +19473,7 @@
         const def = ABILITY_DEFS.find(d => d.id === "pirateRaid");
         if (state._multiSlots && !state._multiIsHost && state._socket) {
           if (!isPirateRaidPointOnLane(wx, wy)) return;
-          state._socket.emit("playerAction", { type: "useAbility", abilityId: "pirateRaid", pid: state.myPlayerId, x: wx, y: wy });
+          sendPlayerAction({ type: "useAbility", abilityId: "pirateRaid", pid: state.myPlayerId, x: wx, y: wy });
         } else {
           if (!spawnPirateRaid(wx, wy, state.myPlayerId)) return;
           if (def) setAbilityCooldown(state.myPlayerId, "pirateRaid", def.cooldown);
@@ -19510,7 +19497,7 @@
           if (confirmPendingAbilityCardCast({ x: mt.x, y: mt.y, angle: mt.angle })) return;
           const def = ABILITY_DEFS.find(d => d.id === "spatialRift");
           if (state._multiSlots && !state._multiIsHost && state._socket) {
-            state._socket.emit("playerAction", { type: "useAbility", abilityId: "spatialRift", pid: state.myPlayerId, x: mt.x, y: mt.y, angle: mt.angle });
+            sendPlayerAction({ type: "useAbility", abilityId: "spatialRift", pid: state.myPlayerId, x: mt.x, y: mt.y, angle: mt.angle });
           } else {
             spawnSpatialRiftLocal(mt.x, mt.y, mt.angle, state.myPlayerId);
             if (def) setAbilityCooldown(state.myPlayerId, "spatialRift", def.cooldown);
@@ -19527,7 +19514,7 @@
           if (confirmPendingAbilityCardCast({ x: mt.x, y: mt.y, angle: mt.angle })) return;
           const def = ABILITY_DEFS.find(d => d.id === METEOR_SWARM_ABILITY_ID);
           if (state._multiSlots && !state._multiIsHost && state._socket) {
-            state._socket.emit("playerAction", { type: "useAbility", abilityId: METEOR_SWARM_ABILITY_ID, pid: state.myPlayerId, x: mt.x, y: mt.y, angle: mt.angle });
+            sendPlayerAction({ type: "useAbility", abilityId: METEOR_SWARM_ABILITY_ID, pid: state.myPlayerId, x: mt.x, y: mt.y, angle: mt.angle });
           } else {
             _spawnMeteorSwarmLocal(mt.x, mt.y, mt.angle, state.myPlayerId);
             if (def) setAbilityCooldown(state.myPlayerId, METEOR_SWARM_ABILITY_ID, def.cooldown);
@@ -19542,7 +19529,7 @@
         if (confirmPendingAbilityCardCast({ x: wx, y: wy })) return;
         const def = ABILITY_DEFS.find(d => d.id === abilityId);
         if (state._multiSlots && !state._multiIsHost && state._socket) {
-          state._socket.emit("playerAction", { type: "useAbility", abilityId, pid: state.myPlayerId, x: wx, y: wy });
+          sendPlayerAction({ type: "useAbility", abilityId, pid: state.myPlayerId, x: wx, y: wy });
         } else {
           const placed = deployMinefieldLocal(abilityId, wx, wy, state.myPlayerId);
           if (!placed || !placed.ok) return;
@@ -19554,7 +19541,7 @@
         const abilityId = state._abilityTargeting;
         if (confirmPendingAbilityCardCast({ x: wx, y: wy })) return;
         if (state._multiSlots && !state._multiIsHost && state._socket) {
-          state._socket.emit("playerAction", { type: "useAbility", abilityId, pid: state.myPlayerId, x: wx, y: wy });
+          sendPlayerAction({ type: "useAbility", abilityId, pid: state.myPlayerId, x: wx, y: wy });
           cancelAbilityTargeting();
         } else {
           useAbilityAtPoint(abilityId, wx, wy, state.myPlayerId);
@@ -20921,13 +20908,18 @@
   }
 
   function startGameSingle(nickname) {
-    stopMenuBackdropBattle();
-    state._gameSeed = null;
-    state._multiIsHost = false;
-    state._multiSlots = null;
-    state._slotToPid = null;
-    state._pendingFullSnap = null;
-    state._pendingSnap = null;
+    if (gameModeControllerApi && gameModeControllerApi.enterSinglePlayer) {
+      gameModeControllerApi.enterSinglePlayer();
+    } else {
+      stopMenuBackdropBattle();
+      state._gameSeed = null;
+      if (matchSessionApi && matchSessionApi.resetForSinglePlayer) matchSessionApi.resetForSinglePlayer();
+      state._multiIsHost = false;
+      state._multiSlots = null;
+      state._slotToPid = null;
+      state._pendingFullSnap = null;
+      state._pendingSnap = null;
+    }
     PLAYER_NAMES[1] = (nickname || "Игрок").trim().slice(0, 24) || "Игрок";
     state.myPlayerId = 1;
     state.botPlayerIds = null;
@@ -20955,8 +20947,7 @@
     if (typeof updateMultiHostOnlyControls === "function") updateMultiHostOnlyControls();
   }
 
-  function startGameMulti(slots, mySlot) {
-    stopMenuBackdropBattle();
+  function startGameMulti(slots, mySlot, matchMeta) {
     state.botPlayerIds = new Set();
     const filledSlots = [];
     for (let i = 0; i < slots.length; i++) {
@@ -20966,11 +20957,27 @@
     const slotToPid = {};
     for (const i of filledSlots) slotToPid[i] = i + 1;
     state.myPlayerId = slotToPid[mySlot] || (mySlot + 1);
-    state._multiIsHost = !!state._isHost;
-    state._multiSlots = slots;
-    state._slotToPid = slotToPid;
-    state._pendingFullSnap = null;
-    state._pendingSnap = null;
+    const matchContext = {
+      roomId: matchMeta && matchMeta.roomId ? matchMeta.roomId : state._roomId,
+      matchId: matchMeta && matchMeta.matchId ? matchMeta.matchId : state._matchId,
+      matchType: matchMeta && matchMeta.matchType ? matchMeta.matchType : state._matchType,
+      slots,
+      mySlot,
+      hostSlot: state._hostSlot,
+      isHost: !!state._isHost,
+      slotToPid
+    };
+    if (gameModeControllerApi && gameModeControllerApi.enterMultiplayerMatch) {
+      gameModeControllerApi.enterMultiplayerMatch(matchContext);
+    } else {
+      stopMenuBackdropBattle();
+      state._multiIsHost = !!state._isHost;
+      state._multiSlots = slots;
+      state._slotToPid = slotToPid;
+      state._pendingFullSnap = null;
+      state._pendingSnap = null;
+      if (matchSessionApi && matchSessionApi.beginMatch) matchSessionApi.beginMatch(matchContext);
+    }
     console.log("[MP-INIT] mySlot=", mySlot, "myPlayerId=", state.myPlayerId, "isHost=", state._isHost, "filledSlots=", filledSlots, "slotToPid=", JSON.stringify(slotToPid));
     console.log("[MP-INIT] slots=", JSON.stringify(slots));
     for (const i of filledSlots) {
@@ -21029,7 +21036,7 @@
     if (gameChatSend && gameChatInput && state._socket) {
       gameChatSend.onclick = () => {
         const text = String(gameChatInput.value || "").trim();
-        if (text) { state._socket.emit("chat", text); gameChatInput.value = ""; }
+        if (text) { sendChatMessage(text); gameChatInput.value = ""; }
       };
       gameChatInput.onkeydown = (e) => { if (e.key === "Enter") { gameChatSend.click(); } };
     }
@@ -21093,15 +21100,20 @@
   let hostNetworkRuntimeApi = null;
   let hostSimRuntimeApi = null;
   let visualTickRuntimeApi = null;
+  let authorityAdapterApi = null;
 
-  function installRuntime(runtimeGlobal, deps) {
-    return runtimeGlobal && runtimeGlobal.install ? runtimeGlobal.install(deps) : null;
-  }
+  const installRuntime = appBootstrapApi && appBootstrapApi.installRuntime
+    ? appBootstrapApi.installRuntime
+    : function (runtimeGlobal, deps) {
+        return runtimeGlobal && runtimeGlobal.install ? runtimeGlobal.install(deps) : null;
+      };
 
-  function requireRuntime(api, runtimeName) {
-    if (!api) throw new Error(`${runtimeName} is unavailable`);
-    return api;
-  }
+  const requireRuntime = appBootstrapApi && appBootstrapApi.requireRuntime
+    ? appBootstrapApi.requireRuntime
+    : function (api, runtimeName) {
+        if (!api) throw new Error(`${runtimeName} is unavailable`);
+        return api;
+      };
 
   function serializeGameState() {
     return _netSerializer.serialize(state);
@@ -21177,6 +21189,9 @@
   lobbyUiApi = installRuntime(window.LobbyUI, {
     state,
     socket,
+    socketSession: socketSessionApi,
+    actionGateway: actionGatewayApi,
+    matchSession: matchSessionApi,
     socketUrl: socketUrlEarly,
     showScreen,
     startGameSingle,
@@ -21317,38 +21332,62 @@
     updateCombatDebugLabels
   });
 
-  if (socket) {
-    socket.on("net:pong", (seq) => _netPing.onPong(seq));
+  authorityAdapterApi = installRuntime(window.AuthorityAdapter, {
+    state,
+    serializeGameState,
+    applyGameState,
+    getSocketActionDispatchApi: () => socketActionDispatchApi
+  });
+  gameModeControllerApi = installRuntime(window.GameModeController, {
+    state,
+    stopMenuBackdropBattle,
+    matchSession: matchSessionApi
+  });
 
-    socket.on("gameStart", (data) => {
+  if (socketSessionApi) {
+    socketSessionApi.on("sessionAssigned", (auth) => {
+      if (platformApi && platformApi.saveSessionAuth) platformApi.saveSessionAuth(auth);
+      if (matchSessionApi && matchSessionApi.setSessionAuth) matchSessionApi.setSessionAuth(auth);
+    });
+    socketSessionApi.on("reconnectGranted", (data) => {
+      if (platformApi && platformApi.saveSessionAuth) platformApi.saveSessionAuth(data);
+      if (matchSessionApi && matchSessionApi.setSessionAuth) matchSessionApi.setSessionAuth(data);
+      if (matchSessionApi && matchSessionApi.updateLobbyContext) {
+        matchSessionApi.updateLobbyContext(data);
+        if (Array.isArray(data.slots)) matchSessionApi.applyRoomSnapshot({ slots: data.slots, hostSlot: data.hostSlot });
+      }
+    });
+    socketSessionApi.on("net:pong", (seq) => _netPing.onPong(seq));
+    socketSessionApi.on("gameStart", (data) => {
       console.log("[MP] gameStart received. _mySlot=", state._mySlot, "_isHost=", state._isHost, "seed=", data.seed);
       state._gameSeed = typeof data.seed === "number" ? data.seed : null;
+      if (matchSessionApi && matchSessionApi.updateLobbyContext) matchSessionApi.updateLobbyContext(data);
       _netPing.start(socket);
       _netSerializer.reset();
       _netSendScheduler.start();
-      startGameMulti(data.slots, state._mySlot);
+      startGameMulti(data.slots, state._mySlot, data);
     });
-    socket.on("gameState", (data) => {
+    socketSessionApi.on("gameState", (data) => {
       if (!state._firstSnapLogged && data && data.units && data.units.length > 0) {
         state._firstSnapLogged = true;
         console.log("[MP-SYNC] FIRST snap with units:", JSON.stringify(data.units.slice(0, 3)));
         console.log("[MP-SYNC] FIRST snap players:", JSON.stringify(data.players.map(p => ({ id: p.id, name: p.name, color: p.color?.toString(16) }))));
       }
-      if (data && data._fullSync) {
-        state._pendingFullSnap = data;
-      } else {
-        state._pendingSnap = data;
-      }
+      if (matchSessionApi && matchSessionApi.setPendingSnapshot) matchSessionApi.setPendingSnapshot(data);
+      else if (data && data._fullSync) state._pendingFullSnap = data;
+      else state._pendingSnap = data;
     });
-    socket.on("cardState", (payload) => {
+    socketSessionApi.on("cardState", (payload) => {
       applyIncomingCardState(payload);
     });
-    socket.on("playerAction", (action) => {
-      if (socketActionDispatchApi && socketActionDispatchApi.handlePlayerAction) {
+    socketSessionApi.on("playerAction", (action) => {
+      if (authorityAdapterApi && authorityAdapterApi.handleRemoteAction) {
+        authorityAdapterApi.handleRemoteAction(action);
+      } else if (socketActionDispatchApi && socketActionDispatchApi.handlePlayerAction) {
         socketActionDispatchApi.handlePlayerAction(action);
       }
     });
-    socket.on("mapRegenerate", (data) => {
+    socketSessionApi.on("mapRegenerate", (data) => {
       if (state._multiIsHost || !state._multiSlots || !state._slotToPid) return;
       const seed = typeof data.seed === "number" ? data.seed : (Date.now() >>> 0);
       state._gameSeed = seed;

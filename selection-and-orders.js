@@ -28,8 +28,15 @@
       pathPreviewLayer,
       drawShipShape,
       getSquads,
-      rallyPointHintEl
+      rallyPointHintEl,
+      sendPlayerAction
     } = deps;
+
+    const emitPlayerAction = typeof sendPlayerAction === "function"
+      ? sendPlayerAction
+      : function (payload) {
+          if (payload && state._socket) state._socket.emit("playerAction", payload);
+        };
 
     function getCombatApi() {
       return typeof COMBAT !== "undefined" ? COMBAT : null;
@@ -597,7 +604,7 @@
             }
             if (state._multiSlots && !state._multiIsHost && state._socket) {
               const actionPayload = buildQueuedActionPayload(leaderIds, emitSequence, { x: fp.x, y: fp.y });
-              if (actionPayload) state._socket.emit("playerAction", actionPayload);
+              if (actionPayload) emitPlayerAction(actionPayload);
             }
           } else if (order.type === "move" && !state.formationPreview) {
             const addWaypoint = e.shiftKey;
@@ -624,7 +631,7 @@
             }
             if (state._multiSlots && !state._multiIsHost && state._socket) {
               const actionPayload = buildQueuedActionPayload(leaderIds, emitSequence, { x: order.x, y: order.y });
-              if (actionPayload) state._socket.emit("playerAction", actionPayload);
+              if (actionPayload) emitPlayerAction(actionPayload);
             }
           } else if (order.type === "attackUnit") {
             const target = state.units.get(order.targetUnitId);
@@ -643,7 +650,7 @@
               }
               if (state._multiSlots && !state._multiIsHost && state._socket) {
                 const actionPayload = buildQueuedActionPayload(leaderIds, emitSequence, { x: target.x, y: target.y });
-                if (actionPayload) state._socket.emit("playerAction", actionPayload);
+                if (actionPayload) emitPlayerAction(actionPayload);
               }
             }
           } else if (order.type === "focusFire") {
@@ -664,7 +671,7 @@
                 }
               }
               if (state._multiSlots && !state._multiIsHost && state._socket) {
-                state._socket.emit("playerAction", { type: usedFocus ? "focusFire" : "chase", leaderIds, targetUnitId: target.id, x: target.x, y: target.y });
+                emitPlayerAction({ type: usedFocus ? "focusFire" : "chase", leaderIds, targetUnitId: target.id, x: target.x, y: target.y });
               }
             }
           } else if (order.type === "attackCity") {
@@ -684,7 +691,7 @@
               }
               if (state._multiSlots && !state._multiIsHost && state._socket) {
                 const actionPayload = buildQueuedActionPayload(leaderIds, emitSequence, { x: city.x, y: city.y });
-                if (actionPayload) state._socket.emit("playerAction", actionPayload);
+                if (actionPayload) emitPlayerAction(actionPayload);
               }
             }
           } else if (order.type === "attackPirateBase" && state.pirateBase) {
@@ -702,7 +709,7 @@
             }
             if (state._multiSlots && !state._multiIsHost && state._socket) {
               const actionPayload = buildQueuedActionPayload(leaderIds, emitSequence, { x: state.pirateBase.x, y: state.pirateBase.y });
-              if (actionPayload) state._socket.emit("playerAction", actionPayload);
+              if (actionPayload) emitPlayerAction(actionPayload);
             }
           } else if (order.type === "capture") {
             const addWaypoint = e.shiftKey;
@@ -719,7 +726,7 @@
             }
             if (state._multiSlots && !state._multiIsHost && state._socket) {
               const actionPayload = buildQueuedActionPayload(leaderIds, emitSequence, { x: order.x, y: order.y });
-              if (actionPayload) state._socket.emit("playerAction", actionPayload);
+              if (actionPayload) emitPlayerAction(actionPayload);
             }
           }
           state.formationPreview = null;
@@ -758,7 +765,7 @@
           if (state._multiSlots && !state._multiIsHost && state._socket) {
             const firstLeader = state.units.get(leaderIds[0]);
             const waypoints = firstLeader ? firstLeader.waypoints : [{ x: fp.x, y: fp.y }];
-            state._socket.emit("playerAction", { type: "move", leaderIds, waypoints, x: fp.x, y: fp.y, angle: fp.angle });
+            emitPlayerAction({ type: "move", leaderIds, waypoints, x: fp.x, y: fp.y, angle: fp.angle });
           }
         } else if (order.type === "move" && !state.formationPreview) {
           const addWaypoint = e.shiftKey;
@@ -785,7 +792,7 @@
             leaderIds.push(leader.id);
           }
           if (state._multiSlots && !state._multiIsHost && state._socket) {
-            state._socket.emit("playerAction", { type: "move", leaderIds, waypoints: [wp], x: order.x, y: order.y });
+            emitPlayerAction({ type: "move", leaderIds, waypoints: [wp], x: order.x, y: order.y });
           }
         } else if (order.type === "attackUnit") {
           const target = state.units.get(order.targetUnitId);
@@ -806,7 +813,7 @@
               leaderIds.push(leader.id);
             }
             if (state._multiSlots && !state._multiIsHost && state._socket) {
-              state._socket.emit("playerAction", { type: "chase", leaderIds, targetUnitId: target.id, x: target.x, y: target.y });
+              emitPlayerAction({ type: "chase", leaderIds, targetUnitId: target.id, x: target.x, y: target.y });
             }
           }
         } else if (order.type === "attackCity") {
@@ -833,7 +840,7 @@
               leaderIds.push(leader.id);
             }
             if (state._multiSlots && !state._multiIsHost && state._socket) {
-              state._socket.emit("playerAction", { type: "chaseCity", leaderIds, targetCityId: city.id, x: city.x, y: city.y });
+              emitPlayerAction({ type: "chaseCity", leaderIds, targetCityId: city.id, x: city.x, y: city.y });
             }
           }
         } else if (order.type === "capture") {
@@ -864,7 +871,7 @@
             leaderIds.push(leader.id);
           }
           if (state._multiSlots && !state._multiIsHost && state._socket) {
-            state._socket.emit("playerAction", { type: "move", leaderIds, waypoints: [{ x: order.x, y: order.y }], x: order.x, y: order.y });
+            emitPlayerAction({ type: "move", leaderIds, waypoints: [{ x: order.x, y: order.y }], x: order.x, y: order.y });
           }
         }
         state.formationPreview = null;
