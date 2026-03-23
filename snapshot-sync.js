@@ -29,6 +29,7 @@
       destroyThermoNukeVisual,
       destroyPirateRaidVisual,
       destroyEconomyAbilityVisual,
+      destroyAbilityZoneVisual,
       makeMineVisual,
       updateMineVisual,
       syncSectorObjectivesFromSnapshot,
@@ -86,6 +87,61 @@
         entity._lastInterpDurationMs = durationMs;
       }
       return durationMs;
+    }
+
+    function cloneStormBlob(blob) {
+      if (!blob) return null;
+      return {
+        ox: blob.ox || 0,
+        oy: blob.oy || 0,
+        r: blob.r || 0,
+        _baseOx: blob._baseOx != null ? blob._baseOx : (blob.ox || 0),
+        _baseOy: blob._baseOy != null ? blob._baseOy : (blob.oy || 0),
+        _baseR: blob._baseR != null ? blob._baseR : (blob.r || 0),
+        _phase: blob._phase != null ? blob._phase : 0
+      };
+    }
+
+    function createStormFromSnapshot(storm) {
+      if (!storm) return null;
+      return {
+        x: storm.x || 0,
+        y: storm.y || 0,
+        vx: storm.vx || 0,
+        vy: storm.vy || 0,
+        spawnedAt: storm.spawnedAt || 0,
+        duration: storm.duration || 0,
+        lastDirChange: storm.lastDirChange || storm.spawnedAt || 0,
+        lastDmgTick: storm.lastDmgTick || storm.spawnedAt || 0,
+        rotAngle: storm.rotAngle || 0,
+        stretch: storm.stretch || 1,
+        ownerId: storm.ownerId,
+        tickDamagePct: storm.tickDamagePct,
+        finalBurstPct: storm.finalBurstPct,
+        _finalBurstDone: !!storm._finalBurstDone,
+        blobs: Array.isArray(storm.blobs) ? storm.blobs.map(cloneStormBlob).filter(Boolean) : [],
+        gfx: null,
+        emojiContainer: null
+      };
+    }
+
+    function applyStormSnapshot(target, storm) {
+      if (!target || !storm) return;
+      target.x = storm.x || 0;
+      target.y = storm.y || 0;
+      target.vx = storm.vx || 0;
+      target.vy = storm.vy || 0;
+      target.spawnedAt = storm.spawnedAt || 0;
+      target.duration = storm.duration || 0;
+      target.lastDirChange = storm.lastDirChange || storm.spawnedAt || 0;
+      target.lastDmgTick = storm.lastDmgTick || storm.spawnedAt || 0;
+      target.rotAngle = storm.rotAngle || 0;
+      target.stretch = storm.stretch || 1;
+      target.ownerId = storm.ownerId;
+      target.tickDamagePct = storm.tickDamagePct;
+      target.finalBurstPct = storm.finalBurstPct;
+      target._finalBurstDone = !!storm._finalBurstDone;
+      target.blobs = Array.isArray(storm.blobs) ? storm.blobs.map(cloneStormBlob).filter(Boolean) : [];
     }
 
     function applyGameStateInner(snap) {
@@ -544,6 +600,23 @@
           const s = state._abilityStorms.pop();
           destroyIonStormVisual(s);
         }
+        for (let i = 0; i < snap.abilityStorms.length; i++) {
+          const incoming = snap.abilityStorms[i];
+          const current = state._abilityStorms[i];
+          const sameStorm = current
+            && Math.abs((current.spawnedAt || 0) - (incoming.spawnedAt || 0)) < 0.0001
+            && Math.abs((current.x || 0) - (incoming.x || 0)) < 8
+            && Math.abs((current.y || 0) - (incoming.y || 0)) < 8;
+          if (!sameStorm) {
+            if (current) destroyIonStormVisual(current);
+            state._abilityStorms[i] = createStormFromSnapshot(incoming);
+            continue;
+          }
+          applyStormSnapshot(current, incoming);
+        }
+      } else if (state._abilityStorms && state._abilityStorms.length && !state._multiIsHost) {
+        for (const s of state._abilityStorms) destroyIonStormVisual(s);
+        state._abilityStorms = [];
       }
 
       if (snap.abilityCooldownsByPlayer) {
@@ -656,6 +729,7 @@
               prev.spawnedAt = incoming.spawnedAt;
               prev.duration = incoming.duration;
               prev.radius = incoming.radius;
+              prev.styleKey = incoming.styleKey || null;
               prev.damageScale = incoming.damageScale != null ? incoming.damageScale : 1;
               prev.finalBurstPct = incoming.finalBurstPct != null ? incoming.finalBurstPct : 0.1;
               nextBlackHoles.push(prev);

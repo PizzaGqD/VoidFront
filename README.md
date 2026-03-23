@@ -78,3 +78,41 @@ npx --yes serve
 ---
 
 Управление: клик по карте — цель, «Отправить» — отправить юнитов, ПКМ — панорама, колесо мыши — зум.
+
+## Runtime config и релиз
+
+Для production-сборки есть команда:
+
+```bash
+npm run build:release
+```
+
+Она собирает статический клиент в `dist/client` и исключает:
+
+- `tests/`
+- `VFX_LAB/`
+- `server.js`
+- `.edge-headless-profile*`
+- прочий локальный dev-мусор
+
+В release bundle файл `runtime-config.js` уже переключает билд в production-safe режим:
+
+- debug/test UI выключены
+- perf HUD выключен
+- `window._gameTest` не публикуется
+
+### Продовый backend config
+
+Если клиент раздаётся через `server.js`, можно задавать runtime config через переменные окружения:
+
+```bash
+set GAME_SERVER_URL=https://your-backend.example
+set VOIDFRONT_AUTHORITY_MODE=host-client
+set RELEASE_CHANNEL=production
+set VOIDFRONT_ENABLE_DEBUG_TOOLS=false
+set VOIDFRONT_ENABLE_TEST_UI=false
+set VOIDFRONT_ENABLE_PERF_HUD=false
+npm start
+```
+
+Сервер сам отдаст `runtime-config.js` с этими значениями.

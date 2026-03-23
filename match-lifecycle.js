@@ -13,6 +13,7 @@ function createMatchRecord(options) {
     matchId: opts.matchId,
     roomId: opts.roomId,
     matchType: normalizeMatchType(opts.matchType || inferMatchTypeFromSlots(opts.slots)),
+    authorityMode: opts.authorityMode || "host-client",
     seed: opts.seed,
     createdAt: Date.now(),
     startedAt: Date.now()
@@ -25,6 +26,7 @@ function buildGameStartPayload(options) {
     roomId: opts.roomId || null,
     matchId: opts.matchId || null,
     matchType: normalizeMatchType(opts.matchType || inferMatchTypeFromSlots(opts.slots)),
+    authorityMode: opts.authorityMode || "host-client",
     seed: opts.seed,
     slots: Array.isArray(opts.slots) ? opts.slots : [],
     sessionId: opts.sessionId || null,

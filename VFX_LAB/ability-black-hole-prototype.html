@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ability Black Hole Prototype 01</title>
+  <link rel="stylesheet" href="./vfx-lab.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <h2 id="variantTitle">Ability Black Hole Prototype 01</h2>
+      <p id="variantSubtitle">Лаборатория для новой `Чёрной дыры`: сначала делаем отдельный hero-VFX вне игры, находим сильнейший fantasy, потом уже решаем, как переносить в прод.</p>
+      <p>Все варианты цикличны: `cast flash -> sustain loop -> collapse flash`. Задача не в механике, а в максимальном качестве образа, драме и богатстве силуэта.</p>
+    </div>
+    <div class="controls">
+      <div class="control">
+        <label>Variant</label>
+        <select id="variant"></select>
+      </div>
+      <div class="control">
+        <label>LOD</label>
+        <select id="lodMode">
+          <option value="auto">Auto</option>
+          <option value="near">Near</option>
+          <option value="mid">Mid</option>
+          <option value="far">Far</option>
+        </select>
+      </div>
+      <div class="control">
+        <label>Tempo</label>
+        <input id="tempo" type="range" min="45" max="160" value="100">
+      </div>
+      <div class="control">
+        <label>Scale</label>
+        <input id="scale" type="range" min="45" max="115" value="76">
+      </div>
+      <div class="control">
+        <label>Density</label>
+        <input id="density" type="range" min="40" max="150" value="100">
+      </div>
+      <div class="control">
+        <label>Backdrop</label>
+        <input id="backdrop" type="range" min="30" max="140" value="92">
+      </div>
+    </div>
+    <div class="actions">
+      <button type="button" id="cycleVariant">Cycle Variant</button>
+      <button type="button" id="triggerCast">Trigger Cast</button>
+      <button type="button" id="triggerCollapse">Trigger Collapse</button>
+      <button type="button" id="randomizeSeed">Random Seed</button>
+    </div>
+  </header>
+
+  <nav class="nav">
+    <a href="./index.html">Overview</a>
+    <a href="./cards-prototype.html">Card Prototype 01</a>
+    <a href="./ability-arsenal-prototype.html">Ability Arsenal Prototype 01</a>
+    <a href="./ability-cataclysm-prototype.html">Cataclysm Prototype 01</a>
+    <a href="./ability-rift-prototype.html">Rift Prototype 01</a>
+    <a href="./ability-grav-anchor-prototype.html">Grav Anchor Prototype 01</a>
+    <a href="./ability-nano-swarm-prototype.html">Nano Swarm Prototype 01</a>
+    <a href="./ability-black-hole-prototype.html" class="active">Black Hole Prototype 01</a>
+    <a href="./zone-pressure-prototype.html">Zone Prototype 01</a>
+    <a href="./ships-prototype.html">Ships Prototype 01</a>
+    <a href="./mine-flow-prototype.html">Mine Flow Prototype 01</a>
+    <a href="./map-nebula-prototype.html">Nebula Prototype 01</a>
+    <a href="./off-map-ambience-prototype.html">Off-Map Ambience Prototype 01</a>
+  </nav>
+
+  <main class="scene-wrap">
+    <canvas id="scene"></canvas>
+  </main>
+
+  <div id="statusLine" class="status-line">
+    Смотри на три вещи: качество силуэта, богатство sustain-loop и мощь двух вспышек — при касте и при схлопывании.
+  </div>
+
+  <section class="legend">
+    <article class="legend-card">
+      <h3>Gameplay Intent</h3>
+      <p id="legendGameplay">Это не просто круглая аура, а центральный hero-VFX матча: мощный singularity event, который должен ощущаться как редкая и страшная способность.</p>
+    </article>
+    <article class="legend-card">
+      <h3>Variant Read</h3>
+      <p id="legendRead">Шесть вариантов абсолютно различаются fantasy-языком: корона, кафедральная линза, кровавый вихрь, крио-ореол, обсидиановый венец и призматическая пасть.</p>
+    </article>
+    <article class="legend-card">
+      <h3>Prototype Focus</h3>
+      <p id="legendFocus">Сейчас не пытаемся экономить эффект для боя. Ищем самый драматичный, богатый и красивый образ, который потом уже можно адаптировать в игровую версию.</p>
+    </article>
+  </section>
+
+  <script src="./ability-black-hole-prototype.js"></script>
+</body>
+</html>

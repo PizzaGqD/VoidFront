@@ -6,8 +6,8 @@
 (function () {
   "use strict";
 
-  const FAR_THRESHOLD  = 0.12;
-  const MID_THRESHOLD  = 0.30;
+  const FAR_THRESHOLD  = 0.18;
+  const MID_THRESHOLD  = 0.42;
 
   const LEVELS = { FAR: "far", MID: "mid", NEAR: "near" };
 

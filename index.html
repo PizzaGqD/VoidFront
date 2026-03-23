@@ -4,6 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>VoidFront</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -592,7 +593,7 @@
   <script src="thermo-nuke-ability.js?v=1"></script>
   <script src="grav-anchor-ability.js?v=1"></script>
   <script src="nano-swarm-ability.js?v=1"></script>
-  <script src="black-hole-renderer.js?v=17"></script>
+  <script src="black-hole-renderer.js?v=21"></script>
   <script src="ion-storm-renderer.js?v=17"></script>
   <script src="pirate-raid-renderer.js?v=1"></script>
   <script src="meteor-renderer.js?v=23"></script>
@@ -606,6 +607,7 @@
   <script src="snapshot-sync.js?v=21"></script>
   <script src="socket-action-dispatch.js?v=17"></script>
   <script src="front-planner.js?v=6"></script>
+  <script src="runtime-config.js?v=1"></script>
   <script src="platform-adapter.js?v=1"></script>
   <script src="app-bootstrap.js?v=1"></script>
   <script src="match-session.js?v=2"></script>
@@ -618,13 +620,21 @@
   <script src="remote-client-runtime.js?v=18"></script>
   <script src="host-network-runtime.js?v=17"></script>
   <script src="host-sim-runtime.js?v=19"></script>
+  <script src="shared-sim-state.js?v=1"></script>
+  <script src="shared-city-sim.js?v=1"></script>
+  <script src="shared-match-bootstrap.js?v=1"></script>
   <script src="visual-tick-runtime.js?v=21"></script>
   <script src="off-map-ambience-renderer.js?v=1"></script>
   <script src="music-player.js?v=1"></script>
   <script src="client.js?v=45"></script>
-  <script src="test-mechanics.js?v=16"></script>
   <script>
   (function(){
+    var runtimeConfig = window.__VOIDFRONT_RUNTIME_CONFIG || {};
+    if (runtimeConfig.enableDebugTools !== false && runtimeConfig.enableTestUi !== false) {
+      var debugScript = document.createElement("script");
+      debugScript.src = "test-mechanics.js?v=16";
+      document.body.appendChild(debugScript);
+    }
     var b = document.getElementById("btnCreateRoom");
     var j = document.getElementById("btnJoinRoom");
     var r = document.getElementById("btnRefreshLobbies");

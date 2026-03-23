@@ -12,13 +12,13 @@
       textureSize: 512,
       worldWidth: worldWidth,
       localRotation: HALF_PI,
-      outlineAlpha: 0.17,
+      outlineAlpha: 0.26,
       outlineScale: 1.028,
       emissiveAlpha: 0.0,
       accentAlpha: 0.0,
-      selectedOutlineAlpha: 0.30,
-      hoverOutlineAlpha: 0.24,
-      flashOutlineAlpha: 0.34,
+      selectedOutlineAlpha: 0.48,
+      hoverOutlineAlpha: 0.36,
+      flashOutlineAlpha: 0.58,
       basePath: basePath
     };
     if (extras) {
@@ -264,9 +264,11 @@
     }
     gfx.clear();
     gfx.poly(points);
-    gfx.stroke({ color: color, width: Math.max(1.2, length * 0.026), alpha: alpha, join: "round" });
+    gfx.stroke({ color: color, width: Math.max(1.7, length * 0.040), alpha: alpha, join: "round" });
     gfx.poly(points);
-    gfx.fill({ color: color, alpha: Math.min(alpha * 0.12, 0.035) });
+    gfx.stroke({ color: 0xffffff, width: Math.max(0.7, length * 0.012), alpha: Math.min(0.24, alpha * 0.42), join: "round" });
+    gfx.poly(points);
+    gfx.fill({ color: color, alpha: Math.min(alpha * 0.18, 0.06) });
   }
 
   function drawShipLights(gfx, unitType, worldSize, color, alpha) {

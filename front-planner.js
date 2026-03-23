@@ -946,6 +946,19 @@
     return true;
   }
 
+  function isSiegeRouteProgressed(order, target, desiredWaypoints) {
+    if (!order || order.type !== "siege" || !target || order.targetCityId !== target.id) return false;
+    if (isWaypointRouteProgressed(order.waypoints, desiredWaypoints)) return true;
+    const current = Array.isArray(order.waypoints) ? order.waypoints : [];
+    if (current.length === 0) return true;
+    const tail = current[current.length - 1];
+    if (!tail) return false;
+    return (
+      Math.round(tail.x || 0) === Math.round(target.x || 0) &&
+      Math.round(tail.y || 0) === Math.round(target.y || 0)
+    );
+  }
+
   function issuePlannerOrder(state, squadLogic, squad, entry, desiredSignature, issueFn) {
     const now = state.t || 0;
     if (entry.lastOrderSignature === desiredSignature && (now - (entry.lastIssuedAt || 0)) < REISSUE_SEC) return;
@@ -1125,10 +1138,7 @@
           pushUniqueWaypoint(desiredWaypoints, laneHoldPoint, 12);
         }
         if (
-          squad.order &&
-          squad.order.type === "siege" &&
-          squad.order.targetCityId === target.id &&
-          isWaypointRouteProgressed(squad.order.waypoints, desiredWaypoints)
+          isSiegeRouteProgressed(squad.order, target, desiredWaypoints)
         ) {
           continue;
         }
@@ -1164,10 +1174,7 @@
           Math.round(target.y)
         ].join("|");
         if (
-          squad.order &&
-          squad.order.type === "siege" &&
-          squad.order.targetCityId === target.id &&
-          isWaypointRouteProgressed(squad.order.waypoints, waypoints)
+          isSiegeRouteProgressed(squad.order, target, waypoints)
         ) {
           continue;
         }
@@ -1235,10 +1242,7 @@
         if (laneReturnPoint) waypoints.push({ x: laneReturnPoint.x, y: laneReturnPoint.y });
         waypoints.push({ x: centerPoint.x, y: centerPoint.y }, { x: fallbackTarget.x, y: fallbackTarget.y });
         if (
-          squad.order &&
-          squad.order.type === "siege" &&
-          squad.order.targetCityId === fallbackTarget.id &&
-          isWaypointRouteProgressed(squad.order.waypoints, waypoints)
+          isSiegeRouteProgressed(squad.order, fallbackTarget, waypoints)
         ) {
           continue;
         }

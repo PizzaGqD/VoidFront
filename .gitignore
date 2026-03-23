@@ -1,5 +1,6 @@
 # Dependencies
 node_modules/
+dist/
 
 # Environment and secrets
 .env
@@ -17,3 +18,8 @@ Thumbs.db
 .vscode/
 *.swp
 *.swo
+
+# Local automation / browser artifacts
+.edge-headless-profile/
+.edge-headless-profile-*/
+.edge-headless-profile*/

@@ -52,7 +52,9 @@
     } else {
       pts = [s, 0, -s * 0.6, -s * 0.42, -s * 0.6, s * 0.42];
     }
-    drawPoly(g, pts, fillCol, 0.78, null, 0, 0);
+    drawPoly(g, pts, fillCol, 0.84, fillCol, Math.max(1.1, s * 0.16), 0.72);
+    g.poly(pts);
+    g.stroke({ color: 0xffffff, width: Math.max(0.55, s * 0.06), alpha: 0.20 });
     g.circle(s * 0.12, 0, Math.max(1.1, s * 0.10));
     g.fill({ color: 0xffffff, alpha: 0.62 });
   }
@@ -121,10 +123,12 @@
     var detail = (typeof LOD !== "undefined") ? LOD.getDetail("ship", zoom || 0.22) : { fullShape: true, glow: false };
     var palette = (typeof FACTION_VIS !== "undefined") ? FACTION_VIS.getFactionPalette(color) : null;
     var shellColor = 0x09111d;
-    var edgeColor = palette ? palette.edge : 0xaac8ff;
+    var edgeColor = highlight != null ? highlight : (palette ? palette.edge : color);
     var accentColor = palette ? palette.solid : 0xffffff;
     var glowColor = palette ? palette.glow : color;
     var spec = getHullSpec(unitType);
+    var outerPts = scaledPoints(spec.outer, s);
+    var innerPts = scaledPoints(spec.inner, s);
 
     if (!detail.fullShape) {
       drawSimpleShape(g, unitType, fillCol, s);
@@ -136,8 +140,10 @@
       g.fill({ color: glowColor, alpha: 0.06 });
     }
 
-    drawPoly(g, scaledPoints(spec.outer, s), shellColor, 0.92, edgeColor, 1.0, 0.20);
-    drawPoly(g, scaledPoints(spec.inner, s), fillCol, 0.82, accentColor, 0.8, 0.24);
+    drawPoly(g, outerPts, shellColor, 0.94, edgeColor, 1.3, 0.38);
+    g.poly(outerPts);
+    g.stroke({ color: fillCol, width: 1.6, alpha: 0.78 });
+    drawPoly(g, innerPts, fillCol, 0.84, accentColor, 0.9, 0.26);
 
     g.moveTo(spec.spineFrom[0] * s, spec.spineFrom[1] * s);
     g.lineTo(spec.spineTo[0] * s, spec.spineTo[1] * s);

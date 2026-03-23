@@ -8,15 +8,21 @@
     const getSocketActionDispatchApi = deps && deps.getSocketActionDispatchApi;
 
     function getMode() {
-      return "host-client";
+      return (state && state._authorityMode) || "host-client";
+    }
+
+    function isServerAuthority() {
+      return getMode() === "server";
     }
 
     function isHostAuthority() {
+      if (isServerAuthority()) return false;
       return !!(state && state._multiIsHost);
     }
 
     function isRemoteGameplayClient() {
-      return !!(state && state._multiSlots && !state._multiIsHost);
+      if (!(state && state._multiSlots)) return false;
+      return !isHostAuthority();
     }
 
     function serializeSnapshot() {
@@ -38,6 +44,7 @@
 
     return {
       getMode,
+      isServerAuthority,
       isHostAuthority,
       isRemoteGameplayClient,
       serializeSnapshot,

@@ -13,6 +13,8 @@
       getFormationOffsets,
       applyFormationToSquad,
       ABILITY_DEFS,
+      squadLogic: injectedSquadLogic,
+      frontPlanner: injectedFrontPlanner,
       setAbilityCooldown,
       pushAbilityAnnouncement,
       spawnIonNebulaLocal,
@@ -34,10 +36,12 @@
     const CORE_ROSTER_UNIT_TYPES = new Set(["destroyer", "cruiser", "battleship"]);
 
     function getSquadLogic() {
+      if (injectedSquadLogic) return injectedSquadLogic;
       return typeof SQUADLOGIC !== "undefined" ? SQUADLOGIC : null;
     }
 
     function getFrontPlanner() {
+      if (injectedFrontPlanner) return injectedFrontPlanner;
       return typeof FrontPlanner !== "undefined" ? FrontPlanner : null;
     }
 

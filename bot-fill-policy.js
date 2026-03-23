@@ -1,4 +1,4 @@
-const DEFAULT_QUEUE_BOT_FILL_MS = 15000;
+const DEFAULT_QUEUE_BOT_FILL_MS = 30000;
 
 function normalizeMatchType(matchType) {
   return matchType === "ffa4" ? "ffa4" : "duel";

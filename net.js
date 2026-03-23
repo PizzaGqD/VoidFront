@@ -394,6 +394,7 @@
           spawnedAt: roundN(bh.spawnedAt, 100),
           duration: bh.duration,
           radius: bh.radius,
+          styleKey: bh.styleKey || null,
           damageScale: bh.damageScale != null ? roundN(bh.damageScale, 1000) : 1,
           finalBurstPct: bh.finalBurstPct != null ? roundN(bh.finalBurstPct, 1000) : 0.1
         }));
@@ -559,7 +560,19 @@
           spawnedAt: roundN(s.spawnedAt, 100),
           duration: s.duration,
           rotAngle: roundN(s.rotAngle, 100),
-          stretch: roundN(s.stretch, 100)
+          stretch: roundN(s.stretch, 100),
+          ownerId: s.ownerId,
+          tickDamagePct: s.tickDamagePct,
+          finalBurstPct: s.finalBurstPct,
+          blobs: (s.blobs || []).map(b => ({
+            ox: roundN(b.ox, 10),
+            oy: roundN(b.oy, 10),
+            r: roundN(b.r, 10),
+            _baseOx: roundN(b._baseOx != null ? b._baseOx : b.ox, 10),
+            _baseOy: roundN(b._baseOy != null ? b._baseOy : b.oy, 10),
+            _baseR: roundN(b._baseR != null ? b._baseR : b.r, 10),
+            _phase: roundN(b._phase != null ? b._phase : 0, 1000)
+          }))
         }));
       }
       if (state._abilityCooldownsByPlayer && Object.keys(state._abilityCooldownsByPlayer).length > 0) {

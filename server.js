@@ -14,14 +14,23 @@ const {
   buildGameStartPayload,
   inferMatchTypeFromSlots
 } = require("./match-lifecycle");
+const { createAuthoritativeMatchRuntime } = require("./authoritative-match-runtime");
 
 const PORT = process.env.PORT || 3040;
 const SLOTS = 4;
 const COLOR_COUNT = 36;
 const RECONNECT_GRACE_MS = 30 * 1000;
+const PUBLIC_SERVER_URL = process.env.GAME_SERVER_URL || process.env.PUBLIC_SERVER_URL || "";
+const AUTHORITY_MODE = process.env.VOIDFRONT_AUTHORITY_MODE || "host-client";
+const RELEASE_CHANNEL = process.env.RELEASE_CHANNEL || "local";
+const ENABLE_DEBUG_TOOLS = !/^(0|false)$/i.test(process.env.VOIDFRONT_ENABLE_DEBUG_TOOLS || "1");
+const ENABLE_TEST_UI = !/^(0|false)$/i.test(process.env.VOIDFRONT_ENABLE_TEST_UI || "1");
+const ENABLE_PERF_HUD = !/^(0|false)$/i.test(process.env.VOIDFRONT_ENABLE_PERF_HUD || "1");
+const ENABLE_YANDEX_SDK = /^(1|true)$/i.test(process.env.VOIDFRONT_ENABLE_YANDEX_SDK || "0");
 const queueManager = createQueueManager({ timeoutMs: DEFAULT_QUEUE_BOT_FILL_MS });
 const sessions = new Map();
 const matches = new Map();
+const authoritativeRuntimes = new Map();
 
 // ─── LAN / VPN detection ──────────────────────────────────────────
 
@@ -41,6 +50,15 @@ function getServerLanUrl() {
     return "http://" + addr + ":" + PORT;
   } catch (_) { /* ignore */ }
   return null;
+}
+
+function getRequestOrigin(req) {
+  if (!req || !req.headers) return "";
+  const host = req.headers.host || "";
+  if (!host) return "";
+  const forwardedProto = String(req.headers["x-forwarded-proto"] || "").split(",")[0].trim();
+  const protocol = forwardedProto || (req.socket && req.socket.encrypted ? "https" : "http");
+  return protocol + "://" + host;
 }
 
 // ─── Static HTTP server ───────────────────────────────────────────
@@ -94,6 +112,26 @@ function resolveStaticPath(urlPath) {
 const httpServer = http.createServer((req, res) => {
   const clientIp = req.socket.remoteAddress || "?";
   console.log("[HTTP]", req.method, req.url, "from", clientIp);
+
+  if ((req.url || "").replace(/[?].*$/, "") === "/runtime-config.js") {
+    const config = {
+      serverUrl: PUBLIC_SERVER_URL || getRequestOrigin(req) || "",
+      authorityMode: AUTHORITY_MODE,
+      releaseChannel: RELEASE_CHANNEL,
+      enableDebugTools: ENABLE_DEBUG_TOOLS,
+      enablePerfHud: ENABLE_PERF_HUD,
+      enableTestUi: ENABLE_TEST_UI,
+      yandexSdkEnabled: ENABLE_YANDEX_SDK
+    };
+    const payload = "window.__VOIDFRONT_RUNTIME_CONFIG = Object.assign({}, window.__VOIDFRONT_RUNTIME_CONFIG || {}, " + JSON.stringify(config) + ");\n";
+    res.writeHead(200, {
+      "Content-Type": "application/javascript",
+      "Cache-Control": "no-store, no-cache, must-revalidate",
+      "Content-Length": Buffer.byteLength(payload)
+    });
+    if (req.method === "HEAD") return res.end();
+    return res.end(payload);
+  }
 
   const filePath = resolveStaticPath(req.url || "/");
   if (!filePath) {
@@ -303,9 +341,31 @@ function pruneRooms() {
     }
     const emptySince = room.emptySince ?? room.createdAt ?? now;
     if ((now - emptySince) >= ROOM_GRACE_MS) {
+      const runtime = authoritativeRuntimes.get(roomId);
+      if (runtime) {
+        runtime.stop();
+        authoritativeRuntimes.delete(roomId);
+      }
       rooms.delete(roomId);
     }
   }
+}
+
+function startAuthoritativeRuntime(roomId, room) {
+  if (AUTHORITY_MODE !== "server" || !roomId || !room) return null;
+  const existing = authoritativeRuntimes.get(roomId);
+  if (existing) return existing;
+  const runtime = createAuthoritativeMatchRuntime({
+    io,
+    roomId,
+    matchId: room.matchId,
+    matchType: room.matchType,
+    seed: room.seed,
+    slots: slotSummary(room)
+  });
+  runtime.start();
+  authoritativeRuntimes.set(roomId, runtime);
+  return runtime;
 }
 
 function makeRoomId() {
@@ -459,7 +519,7 @@ function buildMatchForQueue(matchType, humanEntries) {
     slotIndex++;
   }
   const slots = slotSummary(room);
-  matches.set(matchId, createMatchRecord({ matchId, roomId, matchType: type, seed, slots }));
+  matches.set(matchId, createMatchRecord({ matchId, roomId, matchType: type, authorityMode: AUTHORITY_MODE, seed, slots }));
   emitRoomSlots(roomId, room);
   for (const slot of room.slots) {
     if (!slot.id) continue;
@@ -471,6 +531,7 @@ function buildMatchForQueue(matchType, humanEntries) {
       roomId,
       matchId,
       matchType: type,
+      authorityMode: AUTHORITY_MODE,
       seed,
       slots,
       mySlot: playerSocket.slotIndex,
@@ -483,9 +544,11 @@ function buildMatchForQueue(matchType, humanEntries) {
     roomId,
     matchId,
     matchType: type,
+    authorityMode: AUTHORITY_MODE,
     seed,
     slots
   }));
+  startAuthoritativeRuntime(roomId, room);
 }
 
 function attemptQueueMatch(matchType) {
@@ -885,6 +948,7 @@ io.on("connection", (socket) => {
     if (!roomId) return;
     const room = getRoom(roomId);
     if (!room) return;
+    if (AUTHORITY_MODE === "server") return;
     if (room.hostId !== socket.id) return;
     _gsLogCtr++;
     if (_gsLogCtr % 500 === 1) {
@@ -909,6 +973,11 @@ io.on("connection", (socket) => {
     payload._senderSocketId = socket.id;
     payload._senderPlayerId = senderSlot + 1;
     payload._senderSessionId = socket.sessionId || room.slots[senderSlot].sessionId || null;
+    if (AUTHORITY_MODE === "server") {
+      const runtime = authoritativeRuntimes.get(roomId);
+      if (runtime) runtime.enqueueAction(payload);
+      return;
+    }
     io.to(room.hostId).emit("playerAction", payload);
   });
 
@@ -955,6 +1024,7 @@ io.on("connection", (socket) => {
       matchId: room.matchId,
       roomId,
       matchType: room.matchType,
+      authorityMode: AUTHORITY_MODE,
       seed,
       slots
     }));
@@ -965,9 +1035,11 @@ io.on("connection", (socket) => {
       roomId,
       matchId: room.matchId,
       matchType: room.matchType,
+      authorityMode: AUTHORITY_MODE,
       seed,
       slots
     }));
+    startAuthoritativeRuntime(roomId, room);
   });
 
   // ── Disconnect ──

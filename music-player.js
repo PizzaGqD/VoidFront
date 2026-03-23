@@ -72,6 +72,8 @@
   let lastSeekClientX = 0;
   let shuffleEnabled = readSavedBoolean(STORAGE_KEY_SHUFFLE, false);
   let repeatEnabled = readSavedBoolean(STORAGE_KEY_REPEAT, false);
+  let externalPauseDepth = 0;
+  let shouldResumeAfterExternalPause = false;
   const playbackHistory = [];
 
   audio.preload = "auto";
@@ -293,6 +295,22 @@
     else play();
   }
 
+  function pauseForExternal() {
+    externalPauseDepth += 1;
+    if (externalPauseDepth === 1) {
+      shouldResumeAfterExternalPause = wantsPlayback && !audio.paused;
+      pause();
+    }
+  }
+
+  function resumeAfterExternal() {
+    if (externalPauseDepth > 0) externalPauseDepth -= 1;
+    if (externalPauseDepth === 0 && shouldResumeAfterExternalPause) {
+      shouldResumeAfterExternalPause = false;
+      play();
+    }
+  }
+
   function next() {
     recoverAttempts = 0;
     loadTrack(getNextIndex());
@@ -476,6 +494,8 @@
     next,
     prev,
     toggleShuffle,
-    toggleRepeat
+    toggleRepeat,
+    pauseForExternal,
+    resumeAfterExternal
   };
 })();
