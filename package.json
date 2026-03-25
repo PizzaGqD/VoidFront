@@ -10,7 +10,7 @@
     "stop": "node stop-server.js",
     "restart": "node stop-server.js && node server.js",
     "build:release": "node scripts/build-release.js",
-    "test": "node tests/card-system.test.js && node tests/network-protocol.test.js && node tests/front-graph.test.js && node tests/front-merge.test.js && node tests/center-planner.test.js && node tests/multiplayer-front-actions.test.js && node tests/squad-combat-state.test.js && node tests/match-session.test.js && node tests/action-gateway.test.js && node tests/queue-manager.test.js"
+    "test": "node tests/card-system.test.js && node tests/network-protocol.test.js && node tests/front-graph.test.js && node tests/front-merge.test.js && node tests/center-planner.test.js && node tests/multiplayer-front-actions.test.js && node tests/squad-combat-state.test.js && node tests/match-session.test.js && node tests/action-gateway.test.js && node tests/queue-manager.test.js && node tests/authoritative-match-runtime.test.js"
   },
   "dependencies": {
     "localtunnel": "^2.0.2",

@@ -20593,6 +20593,7 @@
     state._menuBackdropScenario = null;
     state._menuBackdropRestartAtMs = 0;
     state._gameOver = false;
+    state._runsAuthoritativeSim = false;
     state._multiIsHost = false;
     state._multiSlots = null;
     state._slotToPid = null;
@@ -20874,6 +20875,7 @@
       stopMenuBackdropBattle();
       state._gameSeed = null;
       if (matchSessionApi && matchSessionApi.resetForSinglePlayer) matchSessionApi.resetForSinglePlayer();
+      state._runsAuthoritativeSim = false;
       state._multiIsHost = false;
       state._multiSlots = null;
       state._slotToPid = null;
@@ -20939,7 +20941,8 @@
       gameModeControllerApi.enterMultiplayerMatch(matchContext);
     } else {
       stopMenuBackdropBattle();
-      state._multiIsHost = authorityMode === "host-client" ? !!state._isHost : false;
+      state._runsAuthoritativeSim = authorityMode === "host-client" ? !!state._isHost : false;
+      state._multiIsHost = state._runsAuthoritativeSim;
       state._multiSlots = slots;
       state._slotToPid = slotToPid;
       state._pendingFullSnap = null;

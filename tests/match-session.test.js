@@ -60,12 +60,32 @@ function testBufferLeadDelaysFreshSingleDelta() {
   console.log("  [OK] testBufferLeadDelaysFreshSingleDelta");
 }
 
+function testServerAuthorityKeepsLobbyHostRemoteForGameplay() {
+  const state = {};
+  const api = MatchSession.install({ state });
+  api.beginMatch({
+    roomId: "room-server",
+    matchId: "match-server",
+    matchType: "duel",
+    authorityMode: "server",
+    slots: [{ id: 1 }, { id: 2 }],
+    mySlot: 0,
+    hostSlot: 0,
+    isHost: true
+  });
+  assert(state._isHost === true, "lobby host role is preserved");
+  assert(state._multiIsHost === false, "server authority disables local authoritative sim flag");
+  assert(api.isRemoteGameplayClient() === true, "lobby host still follows remote snapshot gameplay path");
+  console.log("  [OK] testServerAuthorityKeepsLobbyHostRemoteForGameplay");
+}
+
 function runAll() {
   console.log("match-session tests:");
   testFullSyncReplacesQueuedDeltas();
   testDeltaCadenceWaitsBeforeApplyingNextPacket();
   testSnapshotQueueTracksDropsAndSeqGaps();
   testBufferLeadDelaysFreshSingleDelta();
+  testServerAuthorityKeepsLobbyHostRemoteForGameplay();
   console.log("All match-session tests passed.");
 }
 

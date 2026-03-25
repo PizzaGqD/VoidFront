@@ -107,12 +107,69 @@ npm run build:release
 
 ```bash
 set GAME_SERVER_URL=https://your-backend.example
-set VOIDFRONT_AUTHORITY_MODE=host-client
+set VOIDFRONT_AUTHORITY_MODE=server
 set RELEASE_CHANNEL=production
+set VOIDFRONT_ALLOWED_ORIGINS=https://your-frontend.example
 set VOIDFRONT_ENABLE_DEBUG_TOOLS=false
 set VOIDFRONT_ENABLE_TEST_UI=false
 set VOIDFRONT_ENABLE_PERF_HUD=false
+set VOIDFRONT_ENABLE_YANDEX_SDK=false
 npm start
 ```
 
 Сервер сам отдаст `runtime-config.js` с этими значениями.
+
+## VPS Runbook
+
+### 1. Собрать клиент для self-hosted public test
+
+```bash
+npm install
+npm test
+npm run build:release
+```
+
+Статика для фронтенда окажется в `dist/client`.
+
+### 2. Поднять backend на VPS
+
+Минимальные env для первой публичной выкладки:
+
+```bash
+PORT=3040
+GAME_SERVER_URL=https://your-backend.example
+VOIDFRONT_AUTHORITY_MODE=server
+RELEASE_CHANNEL=production
+VOIDFRONT_ALLOWED_ORIGINS=https://your-frontend.example
+VOIDFRONT_ENABLE_DEBUG_TOOLS=false
+VOIDFRONT_ENABLE_TEST_UI=false
+VOIDFRONT_ENABLE_PERF_HUD=false
+VOIDFRONT_ENABLE_YANDEX_SDK=false
+```
+
+Если фронтенд и backend раздаются с одного домена, можно использовать один и тот же origin и для `GAME_SERVER_URL`, и для `VOIDFRONT_ALLOWED_ORIGINS`.
+
+### 3. Проверить health и authority mode
+
+После старта сервера:
+
+```bash
+curl https://your-backend.example/healthz
+```
+
+Ожидаемый ответ:
+
+- `status: "ok"`
+- `authorityMode: "server"`
+- список разрешённых `socketCors` origin'ов
+
+### 4. Что уже есть в backend baseline
+
+- `GET /healthz` и `GET /health`
+- graceful shutdown по `SIGINT` / `SIGTERM`
+- Socket.IO CORS не через `*`, а через явные origin'ы
+- runtime-config берётся из env, а production release bundle по умолчанию идёт в `authorityMode=server`
+
+### 5. Рекомендуемый запуск под процесс-менеджером
+
+Подойдут `pm2`, `systemd` или Docker. Для первого VPS-теста достаточно процесса, который автоматически рестартует `node server.js` и проксируется через Nginx/Caddy на HTTPS/WSS.

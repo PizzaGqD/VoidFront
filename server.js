@@ -21,16 +21,20 @@ const SLOTS = 4;
 const COLOR_COUNT = 36;
 const RECONNECT_GRACE_MS = 30 * 1000;
 const PUBLIC_SERVER_URL = process.env.GAME_SERVER_URL || process.env.PUBLIC_SERVER_URL || "";
-const AUTHORITY_MODE = process.env.VOIDFRONT_AUTHORITY_MODE || "host-client";
 const RELEASE_CHANNEL = process.env.RELEASE_CHANNEL || "local";
+const DEFAULT_AUTHORITY_MODE = /^prod/i.test(RELEASE_CHANNEL) ? "server" : "host-client";
+const AUTHORITY_MODE = process.env.VOIDFRONT_AUTHORITY_MODE || DEFAULT_AUTHORITY_MODE;
 const ENABLE_DEBUG_TOOLS = !/^(0|false)$/i.test(process.env.VOIDFRONT_ENABLE_DEBUG_TOOLS || "1");
 const ENABLE_TEST_UI = !/^(0|false)$/i.test(process.env.VOIDFRONT_ENABLE_TEST_UI || "1");
 const ENABLE_PERF_HUD = !/^(0|false)$/i.test(process.env.VOIDFRONT_ENABLE_PERF_HUD || "1");
 const ENABLE_YANDEX_SDK = /^(1|true)$/i.test(process.env.VOIDFRONT_ENABLE_YANDEX_SDK || "0");
+const SHUTDOWN_GRACE_MS = 10 * 1000;
+const SERVER_STARTED_AT = Date.now();
 const queueManager = createQueueManager({ timeoutMs: DEFAULT_QUEUE_BOT_FILL_MS });
 const sessions = new Map();
 const matches = new Map();
 const authoritativeRuntimes = new Map();
+let shuttingDown = false;
 
 // ─── LAN / VPN detection ──────────────────────────────────────────
 
@@ -59,6 +63,57 @@ function getRequestOrigin(req) {
   const forwardedProto = String(req.headers["x-forwarded-proto"] || "").split(",")[0].trim();
   const protocol = forwardedProto || (req.socket && req.socket.encrypted ? "https" : "http");
   return protocol + "://" + host;
+}
+
+function normalizeOrigin(value) {
+  if (!value) return "";
+  try {
+    return new URL(String(value)).origin;
+  } catch (_) {
+    return "";
+  }
+}
+
+function resolveSocketCorsPolicy() {
+  const explicit = String(process.env.VOIDFRONT_ALLOWED_ORIGINS || process.env.ALLOWED_ORIGINS || "")
+    .split(",")
+    .map((value) => normalizeOrigin(value.trim()))
+    .filter(Boolean);
+  if (explicit.includes("*")) return { allowAll: true, origins: new Set() };
+  if (explicit.length > 0) return { allowAll: false, origins: new Set(explicit) };
+  const origins = new Set();
+  const publicOrigin = normalizeOrigin(PUBLIC_SERVER_URL);
+  if (publicOrigin) origins.add(publicOrigin);
+  if (!publicOrigin || RELEASE_CHANNEL === "local") {
+    origins.add("http://localhost:" + PORT);
+    origins.add("http://127.0.0.1:" + PORT);
+    const lanOrigin = normalizeOrigin(getServerLanUrl());
+    if (lanOrigin) origins.add(lanOrigin);
+  }
+  return { allowAll: origins.size === 0, origins };
+}
+
+const SOCKET_CORS_POLICY = resolveSocketCorsPolicy();
+
+function isSocketOriginAllowed(origin) {
+  if (!origin) return true;
+  if (SOCKET_CORS_POLICY.allowAll) return true;
+  const normalized = normalizeOrigin(origin);
+  return !!normalized && SOCKET_CORS_POLICY.origins.has(normalized);
+}
+
+function buildHealthPayload() {
+  return {
+    status: shuttingDown ? "draining" : "ok",
+    authorityMode: AUTHORITY_MODE,
+    releaseChannel: RELEASE_CHANNEL,
+    uptimeSec: Math.round((Date.now() - SERVER_STARTED_AT) / 1000),
+    rooms: rooms.size,
+    matches: matches.size,
+    authoritativeRuntimes: authoritativeRuntimes.size,
+    sessions: sessions.size,
+    socketCors: SOCKET_CORS_POLICY.allowAll ? "*" : Array.from(SOCKET_CORS_POLICY.origins)
+  };
 }
 
 // ─── Static HTTP server ───────────────────────────────────────────
@@ -112,8 +167,20 @@ function resolveStaticPath(urlPath) {
 const httpServer = http.createServer((req, res) => {
   const clientIp = req.socket.remoteAddress || "?";
   console.log("[HTTP]", req.method, req.url, "from", clientIp);
+  const requestPath = (req.url || "").replace(/[?].*$/, "");
 
-  if ((req.url || "").replace(/[?].*$/, "") === "/runtime-config.js") {
+  if (requestPath === "/health" || requestPath === "/healthz") {
+    const payload = JSON.stringify(buildHealthPayload());
+    res.writeHead(shuttingDown ? 503 : 200, {
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store, no-cache, must-revalidate",
+      "Content-Length": Buffer.byteLength(payload)
+    });
+    if (req.method === "HEAD") return res.end();
+    return res.end(payload);
+  }
+
+  if (requestPath === "/runtime-config.js") {
     const config = {
       serverUrl: PUBLIC_SERVER_URL || getRequestOrigin(req) || "",
       authorityMode: AUTHORITY_MODE,
@@ -222,7 +289,12 @@ const httpServer = http.createServer((req, res) => {
 // ─── Socket.IO setup ─────────────────────────────────────────────
 
 const io = new Server(httpServer, {
-  cors: { origin: "*" },
+  cors: {
+    origin(origin, callback) {
+      if (isSocketOriginAllowed(origin)) return callback(null, true);
+      return callback(new Error("Socket origin is not allowed by server policy."), false);
+    }
+  },
   maxHttpBufferSize: 5e6
 });
 
@@ -631,6 +703,11 @@ function removePlayerFromRoom(socket) {
 // ─── Connection handler ──────────────────────────────────────────
 
 io.on("connection", (socket) => {
+  if (shuttingDown) {
+    socket.emit("serverShutdown", { reason: "server_shutdown", draining: true });
+    socket.disconnect(true);
+    return;
+  }
   const clientIp = socket.handshake.address || "?";
   console.log("[Socket] connect:", socket.id, "IP:", clientIp);
   ensureSessionRecord(socket, null, "Игрок");
@@ -1057,6 +1134,44 @@ io.on("connection", (socket) => {
   });
 });
 
+function stopAllAuthoritativeRuntimes() {
+  for (const runtime of authoritativeRuntimes.values()) {
+    try {
+      runtime.stop();
+    } catch (err) {
+      console.error("[Shutdown] runtime stop failed:", err && err.message ? err.message : err);
+    }
+  }
+  authoritativeRuntimes.clear();
+}
+
+let shutdownStarted = false;
+function beginGracefulShutdown(signal) {
+  if (shutdownStarted) return;
+  shutdownStarted = true;
+  shuttingDown = true;
+  console.log("[Shutdown]", signal, "received. Draining sockets and authoritative runtimes...");
+  stopAllAuthoritativeRuntimes();
+  try {
+    io.emit("serverShutdown", { reason: "server_shutdown", signal });
+  } catch (_) { /* ignore */ }
+  const forceExitTimer = setTimeout(() => {
+    console.error("[Shutdown] Grace period exceeded. Forcing exit.");
+    process.exit(1);
+  }, SHUTDOWN_GRACE_MS);
+  if (typeof forceExitTimer.unref === "function") forceExitTimer.unref();
+  io.close(() => {
+    httpServer.close(() => {
+      clearTimeout(forceExitTimer);
+      console.log("[Shutdown] Completed cleanly.");
+      process.exit(0);
+    });
+  });
+}
+
+process.once("SIGINT", () => beginGracefulShutdown("SIGINT"));
+process.once("SIGTERM", () => beginGracefulShutdown("SIGTERM"));
+
 // ─── Start ────────────────────────────────────────────────────────
 
 httpServer.listen(PORT, "0.0.0.0", () => {
@@ -1065,6 +1180,11 @@ httpServer.listen(PORT, "0.0.0.0", () => {
 
   console.log("VoidFront lobby server: http://localhost:" + PORT);
   if (lanUrl) console.log("  LAN: " + lanUrl);
+  console.log("  Authority mode: " + AUTHORITY_MODE);
+  console.log("  Health: http://localhost:" + PORT + "/healthz");
+  if (!SOCKET_CORS_POLICY.allowAll) {
+    console.log("  Allowed origins:", Array.from(SOCKET_CORS_POLICY.origins).join(", "));
+  }
 
   if (useTunnel) {
     require("localtunnel")({ port: PORT })

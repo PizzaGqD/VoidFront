@@ -20,6 +20,8 @@
       mySlot: null,
       hostSlot: null,
       isHost: false,
+      authorityMode: "host-client",
+      runsAuthoritativeSim: false,
       sessionId: null,
       reconnectToken: null,
       snapshotQueue: [],
@@ -56,6 +58,22 @@
     multiplayer.snapshotQueue = Array.isArray(multiplayer.snapshotQueue) ? multiplayer.snapshotQueue : [];
     multiplayer.snapshotStats = multiplayer.snapshotStats || makeSnapshotStats();
 
+    function resolveAuthorityMode(nextMode) {
+      const normalized = nextMode || multiplayer.authorityMode || state._authorityMode || "host-client";
+      multiplayer.authorityMode = normalized;
+      return normalized;
+    }
+
+    function resolveRunsAuthoritativeSim(authorityMode, isHost) {
+      if (!(multiplayer.slots && multiplayer.slots.length)) return false;
+      return authorityMode !== "server" && !!isHost;
+    }
+
+    function syncAuthorityFlags() {
+      const authorityMode = resolveAuthorityMode(multiplayer.authorityMode);
+      multiplayer.runsAuthoritativeSim = resolveRunsAuthoritativeSim(authorityMode, multiplayer.isHost);
+    }
+
     function syncLegacyFields() {
       state._roomId = multiplayer.roomId;
       state._matchId = multiplayer.matchId;
@@ -66,7 +84,9 @@
       state._mySlot = multiplayer.mySlot;
       state._hostSlot = multiplayer.hostSlot;
       state._isHost = multiplayer.isHost;
-      state._multiIsHost = multiplayer.isHost;
+      state._authorityMode = multiplayer.authorityMode || state._authorityMode || "host-client";
+      state._runsAuthoritativeSim = !!multiplayer.runsAuthoritativeSim;
+      state._multiIsHost = !!multiplayer.runsAuthoritativeSim;
       state._sessionId = multiplayer.sessionId;
       state._reconnectToken = multiplayer.reconnectToken;
       state._snapshotQueueLength = multiplayer.snapshotQueue.length;
@@ -95,6 +115,7 @@
       if (multiplayer.mySlot != null && multiplayer.hostSlot != null && multiplayer.hostSlot >= 0) {
         multiplayer.isHost = multiplayer.hostSlot === multiplayer.mySlot;
       }
+      syncAuthorityFlags();
       if (!multiplayer.matchType) multiplayer.matchType = inferMatchType(multiplayer.slots);
       syncLegacyFields();
       return multiplayer.slots;
@@ -105,10 +126,12 @@
       multiplayer.roomId = payload.roomId || multiplayer.roomId;
       if (payload.matchId) multiplayer.matchId = payload.matchId;
       if (payload.matchType) multiplayer.matchType = payload.matchType;
+      if (payload.authorityMode) multiplayer.authorityMode = payload.authorityMode;
       if (Number.isInteger(payload.mySlot)) multiplayer.mySlot = payload.mySlot;
       if (typeof payload.isHost === "boolean") multiplayer.isHost = payload.isHost;
       if (Number.isInteger(payload.hostSlot)) multiplayer.hostSlot = payload.hostSlot;
       if (Array.isArray(payload.slots)) multiplayer.slots = payload.slots;
+      syncAuthorityFlags();
       if (!multiplayer.matchType) multiplayer.matchType = inferMatchType(multiplayer.slots);
       syncLegacyFields();
     }
@@ -119,9 +142,11 @@
       multiplayer.matchId = data.matchId || multiplayer.matchId || ("room:" + (multiplayer.roomId || "local"));
       multiplayer.matchType = data.matchType || multiplayer.matchType || inferMatchType(data.slots || multiplayer.slots);
       multiplayer.slots = Array.isArray(data.slots) ? data.slots : (multiplayer.slots || []);
+      multiplayer.authorityMode = data.authorityMode || multiplayer.authorityMode || state._authorityMode || "host-client";
       if (Number.isInteger(data.mySlot)) multiplayer.mySlot = data.mySlot;
       if (Number.isInteger(data.hostSlot)) multiplayer.hostSlot = data.hostSlot;
       if (typeof data.isHost === "boolean") multiplayer.isHost = data.isHost;
+      syncAuthorityFlags();
       clearSnapshotPipeline();
       syncLegacyFields();
       return {
@@ -130,7 +155,9 @@
         matchType: multiplayer.matchType,
         slots: multiplayer.slots,
         mySlot: multiplayer.mySlot,
-        isHost: multiplayer.isHost
+        isHost: multiplayer.isHost,
+        authorityMode: multiplayer.authorityMode,
+        runsAuthoritativeSim: multiplayer.runsAuthoritativeSim
       };
     }
 
@@ -143,6 +170,8 @@
       multiplayer.mySlot = null;
       multiplayer.hostSlot = null;
       multiplayer.isHost = false;
+      multiplayer.authorityMode = "local";
+      multiplayer.runsAuthoritativeSim = false;
       clearSnapshotPipeline();
       syncLegacyFields();
     }
@@ -262,9 +291,10 @@
     }
 
     function isRemoteGameplayClient() {
-      return !!(multiplayer.slots && !multiplayer.isHost);
+      return !!(multiplayer.slots && !multiplayer.runsAuthoritativeSim);
     }
 
+    syncAuthorityFlags();
     syncLegacyFields();
 
     return {
