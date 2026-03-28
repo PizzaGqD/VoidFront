@@ -5,7 +5,8 @@
   var STYLE_KEY = "swarm-cyan-scrap-burner";
   var SHOT_COUNT = 5;
   var IMPACT_DURATION_SEC = 1.0;
-  var PREVIEW_RADIUS = 140;
+  var IMPACT_RADIUS_SCALE = 1.25;
+  var PREVIEW_RADIUS = Math.round(140 * IMPACT_RADIUS_SCALE);
   var BASE_VISUAL_SCALES = [1.16, 0.98, 0.86, 0.78, 0.72];
 
   function hash01(seed) {
@@ -74,7 +75,7 @@
       var impactMul = 0.86 + hash01(shotSeed + 7) * 0.30;
       var visualScale = BASE_VISUAL_SCALES[i] * sizeMul;
       var bodyRadius = 7.4 * visualScale;
-      var aoeRadius = (46 + i * 5) * impactMul;
+      var aoeRadius = (46 + i * 5) * impactMul * IMPACT_RADIUS_SCALE;
 
       shots.push({
         swarmIndex: i,

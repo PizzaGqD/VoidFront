@@ -1,14 +1,17 @@
 const NET = require("../net.js");
 const { createAuthoritativeMatchRuntime } = require("../authoritative-match-runtime.js");
+const CardSystem = require("../card-system.js");
 
 function assert(ok, msg) {
   if (!ok) throw new Error("FAIL: " + msg);
 }
 
-function makeRuntime() {
+function makeRuntime(options) {
+  const opts = options || {};
   return createAuthoritativeMatchRuntime({
     roomId: "room-auth-test",
     seed: 12345,
+    enableLaneFighterWaves: opts.enableLaneFighterWaves === true,
     slots: [
       { id: "socket_a", name: "Alpha", colorIndex: 0 },
       { id: "socket_b", name: "Bravo", colorIndex: 1 }
@@ -79,6 +82,61 @@ function testMoveActionRepathsServerOwnedSquad() {
   console.log("  [OK] testMoveActionRepathsServerOwnedSquad");
 }
 
+function testHpBuffUpdatesExistingAndFutureShips() {
+  const runtime = makeRuntime();
+  const player = runtime.state.players.get(1);
+  player.eCredits = 10000;
+
+  runtime.enqueueAction({
+    type: "purchase",
+    unitType: "destroyer",
+    waypoints: [{ x: 3000, y: 1800 }],
+    _senderSlot: 0,
+    _senderPlayerId: 1
+  });
+  tick(runtime, 40);
+
+  const firstUnit = getUnitsFor(runtime, 1)[0];
+  const hpBefore = firstUnit.maxHp;
+
+  CardSystem.ensurePlayerCardState(player);
+  player.buffHand.push({
+    instanceId: "hp_test_buff",
+    cardId: "c1",
+    zone: "buff",
+    kind: "buff",
+    addedAt: runtime.state.t
+  });
+  player.cardStateVersion = (player.cardStateVersion || 0) + 1;
+
+  runtime.enqueueAction({
+    type: "activateBuffCard",
+    instanceId: "hp_test_buff",
+    _senderSlot: 0,
+    _senderPlayerId: 1
+  });
+  tick(runtime, 5);
+
+  const buffedFirstUnit = runtime.state.units.get(firstUnit.id);
+  assert(buffedFirstUnit.maxHp > hpBefore, "existing ships receive HP buff immediately on server");
+
+  runtime.enqueueAction({
+    type: "purchase",
+    unitType: "destroyer",
+    waypoints: [{ x: 3200, y: 1800 }],
+    _senderSlot: 0,
+    _senderPlayerId: 1
+  });
+  tick(runtime, 40);
+
+  const newestUnit = getUnitsFor(runtime, 1).reduce((latest, unit) => {
+    if (!latest) return unit;
+    return unit.id > latest.id ? unit : latest;
+  }, null);
+  assert(newestUnit && newestUnit.maxHp === buffedFirstUnit.maxHp, "future ships spawn with the same HP buff applied");
+  console.log("  [OK] testHpBuffUpdatesExistingAndFutureShips");
+}
+
 function testBlackHoleActionMutatesAuthoritativeState() {
   const runtime = makeRuntime();
   runtime.state.players.get(1).eCredits = 5000;
@@ -114,11 +172,11 @@ function testBlackHoleActionMutatesAuthoritativeState() {
     _senderSlot: 0,
     _senderPlayerId: 1
   });
-  tick(runtime, 45);
+  tick(runtime, 120);
 
   const enemyAfter = runtime.state.units.get(enemyUnit.id);
   assert(Array.isArray(runtime.state._blackHoles) && runtime.state._blackHoles.length > 0, "black hole is spawned in authoritative state");
-  assert(enemyAfter && enemyAfter.hp < hpBefore, "black hole damages units inside its radius on the server");
+  assert(!enemyAfter || enemyAfter.hp < hpBefore, "black hole damages units inside its radius on the server");
   console.log("  [OK] testBlackHoleActionMutatesAuthoritativeState");
 }
 
@@ -204,25 +262,28 @@ function testGravAnchorSerializesAndPinsEnemy() {
   console.log("  [OK] testGravAnchorSerializesAndPinsEnemy");
 }
 
-function testDroneSwarmSpawnsFightersAndSetsCooldown() {
+function testDisabledAbilitiesAreRejected() {
   const runtime = makeRuntime();
-  runtime.enqueueAction({
-    type: "useAbility",
-    abilityId: "droneSwarm",
-    frontType: "center",
-    _senderSlot: 0,
-    _senderPlayerId: 1
-  });
-  tick(runtime, 5);
-
-  const ownUnits = getUnitsFor(runtime, 1);
-  const fighters = ownUnits.filter((unit) => unit.unitType === "fighter");
+  tick(runtime, 30);
+  const tBefore = runtime.state.t;
+  for (const abilityId of ["droneSwarm", "frigateWarp", "timeJump"]) {
+    runtime.enqueueAction({
+      type: "useAbility",
+      abilityId,
+      frontType: "center",
+      _senderSlot: 0,
+      _senderPlayerId: 1
+    });
+    tick(runtime, 3);
+  }
   const snap = serialize(runtime);
   const cooldowns = runtime.state._abilityCooldownsByPlayer[1] || {};
-  assert(fighters.length === 6, "drone swarm spawns six fighters on server");
-  assert(cooldowns.droneSwarm > 0, "drone swarm cooldown is tracked in authoritative state");
-  assert(snap.abilityCooldownsByPlayer && snap.abilityCooldownsByPlayer["1"] && snap.abilityCooldownsByPlayer["1"].droneSwarm > 0, "drone swarm cooldown is serialized into snapshot");
-  console.log("  [OK] testDroneSwarmSpawnsFightersAndSetsCooldown");
+  const summonedUnits = [...runtime.state.units.values()].filter((unit) => unit && (unit._fighterWingSummon || unit._frigateSummon));
+  assert(summonedUnits.length === 0, "disabled abilities do not spawn summon-marked units");
+  assert(cooldowns.droneSwarm == null && cooldowns.frigateWarp == null && cooldowns.timeJump == null, "disabled abilities do not start cooldowns");
+  assert(runtime.state.t >= tBefore, "disabled time jump does not rewind authoritative time");
+  assert(!snap.abilityCooldownsByPlayer || !snap.abilityCooldownsByPlayer["1"] || (snap.abilityCooldownsByPlayer["1"].droneSwarm == null && snap.abilityCooldownsByPlayer["1"].frigateWarp == null && snap.abilityCooldownsByPlayer["1"].timeJump == null), "disabled abilities are absent from serialized cooldown state");
+  console.log("  [OK] testDisabledAbilitiesAreRejected");
 }
 
 function testOrbitalStrikeSerializesAndDamagesEnemy() {
@@ -257,7 +318,13 @@ function testOrbitalStrikeSerializesAndDamagesEnemy() {
   });
   tick(runtime, 5);
   const snapBeforeImpact = serialize(runtime);
-  tick(runtime, 70);
+  const primaryShot = runtime.state._orbitalStrikes[0]?.shots?.find((shot) => shot.primary) || runtime.state._orbitalStrikes[0]?.shots?.[0];
+  if (primaryShot) {
+    enemy.x = primaryShot.tx;
+    enemy.y = primaryShot.ty;
+    enemy.waypoints = [{ x: primaryShot.tx, y: primaryShot.ty }];
+  }
+  tick(runtime, 120);
 
   const enemyAfter = runtime.state.units.get(enemy.id);
   assert(Array.isArray(snapBeforeImpact.orbitalStrikes) && snapBeforeImpact.orbitalStrikes.length === 1, "orbital strike is serialized into snapshot before impact");
@@ -336,54 +403,82 @@ function testThermoNukeSerializesAndKillsEnemy() {
   });
   tick(runtime, 5);
   const snapBeforeImpact = serialize(runtime);
-  tick(runtime, 110);
+  tick(runtime, 130);
 
   assert(Array.isArray(snapBeforeImpact.thermoNukes) && snapBeforeImpact.thermoNukes.length === 1, "thermo nuke is serialized into snapshot before impact");
   assert(!runtime.state.units.has(enemy.id), "thermo nuke removes enemy units inside impact radius on server");
   console.log("  [OK] testThermoNukeSerializesAndKillsEnemy");
 }
 
-function testTimeJumpRewindsAuthoritativeState() {
+function testServerBootstrapBuildsWorldStructures() {
   const runtime = makeRuntime();
-  tick(runtime, 2020);
-  const unitsBeforeSummon = runtime.state.units.size;
+  const serializer = new NET.SnapshotSerializer();
+  serializer.tickCount = 14;
+  const snap = serializer.serialize(runtime.state);
+  assert(runtime.state.mines.size >= 7, "server bootstrap creates lane and core mines");
+  assert(Array.isArray(runtime.state.sectorObjectives) && runtime.state.sectorObjectives.length === 2, "server bootstrap creates duel sector objectives");
+  assert(runtime.state.turrets.size === 12, "server bootstrap creates six turrets per player");
+  assert(runtime.state.pirateBase && runtime.state.pirateBase.hp > 0, "server bootstrap creates center pirate base");
+  assert(Array.isArray(snap.mines) && snap.mines.length === runtime.state.mines.size, "world mines serialize into snapshot");
+  assert(Array.isArray(snap.turrets) && snap.turrets.length === runtime.state.turrets.size, "world turrets serialize into snapshot");
+  assert(Array.isArray(snap.sectorObjectives) && snap.sectorObjectives.length === runtime.state.sectorObjectives.length, "sector objectives serialize into snapshot");
+  console.log("  [OK] testServerBootstrapBuildsWorldStructures");
+}
 
-  runtime.enqueueAction({
-    type: "useAbility",
-    abilityId: "droneSwarm",
-    frontType: "center",
-    _senderSlot: 0,
-    _senderPlayerId: 1
-  });
-  tick(runtime, 5);
-  const unitsAfterSummon = runtime.state.units.size;
-  assert(unitsAfterSummon > unitsBeforeSummon, "summon modifies state before rewind");
+function testStartingMineEconomyAdvancesCreditsAndXp() {
+  const runtime = makeRuntime();
+  const player = runtime.state.players.get(1);
+  const creditsBefore = player.eCredits;
+  const xpBefore = player.xp;
+  tick(runtime, 240);
+  assert(player.eCredits > creditsBefore, "starting owned mines generate credits on the server");
+  assert(player.xp > xpBefore, "starting owned xp mines generate experience on the server");
+  console.log("  [OK] testStartingMineEconomyAdvancesCreditsAndXp");
+}
 
-  runtime.enqueueAction({
-    type: "useAbility",
-    abilityId: "timeJump",
-    _senderSlot: 0,
-    _senderPlayerId: 1
-  });
+function testInitialLaneFighterWavesSpawnOnServer() {
+  const runtime = makeRuntime({ enableLaneFighterWaves: true });
   tick(runtime, 2);
 
-  assert(runtime.state.t < 20, "time jump rewinds simulation time on server");
-  assert(runtime.state.units.size === unitsBeforeSummon, "time jump restores previous authoritative player state");
-  console.log("  [OK] testTimeJumpRewindsAuthoritativeState");
+  const p1Fighters = getUnitsFor(runtime, 1).filter((unit) => unit.unitType === "fighter" && unit._autoLaneFighterWave);
+  const p2Fighters = getUnitsFor(runtime, 2).filter((unit) => unit.unitType === "fighter" && unit._autoLaneFighterWave);
+
+  assert(p1Fighters.length === 3, "server runtime spawns opening lane fighter wave for player one");
+  assert(p2Fighters.length === 3, "server runtime spawns opening lane fighter wave for player two");
+  console.log("  [OK] testInitialLaneFighterWavesSpawnOnServer");
+}
+
+function testFrontPlannerPushesOpeningWaveTowardEnemy() {
+  const runtime = makeRuntime({ enableLaneFighterWaves: true });
+  const enemyCore = runtime.state.players.get(2);
+  tick(runtime, 2);
+
+  const fighter = getUnitsFor(runtime, 1).find((unit) => unit.unitType === "fighter" && unit._autoLaneFighterWave);
+  const beforeDist = Math.hypot(enemyCore.x - fighter.x, enemyCore.y - fighter.y);
+  tick(runtime, 150);
+  const moved = runtime.state.units.get(fighter.id);
+  const afterDist = Math.hypot(enemyCore.x - moved.x, enemyCore.y - moved.y);
+
+  assert(afterDist < beforeDist, "front planner keeps opening wave advancing toward enemy core");
+  console.log("  [OK] testFrontPlannerPushesOpeningWaveTowardEnemy");
 }
 
 function runAll() {
   console.log("authoritative-match-runtime tests:");
   testPurchaseFrontTripletSpawnsServerUnits();
   testMoveActionRepathsServerOwnedSquad();
+  testHpBuffUpdatesExistingAndFutureShips();
   testBlackHoleActionMutatesAuthoritativeState();
   testIonFieldSerializesAndDamagesEnemy();
   testGravAnchorSerializesAndPinsEnemy();
-  testDroneSwarmSpawnsFightersAndSetsCooldown();
+  testDisabledAbilitiesAreRejected();
   testOrbitalStrikeSerializesAndDamagesEnemy();
   testMinefieldSerializesAndDetonatesEnemy();
   testThermoNukeSerializesAndKillsEnemy();
-  testTimeJumpRewindsAuthoritativeState();
+  testServerBootstrapBuildsWorldStructures();
+  testStartingMineEconomyAdvancesCreditsAndXp();
+  testInitialLaneFighterWavesSpawnOnServer();
+  testFrontPlannerPushesOpeningWaveTowardEnemy();
   console.log("All authoritative-match-runtime tests passed.");
 }
 

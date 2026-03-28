@@ -6,7 +6,7 @@
   const existing = window.__VOIDFRONT_RUNTIME_CONFIG || {};
   window.__VOIDFRONT_RUNTIME_CONFIG = {
     serverUrl: existing.serverUrl || null,
-    authorityMode: existing.authorityMode || "host-client",
+    authorityMode: existing.authorityMode || "server",
     releaseChannel: existing.releaseChannel || "local",
     enableDebugTools: existing.enableDebugTools !== false,
     enablePerfHud: existing.enablePerfHud !== false,

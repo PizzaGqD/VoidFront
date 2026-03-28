@@ -25,6 +25,7 @@
       updateAbilityAnnouncements,
       updateMineFlowVisuals,
       drawBullets,
+      drawDeathBursts,
       drawStorm,
       drawNebulae,
       drawAbilityStorms,
@@ -38,7 +39,6 @@
       drawPirateRaids,
       drawEconomyAbilityFx,
       drawMeteorImpactEffects,
-      drawTimeRewindFx,
       drawAbilityTargetPreview,
       clearAbilityPreview,
       neonEdgeSprite,
@@ -48,7 +48,6 @@
       updatePathPreview,
       updateMovingPathPreview,
       updateFrontLaneOverlay,
-      updateMinimap,
       updateLeaderboard,
       updateFog,
       updateSquadStrip,
@@ -136,7 +135,7 @@
         updateAbilityAnnouncements(dt);
       });
       timeCall("vis.mineFlow", () => updateMineFlowVisuals(dt));
-      timeCall("vis.bullets", () => drawBullets());
+      timeCall("vis.bullets", () => { drawBullets(); if (typeof drawDeathBursts === "function") drawDeathBursts(); });
       timeCall("vis.worldFx", () => {
         drawStorm();
         if (!severeLoad || vfc % 2 === 0) drawNebulae();
@@ -151,7 +150,6 @@
         drawPirateRaids();
         drawEconomyAbilityFx();
         drawMeteorImpactEffects();
-        drawTimeRewindFx(now / 1000);
       });
       timeCall("vis.overlay", () => {
         if (state._abilityTargeting) drawAbilityTargetPreview();
@@ -167,7 +165,6 @@
         if (vfc % frontLaneInterval === 0) updateFrontLaneOverlay();
       });
       timeCall("vis.ui", () => {
-        if (vfc % (heavyLoad ? 8 : 4) === 0) updateMinimap();
         if (vfc % (heavyLoad ? 5 : 3) === 0) updateLeaderboard();
         if (vfc % (heavyLoad ? 4 : 2) === 0) updateFog();
         if (vfc % (heavyLoad ? 4 : 2) === 0) updateSquadStrip();

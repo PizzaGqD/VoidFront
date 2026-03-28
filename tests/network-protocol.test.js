@@ -111,11 +111,13 @@ function makeState(unitCount) {
 function testLightSnapshot() {
   const ser = new NET.SnapshotSerializer();
   const state = makeState(3);
+  const first = ser.serialize(state);
+  assert(first._fullSync === true, "light: first snapshot is full (immediate full sync)");
   const snap = ser.serialize(state);
 
   assert(typeof snap._seq === "number", "light: _seq is number");
   assert(typeof snap._st === "number", "light: _st (server time) is number");
-  assert(snap._seq === 1, "light: first seq = 1");
+  assert(snap._seq === 2, "light: second seq = 2");
   assert(typeof snap.t === "number", "light: game time (t) is number");
   assert(typeof snap.nextUnitId === "number", "light: nextUnitId is number");
   assert(Array.isArray(snap.players), "light: players is array");
@@ -125,7 +127,6 @@ function testLightSnapshot() {
   assert(snap.resources === undefined, "light: resources omitted (delta)");
   assert(snap.turrets === undefined, "light: turrets omitted (delta)");
   assert(Array.isArray(snap.sectorObjectives), "light: sector objectives present");
-  // Bullets are in EVERY packet now for smooth visuals
   assert(Array.isArray(snap.bullets), "light: bullets always present");
 
   console.log("  [OK] testLightSnapshot");
@@ -136,6 +137,8 @@ function testLightSnapshot() {
 function testCompactUnitFormat() {
   const ser = new NET.SnapshotSerializer();
   const state = makeState(2);
+  ser.serialize(state);
+  for (const u of state.units.values()) u.x += 1;
   const snap = ser.serialize(state);
 
   assert(snap.units.length > 0, "compact: has units");
@@ -155,13 +158,10 @@ function testFullSnapshot() {
   const ser = new NET.SnapshotSerializer();
   const state = makeState(2);
 
-  let snap;
-  for (let i = 0; i < NET.FULL_SYNC_EVERY; i++) {
-    snap = ser.serialize(state);
-  }
+  const snap = ser.serialize(state);
 
   assert(snap._fullSync === true, "full: _fullSync = true");
-  assert(snap._seq === NET.FULL_SYNC_EVERY, "full: seq = FULL_SYNC_EVERY");
+  assert(snap._seq === 1, "full: first seq = 1 (immediate full sync)");
   assert(Array.isArray(snap.resources), "full: resources present");
   assert(Array.isArray(snap.turrets), "full: turrets present");
   assert(Array.isArray(snap.bullets), "full: bullets always present");
@@ -193,11 +193,15 @@ function testZoneSyncPayload() {
   const ser = new NET.SnapshotSerializer();
   const state = makeState(2);
 
+  ser.serialize(state);
   let snap;
-  for (let i = 0; i < NET.ZONE_SYNC_EVERY; i++) {
+  let found = false;
+  for (let i = 1; i <= NET.ZONE_SYNC_EVERY * 3; i++) {
     snap = ser.serialize(state);
+    if (!snap._fullSync && snap.resDelta) { found = true; break; }
   }
 
+  assert(found, "zone: found a non-full zone sync");
   assert(snap._fullSync === false, "zone: not a full sync");
   assert(Array.isArray(snap.bullets), "zone: bullets present");
   assert(Array.isArray(snap.resDelta), "zone: resDelta present");
@@ -267,11 +271,9 @@ function testSequenceNumbers() {
 function testJsonRoundtrip() {
   const ser = new NET.SnapshotSerializer();
   const state = makeState(2);
-  let snap;
-  for (let i = 0; i < NET.FULL_SYNC_EVERY; i++) {
-    snap = ser.serialize(state);
-  }
+  const snap = ser.serialize(state);
 
+  assert(snap._fullSync === true, "roundtrip: first snap is full");
   const rt = JSON.parse(JSON.stringify(snap));
   assert(rt._seq === snap._seq, "roundtrip: _seq preserved");
   assert(rt._st === snap._st, "roundtrip: _st preserved");
@@ -279,8 +281,13 @@ function testJsonRoundtrip() {
   assert(rt.t === snap.t, "roundtrip: t preserved");
 
   if (snap.units.length > 0) {
-    assert(rt.units[0][0] === snap.units[0][0], "roundtrip: compact unit id");
-    assert(rt.units[0][5] === snap.units[0][5], "roundtrip: compact unit hp");
+    const u0 = rt.units[0];
+    if (Array.isArray(u0)) {
+      assert(u0[0] === snap.units[0][0], "roundtrip: compact unit id");
+      assert(u0[5] === snap.units[0][5], "roundtrip: compact unit hp");
+    } else {
+      assert(u0.id === snap.units[0].id, "roundtrip: full unit id");
+    }
   }
   assert(rt.coreFrontPolicies["0"].center.mode === "hold", "roundtrip: front policy preserved");
   assert(rt.centerObjectives.centerMineIds.length === 3, "roundtrip: center objectives preserved");
@@ -295,12 +302,9 @@ function testPayloadSize() {
   const ser = new NET.SnapshotSerializer();
   const state = makeState(10);
 
+  const full = ser.serialize(state);
+  state.units.get(1).x += 0.01;
   const light = ser.serialize(state);
-  let full;
-  for (let i = 1; i < NET.FULL_SYNC_EVERY; i++) {
-    state.units.get(1).x += 0.01;
-    full = ser.serialize(state);
-  }
 
   const lightStr = JSON.stringify(light);
   const fullStr = JSON.stringify(full);

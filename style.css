@@ -46,6 +46,44 @@ html, body {
   margin-bottom: 6px;
 }
 
+.hud-collapse-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+.hud-collapse-summary::-webkit-details-marker { display: none; }
+.hud-collapse-summary::after {
+  content: "+";
+  flex: 0 0 auto;
+  font-size: 14px;
+  line-height: 1;
+  color: rgba(180, 210, 255, 0.72);
+}
+details[open] > .hud-collapse-summary::after { content: "−"; }
+.hud-collapse-content { margin-top: 6px; }
+.hud-collapse-box { margin: 10px 0; }
+.hud-collapse-box > .hud-collapse-summary,
+.hud-collapse-box > .hud-collapse-summary.subtitle { margin-bottom: 0; }
+.hud-collapse-panel > .hud-collapse-summary {
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(8, 10, 18, 0.72);
+  border: 1px solid rgba(120, 160, 255, 0.16);
+  box-shadow: inset 0 0 18px rgba(80, 120, 255, 0.08);
+  font-size: 13px;
+  font-weight: 800;
+  color: #dfeaff;
+}
+.hud-collapse-panel > .hud-collapse-content { margin-top: 8px; }
+.hud-collapse-panel:not([open]) {
+  max-height: none;
+  overflow: visible;
+}
+
 .row {
   display: flex;
   gap: 8px;
@@ -155,26 +193,6 @@ input[type="range"] { flex: 1; }
 }
 .leader-table th { opacity: 0.9; }
 .leader-table tr:hover { background: rgba(60, 110, 255, 0.1); }
-
-#minimapWrap {
-  position: fixed;
-  left: 14px;
-  bottom: 150px;
-  width: 180px;
-  height: 110px;
-  z-index: 10;
-  opacity: 0.25;
-  border-radius: 8px;
-  overflow: hidden;
-  border: 1px solid rgba(120, 160, 255, 0.3);
-  pointer-events: none;
-}
-#minimapCanvas {
-  width: 100%;
-  height: 100%;
-  display: block;
-  background: rgba(7, 10, 18, 0.9);
-}
 
 .perf-log-wrap {
   margin-top: 8px;
@@ -804,6 +822,9 @@ input[type="range"] { flex: 1; }
   padding-bottom: 3px;
   border-bottom: 1px solid rgba(100, 150, 255, 0.1);
 }
+.hud-section > .hud-collapse-summary { margin-bottom: 0; }
+.hud-section:not([open]) { padding-bottom: 6px; }
+.hud-section:not([open]) .hud-section-header { border-bottom-color: transparent; }
 .hud-stat-row {
   display: flex;
   align-items: center;
@@ -2010,8 +2031,7 @@ input[type="range"] { flex: 1; }
     min-height: 84px;
   }
   .bottom-right-panel,
-  .game-chat-wrap,
-  #minimapWrap {
+  .game-chat-wrap {
     bottom: 168px;
   }
   .hand-card {
@@ -2085,14 +2105,6 @@ input[type="range"] { flex: 1; }
     right: 10px;
     max-width: none;
     max-height: calc(100vh - 146px);
-  }
-
-  /* Minimap — smaller */
-  #minimapWrap {
-    width: 120px;
-    height: 75px;
-    left: 8px;
-    bottom: 156px;
   }
 
   /* In-game chat — full bottom width */

@@ -13,6 +13,11 @@
 (function () {
   "use strict";
 
+  // ─── Safe high-resolution timer (works in both browser and Node.js) ──
+  var _perfNow = (typeof performance !== "undefined" && typeof performance.now === "function")
+    ? function () { return performance.now(); }
+    : function () { return Date.now(); };
+
   // ─── Protocol constants ─────────────────────────────────────────
 
   const SEND_RATE_HZ           = 30;
@@ -27,7 +32,10 @@
 
   const PLAYER_LIGHT_KEYS = [
     "id", "x", "y", "pop", "popFloat", "eCredits", "activeUnits",
-    "influenceR", "influenceRayDistances", "eliminated"
+    "influenceR", "influenceRayDistances", "eliminated",
+    "level", "xp", "xpNext", "_levelBonusMul", "pendingCardPicks",
+    "shieldHp", "shieldMaxHp",
+    "cardStateVersion"
   ];
   const PLAYER_SYNC_KEYS = [
     "id", "name", "x", "y", "pop", "popFloat", "eCredits",
@@ -42,7 +50,8 @@
     "_levelBonusMul", "rerollCount",
     "shieldHp", "shieldMaxHp", "shieldRegenCd", "shieldRegenBonus", "_cardPicksCount",
     "mineYieldBonus", "cityTargetBonus", "turretTargetBonus", "attackEffect", "attackEffects",
-    "_patrolCount", "_patrols", "eliminated"
+    "_patrolCount", "_patrols", "eliminated",
+    "cardStateVersion"
   ];
   const PLAYER_FULL_KEYS = [
     ...PLAYER_SYNC_KEYS,
@@ -99,7 +108,7 @@
     _sendPing() {
       if (!this._socket) return;
       const seq = ++this._seq;
-      this._pending.set(seq, performance.now());
+      this._pending.set(seq, _perfNow());
       this._socket.emit("net:ping", seq);
     }
 
@@ -107,7 +116,7 @@
       const sent = this._pending.get(seq);
       if (sent == null) return;
       this._pending.delete(seq);
-      const rtt = performance.now() - sent;
+      const rtt = _perfNow() - sent;
 
       this._samples.push(rtt);
       if (this._samples.length > this._maxSamples) this._samples.shift();
@@ -151,15 +160,16 @@
   class SnapshotSerializer {
     constructor() {
       this.seq       = 0;
-      this.tickCount = 0;
+      this.tickCount = FULL_SYNC_EVERY - 1;
       this._prev     = new Map();
       this._dt       = { pos: 0.5, vel: 0.01, hp: 0.1 };
     }
 
     reset() {
       this.seq = 0;
-      this.tickCount = 0;
+      this.tickCount = FULL_SYNC_EVERY - 1;
       this._prev.clear();
+      this._prevCardVer = new Map();
     }
 
     serialize(state) {
@@ -167,7 +177,7 @@
       const seq        = ++this.seq;
       const isFull     = (this.tickCount % FULL_SYNC_EVERY === 0);
       const isZoneSync = isFull || (this.tickCount % ZONE_SYNC_EVERY === 0);
-      const serverTime = performance.now();
+      const serverTime = _perfNow();
       const pKeys      = isFull ? PLAYER_FULL_KEYS : PLAYER_LIGHT_KEYS;
 
       const players = [];
@@ -176,6 +186,17 @@
         for (const k of pKeys) {
           if (k === "influenceRayDistances" && !isZoneSync) continue;
           if (p[k] !== undefined) o[k] = p[k];
+        }
+        if (!isFull && p.cardStateVersion != null) {
+          if (!this._prevCardVer) this._prevCardVer = new Map();
+          const prevVer = this._prevCardVer.get(p.id);
+          if (prevVer != null && prevVer !== p.cardStateVersion) {
+            if (p.buffHand !== undefined) o.buffHand = p.buffHand;
+            if (p.abilityHand !== undefined) o.abilityHand = p.abilityHand;
+            if (p.activeBuffs !== undefined) o.activeBuffs = p.activeBuffs;
+            if (p.legendaryBuffs !== undefined) o.legendaryBuffs = p.legendaryBuffs;
+          }
+          this._prevCardVer.set(p.id, p.cardStateVersion);
         }
         players.push(o);
       }
@@ -364,26 +385,21 @@
           }))
           .slice(-5);
       }
-      if (state._timeRewindFx && state._timeRewindFx.active) {
-        gs.timeRewindFx = {
-          token: state._timeRewindFx.token || 0,
-          triggeredByPid: state._timeRewindFx.usedByPid,
-          rewindSeconds: state._timeRewindFx.rewindSeconds || 60,
-          applied: !!state._timeRewindFx.applied
-        };
-      }
-
       gs.storm = this._serializeStorm(state);
 
       if (state.mines && state.mines.size > 0) {
         gs.mines = [];
         for (const m of state.mines.values()) {
-          gs.mines.push({
+          const mEntry = {
             id: m.id, x: roundN(m.x, 10), y: roundN(m.y, 10),
             ownerId: m.ownerId, captureProgress: roundN(m.captureProgress, 100),
             capturingUnitId: m.capturingUnitId, isRich: m.isRich,
             resourceType: m.resourceType || "money"
-          });
+          };
+          if (m.homeMine) mEntry.homeMine = true;
+          if (m.pairKey) mEntry.pairKey = m.pairKey;
+          if (m.laneRole) mEntry.laneRole = m.laneRole;
+          gs.mines.push(mEntry);
         }
       }
 
@@ -662,7 +678,7 @@
       unit._srvVx       = vx;
       unit._srvVy       = vy;
       unit._interpDurationMs = Math.max(8, durationMs != null ? durationMs : (unit._interpDurationMs || SEND_INTERVAL_MS));
-      unit._interpStart = performance.now();
+      unit._interpStart = _perfNow();
       if (hp != null) unit.hp = hp;
     },
 
@@ -674,7 +690,7 @@
       if (unit._interpStart == null) return;
 
       const durationMs = Math.max(8, unit._interpDurationMs || interpDurationMs || SEND_INTERVAL_MS);
-      const elapsed = performance.now() - unit._interpStart;
+      const elapsed = _perfNow() - unit._interpStart;
       const fromX   = unit._interpFromX ?? unit._interpToX;
       const fromY   = unit._interpFromY ?? unit._interpToY;
       const toX     = unit._interpToX;
@@ -710,13 +726,13 @@
       storm._srvVx       = vx;
       storm._srvVy       = vy;
       storm._interpDurationMs = Math.max(8, durationMs != null ? durationMs : (storm._interpDurationMs || SEND_INTERVAL_MS));
-      storm._interpStart = performance.now();
+      storm._interpStart = _perfNow();
     },
 
     tickStorm(storm, interpDurationMs) {
       if (!storm || storm._interpStart == null) return;
       const durationMs = Math.max(8, storm._interpDurationMs || interpDurationMs || SEND_INTERVAL_MS);
-      const elapsed = performance.now() - storm._interpStart;
+      const elapsed = _perfNow() - storm._interpStart;
       const fromX = storm._interpFromX ?? storm._interpToX;
       const fromY = storm._interpFromY ?? storm._interpToY;
 
@@ -744,7 +760,7 @@
         : newRays.slice();
       player._toRayDistances  = newRays.slice();
       player._rayInterpDurationMs = Math.max(8, durationMs != null ? durationMs : (player._rayInterpDurationMs || ZONE_SYNC_INTERVAL_MS));
-      player._rayInterpStart  = performance.now();
+      player._rayInterpStart  = _perfNow();
     },
 
     /**
@@ -762,7 +778,7 @@
       res._interpToX   = x;
       res._interpToY   = y;
       res._interpDurationMs = Math.max(8, durationMs != null ? durationMs : (res._interpDurationMs || ZONE_SYNC_INTERVAL_MS));
-      res._interpStart = performance.now();
+      res._interpStart = _perfNow();
     },
 
     /**
@@ -772,7 +788,7 @@
     tickRes(res, intervalMs, players) {
       if (res._interpStart == null) return;
       const durationMs = Math.max(8, res._interpDurationMs || intervalMs || ZONE_SYNC_INTERVAL_MS);
-      const elapsed = performance.now() - res._interpStart;
+      const elapsed = _perfNow() - res._interpStart;
       const t = clamp(elapsed / Math.max(durationMs, 1), 0, 1);
       const fromX = res._interpFromX ?? res._interpToX;
       const fromY = res._interpFromY ?? res._interpToY;
@@ -800,7 +816,7 @@
         player.influenceRayDistances = player._toRayDistances.slice();
 
       const durationMs = Math.max(8, player._rayInterpDurationMs || intervalMs || ZONE_SYNC_INTERVAL_MS);
-      const elapsed = performance.now() - (player._rayInterpStart || 0);
+      const elapsed = _perfNow() - (player._rayInterpStart || 0);
       const t = clamp(elapsed / Math.max(durationMs, 1), 0, 1);
 
       for (let i = 0; i < numRays; i++) {

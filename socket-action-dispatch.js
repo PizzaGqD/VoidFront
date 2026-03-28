@@ -25,9 +25,7 @@
       useGloriousBattleMarch,
       useLoan,
       useRaiderCapture,
-      beginTimeRewindSequence,
       applyCard,
-      TIME_JUMP_REWIND_SEC,
       activateBuffCardForPlayer,
       castAbilityCardForPlayer,
       executeAbilityAction

@@ -10,7 +10,6 @@
       PLAYER_LIGHT_SYNC_KEYS,
       PLAYER_FULL_SYNC_KEYS,
       UNIT_FULL_SYNC_KEYS,
-      syncTimeRewindFromSnapshot,
       makePlayer,
       makeCityVisual,
       makeZoneVisual,
@@ -161,7 +160,6 @@
       state._lastSnapT = snap.t;
       state._lastSnapRealTime = Date.now();
       if (snap.timeScale != null) state.timeScale = snap.timeScale;
-      syncTimeRewindFromSnapshot(snap);
       if (snap.nextUnitId != null) state.nextUnitId = snap.nextUnitId;
       if (snap.nextResId != null) state.nextResId = snap.nextResId;
 
@@ -339,6 +337,11 @@
         if (isCompact && raw.length === 2 && raw[1] === NET.DESTROYED_SENTINEL) {
           const dead = state.units.get(uid);
           if (dead) {
+            if (state.floatingDamage) {
+              state.floatingDamage.push({ x: dead.x, y: dead.y - 16, text: "💥", color: dead.color || 0xff4444, ttl: 0.8 });
+            }
+            if (!state._deathBursts) state._deathBursts = [];
+            state._deathBursts.push({ x: dead.x, y: dead.y, color: dead.color || 0xff4444, t0: state.t, duration: 0.4, maxRadius: 18 });
             if (dead.gfx) unitsLayer.removeChild(dead.gfx);
             state.units.delete(uid);
           }
@@ -399,7 +402,14 @@
         for (const id of [...state.units.keys()]) {
           if (!wantUnitIds.has(id)) {
             const u = state.units.get(id);
-            if (u && u.gfx) unitsLayer.removeChild(u.gfx);
+            if (u) {
+              if (state.floatingDamage) {
+                state.floatingDamage.push({ x: u.x, y: u.y - 16, text: "💥", color: u.color || 0xff4444, ttl: 0.8 });
+              }
+              if (!state._deathBursts) state._deathBursts = [];
+              state._deathBursts.push({ x: u.x, y: u.y, color: u.color || 0xff4444, t0: state.t, duration: 0.4, maxRadius: 18 });
+              if (u.gfx) unitsLayer.removeChild(u.gfx);
+            }
             state.units.delete(id);
           }
         }
@@ -656,6 +666,9 @@
             mine.capturingUnitId = m.capturingUnitId;
             mine.isRich = !!m.isRich;
             mine.resourceType = nextResourceType;
+            if (m.homeMine != null) mine.homeMine = m.homeMine;
+            if (m.pairKey != null) mine.pairKey = m.pairKey;
+            if (m.laneRole != null) mine.laneRole = m.laneRole;
             if (changed) updateMineVisual(mine);
           }
         }

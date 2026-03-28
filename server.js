@@ -22,7 +22,7 @@ const COLOR_COUNT = 36;
 const RECONNECT_GRACE_MS = 30 * 1000;
 const PUBLIC_SERVER_URL = process.env.GAME_SERVER_URL || process.env.PUBLIC_SERVER_URL || "";
 const RELEASE_CHANNEL = process.env.RELEASE_CHANNEL || "local";
-const DEFAULT_AUTHORITY_MODE = /^prod/i.test(RELEASE_CHANNEL) ? "server" : "host-client";
+const DEFAULT_AUTHORITY_MODE = "server";
 const AUTHORITY_MODE = process.env.VOIDFRONT_AUTHORITY_MODE || DEFAULT_AUTHORITY_MODE;
 const ENABLE_DEBUG_TOOLS = !/^(0|false)$/i.test(process.env.VOIDFRONT_ENABLE_DEBUG_TOOLS || "1");
 const ENABLE_TEST_UI = !/^(0|false)$/i.test(process.env.VOIDFRONT_ENABLE_TEST_UI || "1");
@@ -215,9 +215,13 @@ const httpServer = http.createServer((req, res) => {
       return res.end();
     }
 
+    const isAsset = ext === ".png" || ext === ".jpg" || ext === ".gif" || ext === ".mp3" || ext === ".ogg" || ext === ".wav" || ext === ".woff" || ext === ".woff2" || ext === ".svg";
+    const cacheControl = isAsset
+      ? "public, max-age=86400, immutable"
+      : "no-cache";
     const headers = {
       "Content-Type": MIME[ext] || "text/plain",
-      "Cache-Control": "no-store, no-cache, must-revalidate",
+      "Cache-Control": cacheControl,
       "Accept-Ranges": "bytes",
       "Content-Length": stat.size
     };
@@ -257,7 +261,7 @@ const httpServer = http.createServer((req, res) => {
       const chunkSize = end - start + 1;
       res.writeHead(206, {
         "Content-Type": MIME[ext] || "text/plain",
-        "Cache-Control": "no-store, no-cache, must-revalidate",
+        "Cache-Control": cacheControl,
         "Accept-Ranges": "bytes",
         "Content-Range": "bytes " + start + "-" + end + "/" + stat.size,
         "Content-Length": chunkSize
@@ -755,6 +759,7 @@ io.on("connection", (socket) => {
       roomId: session.roomId,
       matchId: room.matchId,
       matchType: room.matchType || inferMatchTypeFromSlots(slotSummary(room)),
+      authorityMode: AUTHORITY_MODE,
       slots: slotSummary(room),
       mySlot: session.slotIndex,
       hostSlot: getHostSlot(room),
@@ -766,6 +771,7 @@ io.on("connection", (socket) => {
         roomId: session.roomId,
         matchId: room.matchId,
         matchType: room.matchType,
+        authorityMode: AUTHORITY_MODE,
         seed: room.seed,
         slots: slotSummary(room),
         reconnected: true

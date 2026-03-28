@@ -16,7 +16,8 @@
     circuitDensity: document.getElementById("circuitDensity"),
     cycleVariant: document.getElementById("cycleVariant"),
     shufflePalette: document.getElementById("shufflePalette"),
-    pulseInspect: document.getElementById("pulseInspect")
+    pulseInspect: document.getElementById("pulseInspect"),
+    playActivation: document.getElementById("playActivation")
   };
 
   var texts = {
@@ -131,10 +132,20 @@
     { title: "Seismobomb", type: "Ability", text: "Arms for 3 sec, then ruptures the zone", chips: ["Delay", "Blast", "Legendary"] }
   ];
 
+  var ACTIVATION_NOTES = {
+    "aegis-prism": "shield-rings + vertical seal burst",
+    "circuit-bloom": "circuit bloom + node discharge",
+    "obsidian-relay": "relay slashes + edge vents",
+    "solar-spine": "solar beam + ember rays",
+    "royal-lattice": "royal halo + crown flare",
+    "nova-ledger": "HUD shutters + data sweep"
+  };
+
   var state = {
     time: 0,
     variantIndex: 0,
     inspectUntil: 0,
+    activationStartedAt: -999,
     stars: []
   };
 
@@ -213,6 +224,19 @@
     return state.time < state.inspectUntil ? 1 : 0;
   }
 
+  function getActivationState() {
+    var startedAt = state.activationStartedAt != null ? state.activationStartedAt : -999;
+    var elapsed = state.time - startedAt;
+    if (elapsed < 0 || elapsed > 1.5) return null;
+    return {
+      elapsed: elapsed,
+      flash: clamp01(elapsed / 0.12),
+      burst: clamp01(elapsed / 0.32),
+      fade: clamp01((elapsed - 0.48) / 0.86),
+      pulse: Math.sin(Math.min(1, elapsed / 1.5) * Math.PI)
+    };
+  }
+
   function pathCardFrame(width, height, radius, cut) {
     var r = Math.max(6, radius);
     var c = Math.max(0, Math.min(width * 0.2, cut));
@@ -227,6 +251,106 @@
     ctx.lineTo(-width * 0.5, -height * 0.5 + r + c);
     ctx.quadraticCurveTo(-width * 0.5, -height * 0.5, -width * 0.5 + r + c * 0.2, -height * 0.5);
     ctx.closePath();
+  }
+
+  function strokeCardFrameScaled(width, height, radius, cut, scale, color, alpha, lineWidth) {
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.globalAlpha *= Math.max(0, alpha);
+    ctx.lineWidth = lineWidth;
+    pathCardFrame(width * scale, height * scale, radius * scale, cut * scale);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawActivationRayBurst(count, innerR, outerR, rotation, color, alpha, width) {
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.globalAlpha *= Math.max(0, alpha);
+    ctx.lineWidth = width;
+    ctx.lineCap = "round";
+    for (var i = 0; i < count; i++) {
+      var ang = rotation + (i / Math.max(1, count)) * TAU;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(ang) * innerR, Math.sin(ang) * innerR);
+      ctx.lineTo(Math.cos(ang) * outerR, Math.sin(ang) * outerR);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  function drawActivationCardSweep(width, height, alpha, skew, color) {
+    ctx.save();
+    ctx.globalAlpha *= Math.max(0, alpha);
+    ctx.fillStyle = color;
+    ctx.transform(1, skew, 0, 1, 0, 0);
+    ctx.fillRect(-width * 0.55, -height * 0.56, width * 0.18, height * 1.12);
+    ctx.restore();
+  }
+
+  function drawActivationEffect(width, height, variant, palette, rarity, activation) {
+    if (!activation) return;
+    var flash = activation.flash;
+    var burst = activation.burst;
+    var fade = activation.fade;
+    var pulse = activation.pulse;
+    var trimGlow = rgbaHex(palette.trim, 0.85);
+    var rarityGlow = rgbaHex(rarity.color, 0.92);
+    ctx.save();
+    ctx.globalCompositeOperation = "screen";
+    if (variant.key === "aegis-prism") {
+      strokeCardFrameScaled(width, height, 28, width * variant.cornerCut, 1 + burst * 0.06, rarityGlow, 0.85 - fade * 0.6, 2.6);
+      strokeCardFrameScaled(width, height, 28, width * variant.cornerCut, 1 + burst * 0.14, trimGlow, 0.42 - fade * 0.3, 1.6);
+      drawActivationCardSweep(width, height, 0.34 * (1 - fade), 0.14, rgbaHex(rarity.color, 0.34));
+      drawActivationRayBurst(10, width * 0.12, width * (0.22 + burst * 0.12), state.time * 0.2, trimGlow, 0.22 + flash * 0.18, 2.1);
+    } else if (variant.key === "circuit-bloom") {
+      drawActivationRayBurst(14, width * 0.10, width * (0.26 + burst * 0.14), state.time * 0.35, rgba(palette.glow, 0.96), 0.24 + pulse * 0.2, 1.6);
+      for (var cb = 0; cb < 6; cb++) {
+        var prog = ((state.time * 1.7) + cb * 0.13) % 1;
+        var x = -width * 0.28 + prog * width * 0.56;
+        var y = -height * 0.18 + (cb - 2.5) * 18;
+        ctx.beginPath();
+        ctx.fillStyle = rgbaHex(palette.trim, 0.78 - fade * 0.4);
+        ctx.arc(x, y, 3.5 + pulse * 1.8, 0, TAU);
+        ctx.fill();
+      }
+      strokeCardFrameScaled(width, height, 28, width * variant.cornerCut, 1 + burst * 0.08, rgba(palette.glow, 0.95), 0.58 - fade * 0.4, 2.1);
+    } else if (variant.key === "obsidian-relay") {
+      for (var orx = 0; orx < 3; orx++) {
+        var ox = -width * 0.34 + orx * width * 0.28 + burst * 26;
+        ctx.fillStyle = rgbaHex(rarity.color, 0.12 + (0.18 - fade * 0.12));
+        ctx.fillRect(ox, -height * 0.50, width * 0.10, height);
+      }
+      drawActivationCardSweep(width, height, 0.28 * (1 - fade), -0.18, rgbaHex(rarity.color, 0.30));
+      drawActivationRayBurst(8, width * 0.18, width * (0.34 + burst * 0.08), -0.4, trimGlow, 0.18 + flash * 0.16, 2.4);
+      strokeCardFrameScaled(width, height, 28, width * variant.cornerCut, 1 + burst * 0.04, rarityGlow, 0.72 - fade * 0.48, 3.0);
+    } else if (variant.key === "solar-spine") {
+      ctx.fillStyle = rgbaHex(rarity.color, 0.16 + flash * 0.18);
+      ctx.fillRect(-width * 0.07, -height * 0.52, width * 0.14, height * (0.9 - fade * 0.15));
+      drawActivationRayBurst(12, width * 0.08, width * (0.32 + burst * 0.16), -Math.PI / 2, rgbaHex("#fff1c4", 0.92), 0.28 + pulse * 0.22, 2.0);
+      drawActivationRayBurst(6, width * 0.18, width * (0.42 + burst * 0.18), Math.PI / 6, rgbaHex(rarity.color, 0.96), 0.18 + flash * 0.14, 3.6);
+    } else if (variant.key === "royal-lattice") {
+      ctx.beginPath();
+      ctx.strokeStyle = rarityGlow;
+      ctx.globalAlpha *= 0.58 - fade * 0.36;
+      ctx.lineWidth = 2.4;
+      ctx.arc(0, -height * 0.04, width * (0.16 + burst * 0.12), 0, TAU);
+      ctx.stroke();
+      drawActivationRayBurst(5, width * 0.18, width * (0.30 + burst * 0.14), -Math.PI / 2, rgbaHex("#fff2cf", 0.96), 0.30 + flash * 0.14, 2.6);
+      strokeCardFrameScaled(width, height, 28, width * variant.cornerCut, 1 + burst * 0.1, rarityGlow, 0.74 - fade * 0.5, 2.9);
+    } else if (variant.key === "nova-ledger") {
+      for (var nl = 0; nl < 4; nl++) {
+        var laneY = -height * 0.28 + nl * 34;
+        var laneW = width * (0.18 + nl * 0.08);
+        var slide = burst * (26 + nl * 10);
+        ctx.fillStyle = rgba(palette.glow, 0.14 + flash * 0.10);
+        ctx.fillRect(-laneW - slide, laneY, laneW, 10);
+        ctx.fillRect(slide, laneY, laneW, 10);
+      }
+      drawActivationCardSweep(width, height, 0.24 * (1 - fade), 0.08, rgba(palette.glow, 0.22));
+      strokeCardFrameScaled(width, height, 28, width * variant.cornerCut, 1 + burst * 0.05, rgba(palette.glow, 0.96), 0.54 - fade * 0.34, 1.9);
+    }
+    ctx.restore();
   }
 
   function rebuildStars(width, height) {
@@ -482,15 +606,20 @@
     var frost = Number(controls.glassFrost.value) / 100;
     var density = Number(controls.circuitDensity.value) / 100;
     var inspectPulse = getInspectPulse();
+    var activation = isMain ? getActivationState() : null;
     var hoverLift = isMain ? (18 + Math.sin(state.time * 1.8) * 6 + inspectPulse * 10) : 0;
+    var activationLift = activation ? (18 * activation.pulse + activation.fade * 34) : 0;
     var tilt = isMain ? Math.sin(state.time * 0.8) * 0.025 : (-0.18 + index * 0.06);
+    var activationTilt = activation ? Math.sin(activation.elapsed * 10.5) * 0.018 * (1 - activation.fade) : 0;
     var edgeAlpha = 0.38 + glowAmount * 0.34 + inspectPulse * 0.12;
     var legendary = rarity && rarity.label === "Legendary";
     var edgeGlowMul = legendary ? 1.55 : 1;
+    var activationScale = activation ? (1 + activation.flash * 0.05 - activation.fade * 0.12) : 1;
     ctx.save();
-    ctx.translate(x, y - hoverLift);
-    ctx.rotate(tilt);
-    ctx.scale(scale, scale);
+    ctx.translate(x, y - hoverLift - activationLift);
+    ctx.rotate(tilt + activationTilt);
+    ctx.scale(scale * activationScale, scale * activationScale);
+    if (activation) ctx.globalAlpha *= Math.max(0.12, 1 - activation.fade * 0.78);
 
     pathCardFrame(w, h, 28, w * variant.cornerCut);
     ctx.fillStyle = rgbaHex(palette.dark, 0.98);
@@ -578,6 +707,8 @@
       drawChip(74, h * 0.34, sample.chips[2], palette, false);
     }
 
+    if (activation) drawActivationEffect(w, h, variant, palette, rarity, activation);
+
     ctx.restore();
   }
 
@@ -628,7 +759,7 @@
     var rarity = getRarity();
     texts.title.textContent = "Card Style Prototype 01 - " + variant.name;
     texts.subtitle.textContent = variant.note;
-    texts.status.textContent = variant.name + " / " + rarity.label + ": matte-glass body, sharper color edge and microcircuit layer under readability check.";
+    texts.status.textContent = variant.name + " / " + rarity.label + ": matte-glass body, sharper color edge, microcircuit layer and activation read -> " + (ACTIVATION_NOTES[variant.key] || "generic burst") + ".";
     texts.surface.textContent = variant.note;
     texts.readability.textContent = variant.readability;
     texts.goal.textContent = variant.goal;
@@ -685,6 +816,12 @@
   controls.pulseInspect.addEventListener("click", function () {
     state.inspectUntil = state.time + 2.8;
   });
+
+  if (controls.playActivation) {
+    controls.playActivation.addEventListener("click", function () {
+      state.activationStartedAt = state.time;
+    });
+  }
 
   window.addEventListener("resize", resize);
   resize();

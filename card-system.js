@@ -29,6 +29,84 @@
     ability: 0.22
   };
 
+  function formatNumber(value) {
+    const rounded = Math.round(Number(value || 0) * 10) / 10;
+    return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1).replace(/\.0$/, "");
+  }
+
+  function formatSignedNumber(value) {
+    const numeric = Number(value || 0);
+    return (numeric >= 0 ? "+" : "") + formatNumber(numeric);
+  }
+
+  function formatPercentFromMultiplier(multiplier) {
+    const numeric = Number(multiplier || 1);
+    return formatSignedNumber((numeric - 1) * 100) + "%";
+  }
+
+  function formatRealDuration(simSeconds) {
+    if (simSeconds == null) return "";
+    return formatNumber(simSeconds / SIM_TIME_PER_REAL_SECOND) + "с";
+  }
+
+  const BUFF_DESC_OVERRIDES = {
+    L11: "Постоянно: +0.5 регена щита/с и +100 Энергии ядра. Макс. 3 стака.",
+    P1: "Постоянно: +1 патрульный по орбите ядра. Макс. 4 стака.",
+    M1: "Постоянно: лазеры получают цепную молнию. 1/2/3 стака дают 3/6/9 скачков. Макс. 3 стака.",
+    M2: "Постоянно: попадания замедляют цель. 1/2/3 стака дают 40% на 2/3/4с. Макс. 3 стака.",
+    M3: "Постоянно: попадания поджигают цель. 1/2/3 стака дают 3/5/8 урона в секунду на 3/4/5с. Макс. 3 стака."
+  };
+
+  function buildBuffCardDescription(card) {
+    if (!card) return "";
+    if (BUFF_DESC_OVERRIDES[card.id]) return BUFF_DESC_OVERRIDES[card.id];
+    const effects = [];
+    if (card.unitHpMul != null && card.unitHpMul !== 1) effects.push(formatPercentFromMultiplier(card.unitHpMul) + " к HP кораблей");
+    if (card.unitDmgMul != null && card.unitDmgMul !== 1) effects.push(formatPercentFromMultiplier(card.unitDmgMul) + " к урону кораблей");
+    if (card.unitAtkRateMul != null && card.unitAtkRateMul !== 1) effects.push(formatPercentFromMultiplier(card.unitAtkRateMul) + " к скорострельности кораблей");
+    if (card.unitSpeedMul != null && card.unitSpeedMul !== 1) effects.push(formatPercentFromMultiplier(card.unitSpeedMul) + " к скорости кораблей");
+    if (card.growthMul != null && card.growthMul !== 1) effects.push(formatPercentFromMultiplier(card.growthMul) + " к приросту Энергии");
+    if (card.unitAtkRangeMul != null && card.unitAtkRangeMul !== 1) effects.push(formatPercentFromMultiplier(card.unitAtkRangeMul) + " к дальности кораблей");
+    if (card.turretHpMul != null && card.turretHpMul !== 1) effects.push(formatPercentFromMultiplier(card.turretHpMul) + " к HP турелей");
+    if (card.turretDmgMul != null && card.turretDmgMul !== 1) effects.push(formatPercentFromMultiplier(card.turretDmgMul) + " к урону турелей");
+    if (card.turretRangeMul != null && card.turretRangeMul !== 1) effects.push(formatPercentFromMultiplier(card.turretRangeMul) + " к радиусу турелей");
+    if (card.influenceSpeedMul != null && card.influenceSpeedMul !== 1) effects.push(formatPercentFromMultiplier(card.influenceSpeedMul) + " к скорости зоны влияния");
+    if (card.mineYieldBonus) effects.push(formatSignedNumber(card.mineYieldBonus) + "% к добыче шахт");
+    if (card.unitCostMul != null && card.unitCostMul !== 1) effects.push(formatPercentFromMultiplier(card.unitCostMul) + " к стоимости кораблей");
+    if (card.shieldRegenBonus) effects.push(formatSignedNumber(card.shieldRegenBonus) + " регена щита/с");
+    if (card.populationBonus) effects.push(formatSignedNumber(card.populationBonus) + " Энергии ядра");
+    if (card.patrolBonus) effects.push(formatSignedNumber(card.patrolBonus) + " патрульный по орбите ядра");
+    if (card.turretTargetBonus) effects.push(formatSignedNumber(card.turretTargetBonus) + " цель патрулям за залп");
+    const timing = card.permanent ? "Постоянно" : ("На " + formatRealDuration(card.durationSec));
+    let desc = effects.length ? (timing + ": " + effects.join(", ") + ".") : (timing + ".");
+    if (card.maxStacks != null) desc += " Макс. " + card.maxStacks + " стака.";
+    return desc;
+  }
+
+  const ABILITY_DESC_BY_ID = {
+    ionField: "На 3с создаёт ионный шторм радиусом 210: каждые 0.5с снимает 10% текущего HP и в конце наносит ещё 2% max HP.",
+    ionNebula: "На 10с создаёт ионный шторм радиусом 210: каждые 0.5с снимает 10% текущего HP и в конце наносит ещё 2% max HP.",
+    activeShield: "Даёт всем текущим кораблям временный щит на 25% от их max HP.",
+    fleetBoost: "На 20с даёт всем своим кораблям +50% скорости.",
+    resourceSurge: "Мгновенно даёт +2200 eCredits.",
+    raiderCapture: "Крадёт у выбранного ядра 12% Энергии, но не больше 70, и переводит её вам.",
+    minefield: "Разворачивает 5 мин на 15с: радиус срабатывания 34, взрыв 85, урон 110 + 12% max HP.",
+    minefieldLarge: "Разворачивает 25 мин на 22с: радиус срабатывания 44, взрыв 110, урон 180 + 18% max HP.",
+    meteor: "Запускает 1 метеор по линии: взрыв радиусом 120 наносит 50% max HP + 100.",
+    meteorSwarm: "Запускает 6 метеоров веером по линии: каждый взрыв радиусом 120 наносит 50% max HP + 100.",
+    microBlackHole: "На 5с создаёт микро-чёрную дыру радиусом 133: притягивает врагов и наносит 0.3-3.3% max HP/с.",
+    microAnchor: "На 7с создаёт зону радиусом 220: стягивает врагов к центру и держит их в коротком стазисе.",
+    blackHole: "На 17с создаёт чёрную дыру радиусом 400: притягивает врагов и наносит 1-10% max HP/с.",
+    gravAnchor: "На 20с создаёт зону радиусом 420: стягивает врагов к центру и держит их в коротком стазисе.",
+    orbitalStrike: "2 залпа по 5 ударов по зоне радиусом 250. Каждый удар бьёт в радиусе 130 и наносит 340 + 15% max HP.",
+    orbitalBarrage: "6 залпов по 5 ударов по зоне радиусом 320. Каждый удар бьёт в радиусе 110 и наносит 260 + 10% max HP.",
+    thermoNuke: "Через 3.2с наносит удар по зоне радиусом 500: уничтожает все корабли внутри и обнуляет щит ядра."
+  };
+
+  function buildAbilityDescription(ability) {
+    return ABILITY_DESC_BY_ID[ability && ability.id] || (ability && ability.desc) || "";
+  }
+
   const ABILITY_DEFS = [
     { id: "ionField", name: "Ионное поле", desc: "Короткий ионный шторм на 3с в одной зоне", cooldown: 70, icon: "⚡", targeting: "point", cardRarity: "epic" },
     { id: "ionNebula", name: "Ионный шторм", desc: "Легендарный ионный шторм с прежним визуалом", cooldown: 120, icon: "🌩️", targeting: "point", cardRarity: "legendary" },
@@ -36,8 +114,6 @@
     { id: "fleetBoost", name: "Форсаж эскадры", desc: "+50% скорости всем своим юнитам на 20с", cooldown: 70, icon: "⚡", cardRarity: "rare" },
     { id: "resourceSurge", name: "Ресурсный всплеск", desc: "+2200 eCredits мгновенно", cooldown: 150, icon: "💎", cardRarity: "rare" },
     { id: "raiderCapture", name: "Похищение энергии", desc: "Крадёт 12% энергии выбранного ядра, но не больше 70", cooldown: 110, icon: "🔌", targeting: "city", cardRarity: "rare" },
-    { id: "droneSwarm", name: "Истребительное звено", desc: "Вызывает 6 истребителей на выбранную линию", cooldown: 85, icon: "✈️", targeting: "lane", cardRarity: "rare" },
-    { id: "frigateWarp", name: "Вызов фрегата", desc: "Вызывает усиленный фрегат на выбранную линию", cooldown: 110, icon: "🛰️", targeting: "lane", cardRarity: "epic" },
     { id: "minefield", name: "Малое минное поле", desc: "5 мин ложатся вглубь своего коридора и взрываются по площади", cooldown: 90, icon: "🧨", targeting: "point", cardRarity: "epic" },
     { id: "minefieldLarge", name: "Большое минное поле", desc: "25 мин плотным полем уходят вглубь коридора и перекрывают проход", cooldown: 135, icon: "🧨", targeting: "point", cardRarity: "legendary" },
     { id: "meteor", name: "Линейный метеор", desc: "Один быстрый метеор по линии. Младшая версия дождя.", cooldown: 95, icon: "☄️", targeting: "angle", cardRarity: "epic" },
@@ -48,19 +124,20 @@
     { id: "gravAnchor", name: "Грав. якорь", desc: "Легендарная зона стяжки и фиксации врагов", cooldown: 110, icon: "⚓", targeting: "point", cardRarity: "legendary" },
     { id: "orbitalStrike", name: "Орбитальный удар", desc: "2 залпа по 5 выстрелов в случайные точки выбранной зоны", cooldown: 95, icon: "💥", targeting: "point", cardRarity: "epic" },
     { id: "orbitalBarrage", name: "Орбитальная канонада", desc: "10 залпов по 5 выстрелов накрывают зону случайными попаданиями", cooldown: 145, icon: "💥", targeting: "point", cardRarity: "legendary" },
-    { id: "thermoNuke", name: "Термоядерный импульс", desc: "Сверхтяжёлый удар по огромной зоне", cooldown: 200, icon: "☢️", targeting: "point", cardRarity: "legendary" },
-    { id: "timeJump", name: "Временной скачок", desc: "Пасхалка: откат на 1 минуту назад", cooldown: 0, oneTime: true, icon: "⏪", cardRarity: "mythic" }
-  ];
+    { id: "thermoNuke", name: "Термоядерный импульс", desc: "Сверхтяжёлый удар по огромной зоне", cooldown: 200, icon: "☢️", targeting: "point", cardRarity: "legendary" }
+  ].map((ability) => Object.assign({}, ability, { desc: buildAbilityDescription(ability) }));
 
   function makeBuffCard(base) {
     const rarity = base.rarity || "common";
     const baseDuration = BUFF_DURATION_BY_RARITY[rarity];
-    return Object.assign({
+    const card = Object.assign({
       zone: "buff",
       kind: "buff",
       durationSec: baseDuration == null ? baseDuration : baseDuration * BUFF_DURATION_MULT * SIM_TIME_PER_REAL_SECOND,
       permanent: rarity === "legendary" || rarity === "mythic"
     }, base);
+    card.desc = buildBuffCardDescription(card);
+    return card;
   }
 
   const BUFF_CARD_DEFS = [

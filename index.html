@@ -197,116 +197,126 @@
   </div>
 
   <!-- Top-right panel: Leaderboard + Test + Speed + Toggles + Squads -->
-  <div id="topRightPanel" class="topright-panel">
-    <div id="leaderboard" class="box leaderboard topright-leaderboard">
-      <div class="subtitle">Лидеры</div>
-      <table class="leader-table">
-        <thead><tr><th>#</th><th>Город</th><th>Энергия</th><th>Карта %</th></tr></thead>
-        <tbody id="leaderboardBody"></tbody>
-      </table>
-    </div>
-    <div id="squadStripRight" class="squad-strip-right"></div>
-    <div id="squadControlBox" class="box squad-control-right" style="display:none">
-      <div class="subtitle">Управление отрядом</div>
-      <div id="squadControlOne" style="display:none">
-        <div class="row">
-          <button type="button" id="splitSquadBtnOne">Разделить</button>
-          <button type="button" id="splitByTypeBtnOne">Разделить по типу</button>
-        </div>
-        <div class="row">
-          <label>Строй</label>
-          <select id="formationSelect">
-            <option value="lineByType" selected>Шеренга по типу</option>
-            <option value="line">Шеренга</option>
-            <option value="pig">Свинья</option>
-          </select>
-          <span id="formationLineRow" class="formation-row-controls">
-            <label>Рядов</label>
-            <button type="button" id="formationRowsMinus" class="pill">−</button>
-            <input id="formationRows" type="number" min="1" value="2" style="width:2.5em" />
-            <button type="button" id="formationRowsPlus" class="pill">+</button>
-          </span>
-          <span id="formationPigRow" class="formation-row-controls" style="display:none">
-            <label>Глубина</label>
-            <button type="button" id="formationPigDepthMinus" class="pill">−</button>
-            <span id="formationPigDepthVal" class="mono">3</span>
-            <button type="button" id="formationPigDepthPlus" class="pill">+</button>
-            <label>Ширина</label>
-            <button type="button" id="formationPigWidthMinus" class="pill">−</button>
-            <span id="formationPigWidthVal" class="mono">1.0</span>
-            <button type="button" id="formationPigWidthPlus" class="pill">+</button>
-          </span>
-        </div>
-        <div class="muted">Ctrl+1…9 — бинд, 1…9 — выбор.</div>
+  <details id="topRightPanel" class="topright-panel hud-collapse-panel" open>
+    <summary class="hud-collapse-summary hud-collapse-summary-panel">Правая панель</summary>
+    <div class="hud-collapse-content hud-collapse-content-panel">
+      <div id="leaderboard" class="box leaderboard topright-leaderboard">
+        <div class="subtitle">Лидеры</div>
+        <table class="leader-table">
+          <thead><tr><th>#</th><th>Город</th><th>Энергия</th><th>Карта %</th></tr></thead>
+          <tbody id="leaderboardBody"></tbody>
+        </table>
       </div>
-      <div id="squadControlMulti" style="display:none">
-        <div class="row">
-          <button id="mergeSquadBtn">Объединить в отряд</button>
-          <button id="splitSquadBtn">Разделить</button>
-          <button id="splitByTypeBtn">Разделить по типу</button>
+      <div id="squadStripRight" class="squad-strip-right"></div>
+      <details id="squadControlBox" class="box squad-control-right hud-collapse-box" style="display:none" open>
+        <summary class="subtitle hud-collapse-summary">Управление отрядом</summary>
+        <div class="hud-collapse-content">
+          <div id="squadControlOne" style="display:none">
+            <div class="row">
+              <button type="button" id="splitSquadBtnOne">Разделить</button>
+              <button type="button" id="splitByTypeBtnOne">Разделить по типу</button>
+            </div>
+            <div class="row">
+              <label>Строй</label>
+              <select id="formationSelect">
+                <option value="lineByType" selected>Шеренга по типу</option>
+                <option value="line">Шеренга</option>
+                <option value="pig">Свинья</option>
+              </select>
+              <span id="formationLineRow" class="formation-row-controls">
+                <label>Рядов</label>
+                <button type="button" id="formationRowsMinus" class="pill">−</button>
+                <input id="formationRows" type="number" min="1" value="2" style="width:2.5em" />
+                <button type="button" id="formationRowsPlus" class="pill">+</button>
+              </span>
+              <span id="formationPigRow" class="formation-row-controls" style="display:none">
+                <label>Глубина</label>
+                <button type="button" id="formationPigDepthMinus" class="pill">−</button>
+                <span id="formationPigDepthVal" class="mono">3</span>
+                <button type="button" id="formationPigDepthPlus" class="pill">+</button>
+                <label>Ширина</label>
+                <button type="button" id="formationPigWidthMinus" class="pill">−</button>
+                <span id="formationPigWidthVal" class="mono">1.0</span>
+                <button type="button" id="formationPigWidthPlus" class="pill">+</button>
+              </span>
+            </div>
+            <div class="muted">Ctrl+1…9 — бинд, 1…9 — выбор.</div>
+          </div>
+          <div id="squadControlMulti" style="display:none">
+            <div class="row">
+              <button id="mergeSquadBtn">Объединить в отряд</button>
+              <button id="splitSquadBtn">Разделить</button>
+              <button id="splitByTypeBtn">Разделить по типу</button>
+            </div>
+            <div class="row">
+              <label>Строй</label>
+              <select id="formationSelectMulti">
+                <option value="lineByType" selected>Шеренга по типу</option>
+                <option value="line">Шеренга</option>
+                <option value="pig">Свинья</option>
+              </select>
+              <span id="formationLineRowMulti" class="formation-row-controls">
+                <label>Рядов</label>
+                <button type="button" id="formationRowsMinusMulti" class="pill">−</button>
+                <input id="formationRowsMulti" type="number" min="1" value="2" style="width:2.5em" />
+                <button type="button" id="formationRowsPlusMulti" class="pill">+</button>
+              </span>
+              <span id="formationPigRowMulti" class="formation-row-controls" style="display:none">
+                <label>Глубина</label>
+                <button type="button" id="formationPigDepthMinusMulti" class="pill">−</button>
+                <span id="formationPigDepthValMulti" class="mono">3</span>
+                <button type="button" id="formationPigDepthPlusMulti" class="pill">+</button>
+                <label>Ширина</label>
+                <button type="button" id="formationPigWidthMinusMulti" class="pill">−</button>
+                <span id="formationPigWidthValMulti" class="mono">1.0</span>
+                <button type="button" id="formationPigWidthPlusMulti" class="pill">+</button>
+              </span>
+            </div>
+            <div class="muted">Формация применяется ко всем выделенным.</div>
+          </div>
         </div>
-        <div class="row">
-          <label>Строй</label>
-          <select id="formationSelectMulti">
-            <option value="lineByType" selected>Шеренга по типу</option>
-            <option value="line">Шеренга</option>
-            <option value="pig">Свинья</option>
-          </select>
-          <span id="formationLineRowMulti" class="formation-row-controls">
-            <label>Рядов</label>
-            <button type="button" id="formationRowsMinusMulti" class="pill">−</button>
-            <input id="formationRowsMulti" type="number" min="1" value="2" style="width:2.5em" />
-            <button type="button" id="formationRowsPlusMulti" class="pill">+</button>
-          </span>
-          <span id="formationPigRowMulti" class="formation-row-controls" style="display:none">
-            <label>Глубина</label>
-            <button type="button" id="formationPigDepthMinusMulti" class="pill">−</button>
-            <span id="formationPigDepthValMulti" class="mono">3</span>
-            <button type="button" id="formationPigDepthPlusMulti" class="pill">+</button>
-            <label>Ширина</label>
-            <button type="button" id="formationPigWidthMinusMulti" class="pill">−</button>
-            <span id="formationPigWidthValMulti" class="mono">1.0</span>
-            <button type="button" id="formationPigWidthPlusMulti" class="pill">+</button>
-          </span>
-        </div>
-        <div class="muted">Формация применяется ко всем выделенным.</div>
-      </div>
+      </details>
     </div>
-  </div>
+  </details>
 
   <!-- Bottom-right: speed, toggles, test panel -->
-  <div id="bottomRightPanel" class="bottom-right-panel">
-    <div class="speed-bar-right">
-      <span class="speed-bar-label">Скорость:</span>
-      <div class="speed-bar-buttons">
-        <button type="button" class="speed-btn pill" data-speed="1">x1</button>
-        <button type="button" class="speed-btn pill" data-speed="2">x2</button>
-        <button type="button" class="speed-btn pill" data-speed="4">x4</button>
-        <button type="button" class="speed-btn pill" data-speed="8">x8</button>
-        <button type="button" class="speed-btn pill" data-speed="16">x16</button>
+  <details id="bottomRightPanel" class="bottom-right-panel hud-collapse-panel" open>
+    <summary class="hud-collapse-summary hud-collapse-summary-panel">Сервисная панель</summary>
+    <div class="hud-collapse-content hud-collapse-content-panel">
+      <div class="speed-bar-right">
+        <span class="speed-bar-label">Скорость:</span>
+        <div class="speed-bar-buttons">
+          <button type="button" class="speed-btn pill" data-speed="1">x1</button>
+          <button type="button" class="speed-btn pill" data-speed="2">x2</button>
+          <button type="button" class="speed-btn pill" data-speed="4">x4</button>
+          <button type="button" class="speed-btn pill" data-speed="8">x8</button>
+          <button type="button" class="speed-btn pill" data-speed="16">x16</button>
+        </div>
       </div>
+      <div class="toggles-row-right">
+        <button id="toggleZones" class="pill">Зоны</button>
+        <button id="toggleGrid" class="pill">Сетка</button>
+      </div>
+      <div class="topright-test-row">
+        <div class="pill" id="net">локально • боты</div>
+        <div class="pill" id="fps">fps: --</div>
+        <button type="button" id="togglePerfLog" class="pill" title="Лог производительности">Perf</button>
+      </div>
+      <div id="perfLogWrap" class="perf-log-wrap" style="display:none">
+        <pre id="perfLog" class="perf-log"></pre>
+      </div>
+      <details id="testPanel" class="hud-collapse-box" style="display:none;flex-direction:column;gap:6px;margin-top:6px;" open>
+        <summary class="hud-collapse-summary">Тест-панель</summary>
+        <div class="hud-collapse-content">
+          <button id="testAddPop" style="background:#1a1d55;color:#ddeeff;border:1px solid #44aaff;border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12px;">+1000 энергии</button>
+          <button id="testAddLevel" style="background:#1a1d55;color:#ddeeff;border:1px solid #44aaff;border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12px;">+10 уровней</button>
+          <select id="testAbilitySelect" style="background:#111633;color:#ddeeff;border:1px solid #44aaff;border-radius:6px;padding:5px 8px;font-size:12px;"></select>
+          <button id="testGiveAbilityCard" style="background:#1a1d55;color:#ddeeff;border:1px solid #44aaff;border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12px;">Дать карту способности</button>
+          <button id="testNoCooldowns" style="background:#1a1d55;color:#ddeeff;border:1px solid #44aaff;border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12px;">Без перезарядок</button>
+        </div>
+      </details>
     </div>
-    <div class="toggles-row-right">
-      <button id="toggleZones" class="pill">Зоны</button>
-      <button id="toggleGrid" class="pill">Сетка</button>
-    </div>
-    <div class="topright-test-row">
-      <div class="pill" id="net">локально • боты</div>
-      <div class="pill" id="fps">fps: --</div>
-      <button type="button" id="togglePerfLog" class="pill" title="Лог производительности">Perf</button>
-    </div>
-    <div id="perfLogWrap" class="perf-log-wrap" style="display:none">
-      <pre id="perfLog" class="perf-log"></pre>
-    </div>
-    <div id="testPanel" style="display:none;flex-direction:column;gap:6px;margin-top:6px;">
-      <div style="color:#88bbff;font-size:12px;font-weight:700;text-align:center;margin-bottom:2px;">Тест-панель</div>
-      <button id="testAddPop" style="background:#1a1d55;color:#ddeeff;border:1px solid #44aaff;border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12px;">+1000 энергии</button>
-      <button id="testAddLevel" style="background:#1a1d55;color:#ddeeff;border:1px solid #44aaff;border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12px;">+10 уровней</button>
-      <select id="testAbilitySelect" style="background:#111633;color:#ddeeff;border:1px solid #44aaff;border-radius:6px;padding:5px 8px;font-size:12px;"></select>
-      <button id="testGiveAbilityCard" style="background:#1a1d55;color:#ddeeff;border:1px solid #44aaff;border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12px;">Дать карту способности</button>
-      <button id="testNoCooldowns" style="background:#1a1d55;color:#ddeeff;border:1px solid #44aaff;border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12px;">Без перезарядок</button>
-    </div>
-  </div>
+  </details>
 
   <div id="enemyComparePanel">
     <div class="compare-title">📊 Сравнение: <span id="compareEnemyName">—</span></div>
@@ -331,132 +341,140 @@
     </div>
 
     <!-- Планета -->
-    <div class="hud-section" id="hudPlanet">
-      <div class="hud-section-header">🌍 Планета</div>
-      <div class="hud-stat-row" data-tooltip="Текущая Энергия ядра (= HP города). Влияет на радиус зоны влияния и приносит кредиты: каждые 100 Энергии = +1€/с.">
-        <span class="hud-stat-icon">⚡</span><span class="hud-stat-label">Энергия</span>
-        <span class="hud-stat-val" id="hudPop">0</span>
+    <details class="hud-section" id="hudPlanet" open>
+      <summary class="hud-section-header hud-collapse-summary">🌍 Планета</summary>
+      <div class="hud-collapse-content">
+        <div class="hud-stat-row" data-tooltip="Текущая Энергия ядра (= HP города). Влияет на радиус зоны влияния и приносит кредиты: каждые 100 Энергии = +1€/с.">
+          <span class="hud-stat-icon">⚡</span><span class="hud-stat-label">Энергия</span>
+          <span class="hud-stat-val" id="hudPop">0</span>
+        </div>
+        <div class="hud-stat-row" data-tooltip="Суммарный доход от шахт: Энергия, кредиты и XP.">
+          <span class="hud-stat-icon">⛏️</span><span class="hud-stat-label">Добыча</span>
+          <span class="hud-stat-val" id="hudMining">0</span>
+        </div>
+        <div class="hud-stat-row" data-tooltip="HP щита планеты — защита от первых атак">
+          <span class="hud-stat-icon">🛡️</span><span class="hud-stat-label">Щит</span>
+          <span class="hud-stat-val" id="hudShield">0</span>
+        </div>
+        <div class="hud-stat-row" data-tooltip="Радиус зоны влияния — территория, которой вы владеете">
+          <span class="hud-stat-icon">🔵</span><span class="hud-stat-label">Зона</span>
+          <div class="hud-zone-bar"><div class="hud-zone-fill" id="hudZoneFill"></div></div>
+          <span class="hud-stat-val" id="hudZone">0%</span>
+        </div>
+        <div class="hud-stat-row" data-tooltip="Скорость расширения зоны влияния">
+          <span class="hud-stat-icon">⚡</span><span class="hud-stat-label">Скорость зоны</span>
+          <span class="hud-stat-val" id="hudZoneSpeed">0</span>
+        </div>
       </div>
-      <div class="hud-stat-row" data-tooltip="Суммарный доход от шахт: Энергия, кредиты и XP.">
-        <span class="hud-stat-icon">⛏️</span><span class="hud-stat-label">Добыча</span>
-        <span class="hud-stat-val" id="hudMining">0</span>
-      </div>
-      <div class="hud-stat-row" data-tooltip="HP щита планеты — защита от первых атак">
-        <span class="hud-stat-icon">🛡️</span><span class="hud-stat-label">Щит</span>
-        <span class="hud-stat-val" id="hudShield">0</span>
-      </div>
-      <div class="hud-stat-row" data-tooltip="Радиус зоны влияния — территория, которой вы владеете">
-        <span class="hud-stat-icon">🔵</span><span class="hud-stat-label">Зона</span>
-        <div class="hud-zone-bar"><div class="hud-zone-fill" id="hudZoneFill"></div></div>
-        <span class="hud-stat-val" id="hudZone">0%</span>
-      </div>
-      <div class="hud-stat-row" data-tooltip="Скорость расширения зоны влияния">
-        <span class="hud-stat-icon">⚡</span><span class="hud-stat-label">Скорость зоны</span>
-        <span class="hud-stat-val" id="hudZoneSpeed">0</span>
-      </div>
-    </div>
+    </details>
 
     <!-- Оборона -->
-    <div class="hud-section" id="hudDefense">
-      <div class="hud-section-header">🏰 Оборона</div>
-      <div class="hud-stat-row" data-tooltip="Очки здоровья одной турели">
-        <span class="hud-stat-icon">❤️</span><span class="hud-stat-label">ХП турели</span>
-        <span class="hud-stat-val" id="hudTurretHp">0</span>
+    <details class="hud-section" id="hudDefense" open>
+      <summary class="hud-section-header hud-collapse-summary">🏰 Оборона</summary>
+      <div class="hud-collapse-content">
+        <div class="hud-stat-row" data-tooltip="Очки здоровья одной турели">
+          <span class="hud-stat-icon">❤️</span><span class="hud-stat-label">ХП турели</span>
+          <span class="hud-stat-val" id="hudTurretHp">0</span>
+        </div>
+        <div class="hud-stat-row" data-tooltip="Урон одной турели за выстрел">
+          <span class="hud-stat-icon">💥</span><span class="hud-stat-label">Урон турели</span>
+          <span class="hud-stat-val" id="hudTurretDmg">0</span>
+        </div>
+        <div class="hud-stat-row" data-tooltip="Урон одного выстрела орбитальной турели">
+          <span class="hud-stat-icon">🎯</span><span class="hud-stat-label">Залп турелей</span>
+          <span class="hud-stat-val" id="hudCityDmg">0</span>
+        </div>
+        <div class="hud-stat-row" data-tooltip="Юниты-патрульные, летающие по внешней орбите ядра">
+          <span class="hud-stat-icon">🛸</span><span class="hud-stat-label">Патрульные</span>
+          <span class="hud-stat-val" id="hudPatrols">0</span>
+        </div>
       </div>
-      <div class="hud-stat-row" data-tooltip="Урон одной турели за выстрел">
-        <span class="hud-stat-icon">💥</span><span class="hud-stat-label">Урон турели</span>
-        <span class="hud-stat-val" id="hudTurretDmg">0</span>
-      </div>
-      <div class="hud-stat-row" data-tooltip="Урон одного выстрела орбитальной турели">
-        <span class="hud-stat-icon">🎯</span><span class="hud-stat-label">Залп турелей</span>
-        <span class="hud-stat-val" id="hudCityDmg">0</span>
-      </div>
-      <div class="hud-stat-row" data-tooltip="Юниты-патрульные, летающие по внешней орбите ядра">
-        <span class="hud-stat-icon">🛸</span><span class="hud-stat-label">Патрульные</span>
-        <span class="hud-stat-val" id="hudPatrols">0</span>
-      </div>
-    </div>
+    </details>
 
     <!-- Флот -->
-    <div class="hud-section" id="hudFleet">
-      <div class="hud-section-header">🚀 Флот (множители)</div>
-      <div class="hud-stat-row" data-tooltip="Множитель урона всех кораблей">
-        <span class="hud-stat-icon">⚔️</span><span class="hud-stat-label">Урон</span>
-        <span class="hud-stat-val hud-mult" id="hudDmgMul">×1.00</span>
+    <details class="hud-section" id="hudFleet" open>
+      <summary class="hud-section-header hud-collapse-summary">🚀 Флот (множители)</summary>
+      <div class="hud-collapse-content">
+        <div class="hud-stat-row" data-tooltip="Множитель HP всех кораблей, включая уже выпущенные и новые после получения баффов">
+          <span class="hud-stat-icon">❤️</span><span class="hud-stat-label">HP</span>
+          <span class="hud-stat-val hud-mult" id="hudHpMul">×1.00</span>
+        </div>
+        <div class="hud-stat-row" data-tooltip="Множитель урона всех кораблей">
+          <span class="hud-stat-icon">⚔️</span><span class="hud-stat-label">Урон</span>
+          <span class="hud-stat-val hud-mult" id="hudDmgMul">×1.00</span>
+        </div>
+        <div class="hud-stat-row" data-tooltip="Множитель скорострельности всех кораблей">
+          <span class="hud-stat-icon">🔫</span><span class="hud-stat-label">Скорострельность</span>
+          <span class="hud-stat-val hud-mult" id="hudRateMul">×1.00</span>
+        </div>
+        <div class="hud-stat-row" data-tooltip="Множитель дальности атаки всех кораблей">
+          <span class="hud-stat-icon">🎯</span><span class="hud-stat-label">Дальность</span>
+          <span class="hud-stat-val hud-mult" id="hudRangeMul">×1.00</span>
+        </div>
+        <div class="hud-stat-row" data-tooltip="Множитель скорости движения всех кораблей">
+          <span class="hud-stat-icon">💨</span><span class="hud-stat-label">Скорость</span>
+          <span class="hud-stat-val hud-mult" id="hudSpeedMul">×1.00</span>
+        </div>
+        <div class="hud-stat-row" data-tooltip="Активные легендарные модификаторы">
+          <span class="hud-stat-icon">⭐</span><span class="hud-stat-label">Легендарные</span>
+          <span class="hud-stat-val" id="hudLegendary">—</span>
+        </div>
       </div>
-      <div class="hud-stat-row" data-tooltip="Множитель скорострельности всех кораблей">
-        <span class="hud-stat-icon">🔫</span><span class="hud-stat-label">Скорострельность</span>
-        <span class="hud-stat-val hud-mult" id="hudRateMul">×1.00</span>
-      </div>
-      <div class="hud-stat-row" data-tooltip="Множитель дальности атаки всех кораблей">
-        <span class="hud-stat-icon">🎯</span><span class="hud-stat-label">Дальность</span>
-        <span class="hud-stat-val hud-mult" id="hudRangeMul">×1.00</span>
-      </div>
-      <div class="hud-stat-row" data-tooltip="Множитель скорости движения всех кораблей">
-        <span class="hud-stat-icon">💨</span><span class="hud-stat-label">Скорость</span>
-        <span class="hud-stat-val hud-mult" id="hudSpeedMul">×1.00</span>
-      </div>
-      <div class="hud-stat-row" data-tooltip="Активные легендарные модификаторы">
-        <span class="hud-stat-icon">⭐</span><span class="hud-stat-label">Легендарные</span>
-        <span class="hud-stat-val" id="hudLegendary">—</span>
-      </div>
-    </div>
+    </details>
 
-    <div class="box">
-      <div class="subtitle">Верфь — покупка кораблей</div>
-      <div id="unitShop" class="unit-shop">
-        <div class="unit-buy-col" data-type="destroyer">
-          <button type="button" class="unit-buy-btn" data-type="destroyer" title="Эсминец">
-            <span class="unit-buy-icon">▲<sup>··</sup></span>
-            <span class="unit-buy-name">Эсминец</span>
-            <span class="unit-buy-cost">150 €</span>
-            <span class="unit-count-badge" style="font-size:9px;opacity:0.5;display:block;">0/100</span>
-          </button>
-          <div class="unit-batch-row">
-            <button type="button" class="unit-batch-btn" data-type="destroyer" data-count="10">x10</button>
-            <button type="button" class="unit-batch-btn" data-type="destroyer" data-count="100">x100</button>
+    <details class="box hud-collapse-box" id="hudShipyard" open>
+      <summary class="subtitle hud-collapse-summary">Верфь — покупка кораблей</summary>
+      <div class="hud-collapse-content">
+        <div id="unitShop" class="unit-shop">
+          <div class="unit-buy-col" data-type="destroyer">
+            <button type="button" class="unit-buy-btn" data-type="destroyer" title="Эсминец">
+              <span class="unit-buy-icon">▲<sup>··</sup></span>
+              <span class="unit-buy-name">Эсминец</span>
+              <span class="unit-buy-cost">150 €</span>
+              <span class="unit-count-badge" style="font-size:9px;opacity:0.5;display:block;">0/100</span>
+            </button>
+            <div class="unit-batch-row">
+              <button type="button" class="unit-batch-btn" data-type="destroyer" data-count="10">x10</button>
+              <button type="button" class="unit-batch-btn" data-type="destroyer" data-count="100">x100</button>
+            </div>
+          </div>
+          <div class="unit-buy-col" data-type="cruiser">
+            <button type="button" class="unit-buy-btn" data-type="cruiser" title="Крейсер">
+              <span class="unit-buy-icon">▲<sup>···</sup></span>
+              <span class="unit-buy-name">Крейсер</span>
+              <span class="unit-buy-cost">600 €</span>
+              <span class="unit-count-badge" style="font-size:9px;opacity:0.5;display:block;">0/50</span>
+            </button>
+            <div class="unit-batch-row">
+              <button type="button" class="unit-batch-btn" data-type="cruiser" data-count="10">x10</button>
+              <button type="button" class="unit-batch-btn" data-type="cruiser" data-count="100">x100</button>
+            </div>
+          </div>
+          <div class="unit-buy-col" data-type="battleship">
+            <button type="button" class="unit-buy-btn" data-type="battleship" title="Линкор">
+              <span class="unit-buy-icon">▲<sup>····</sup></span>
+              <span class="unit-buy-name">Линкор</span>
+              <span class="unit-buy-cost">1700 €</span>
+              <span class="unit-count-badge" style="font-size:9px;opacity:0.5;display:block;">0/10</span>
+            </button>
+            <div class="unit-batch-row">
+              <button type="button" class="unit-batch-btn" data-type="battleship" data-count="10">x10</button>
+            </div>
           </div>
         </div>
-        <div class="unit-buy-col" data-type="cruiser">
-          <button type="button" class="unit-buy-btn" data-type="cruiser" title="Крейсер">
-            <span class="unit-buy-icon">▲<sup>···</sup></span>
-            <span class="unit-buy-name">Крейсер</span>
-            <span class="unit-buy-cost">600 €</span>
-            <span class="unit-count-badge" style="font-size:9px;opacity:0.5;display:block;">0/50</span>
-          </button>
-          <div class="unit-batch-row">
-            <button type="button" class="unit-batch-btn" data-type="cruiser" data-count="10">x10</button>
-            <button type="button" class="unit-batch-btn" data-type="cruiser" data-count="100">x100</button>
-          </div>
+        <div class="muted">Core roster: Эсминцы, Крейсеры, Линкоры. Призывные и редкие юниты позже будут приходить только через способности.</div>
+        <div class="row">
+          <button id="rallyPointBtn">Точка сбора</button>
+          <button id="resetCamBtn">Камера</button>
+          <button id="regenBtn">Перегенерить карту</button>
         </div>
-        <div class="unit-buy-col" data-type="battleship">
-          <button type="button" class="unit-buy-btn" data-type="battleship" title="Линкор">
-            <span class="unit-buy-icon">▲<sup>····</sup></span>
-            <span class="unit-buy-name">Линкор</span>
-            <span class="unit-buy-cost">1700 €</span>
-            <span class="unit-count-badge" style="font-size:9px;opacity:0.5;display:block;">0/10</span>
-          </button>
-          <div class="unit-batch-row">
-            <button type="button" class="unit-batch-btn" data-type="battleship" data-count="10">x10</button>
-          </div>
-        </div>
+        <div class="muted" id="rallyPointHint">Нажмите кнопку, затем ЛКМ по карте — новая точка сбора.</div>
       </div>
-      <div class="muted">Core roster: Эсминцы, Крейсеры, Линкоры. Призывные и редкие юниты позже будут приходить только через способности.</div>
-      <div class="row">
-        <button id="rallyPointBtn">Точка сбора</button>
-        <button id="resetCamBtn">Камера</button>
-        <button id="regenBtn">Перегенерить карту</button>
-      </div>
-      <div class="muted" id="rallyPointHint">Нажмите кнопку, затем ЛКМ по карте — новая точка сбора.</div>
-    </div>
+    </details>
 
     <div class="hint">
       Пан: ПКМ / средняя кнопка (тащи) · Зум: колесо
     </div>
-  </div>
-
-  <div id="minimapWrap">
-    <canvas id="minimapCanvas"></canvas>
   </div>
 
   <div id="enemyCityPanel" class="enemy-city-panel" style="display:none">

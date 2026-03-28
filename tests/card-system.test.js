@@ -108,15 +108,16 @@ function testExpireTimedBuffsRemovesExpired() {
 function testAbilityCatalogMatchesStageThreeLineup() {
   assert(!!CardSystem.getAbilityDef("ionNebula"), "stage3 lineup: ion storm restored");
   assert(!!CardSystem.getAbilityDef("ionField"), "stage3 lineup: short ion field exists");
-  assert(!!CardSystem.getAbilityDef("frigateWarp"), "stage3 lineup: frigate summon exists");
   assert(!!CardSystem.getAbilityDef("minefield"), "stage3 lineup: small minefield exists");
   assert(!!CardSystem.getAbilityDef("minefieldLarge"), "stage3 lineup: large minefield exists");
-  assert(!!CardSystem.getAbilityDef("droneSwarm"), "stage3 lineup: fighter wing exists");
   assert(!!CardSystem.getAbilityDef("microBlackHole"), "stage3 lineup: micro black hole exists");
   assert(!!CardSystem.getAbilityDef("gravAnchor"), "stage3 lineup: grav anchor restored");
   assert(!!CardSystem.getAbilityDef("microAnchor"), "stage3 lineup: junior grav anchor exists");
   assert(!!CardSystem.getAbilityDef("orbitalStrike"), "stage3 lineup: small orbital strike exists");
   assert(!!CardSystem.getAbilityDef("orbitalBarrage"), "stage3 lineup: orbital barrage exists");
+  assert(!CardSystem.getAbilityDef("droneSwarm"), "stage3 lineup: fighter wing disabled");
+  assert(!CardSystem.getAbilityDef("frigateWarp"), "stage3 lineup: frigate summon disabled");
+  assert(!CardSystem.getAbilityDef("timeJump"), "stage3 lineup: time jump disabled");
   assert(!CardSystem.getAbilityDef("pirateRaid"), "stage3 lineup: pirate raid removed");
   assert(!CardSystem.getAbilityDef("cosmicGodHand"), "stage3 lineup: god hand removed");
   assert(!CardSystem.getAbilityDef("resourceRaid"), "stage3 lineup: mine raid removed");

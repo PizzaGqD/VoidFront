@@ -1042,12 +1042,16 @@
     }
 
     if (squad.combat.mode === "approach" || squad.combat.mode === "engaged") {
-      if (squad.combat._disengageTimer == null) {
-        squad.combat._disengageTimer = state.t + config.disengageDelay;
+      squad.combat.zoneId = null;
+      const fallbackEnemies = getFallbackEnemyBuckets(state, squad);
+      const stillHasEnemyContact = fallbackEnemies.primary.length > 0 || fallbackEnemies.secondary.length > 0;
+      if (stillHasEnemyContact) {
+        squad.combat.mode = "engaged";
+        squad.combat._disengageTimer = null;
+        squad.combat._pendingResume = false;
+        return;
       }
-      if (state.t >= squad.combat._disengageTimer) {
-        queueCombatExit(state, squad);
-      }
+      queueCombatExit(state, squad);
       return;
     }
 
@@ -1162,11 +1166,7 @@
 
   function getEnemyBuckets(state, squad, zone) {
     if (!zone) {
-      if (squad.order.type === "attackUnit") {
-        const t = getUnit(state, squad.order.targetUnitId);
-        return { primary: t && t.hp > 0 ? [t] : [], secondary: [] };
-      }
-      return { primary: [], secondary: [] };
+      return getFallbackEnemyBuckets(state, squad);
     }
     const primary = [];
     const secondary = [];
@@ -1177,6 +1177,67 @@
       const bucket = preferredSquadId != null && sid !== preferredSquadId ? secondary : primary;
       bucket.push(...getSquadUnits(state, other));
     }
+    if (primary.length > 0 || secondary.length > 0) return { primary, secondary };
+    return getFallbackEnemyBuckets(state, squad);
+  }
+
+  function pushUniqueEnemyUnits(primary, secondary, seen, units, ownerId, isPrimary) {
+    for (const unit of units || []) {
+      if (!unit || unit.hp <= 0 || unit.owner === ownerId || seen.has(unit.id)) continue;
+      seen.add(unit.id);
+      (isPrimary ? primary : secondary).push(unit);
+    }
+  }
+
+  function getFallbackEnemyBuckets(state, squad) {
+    const primary = [];
+    const secondary = [];
+    const seen = new Set();
+    if (!squad) return { primary, secondary };
+
+    if (squad.order?.type === "attackUnit") {
+      const target = getUnit(state, squad.order.targetUnitId);
+      pushUniqueEnemyUnits(primary, secondary, seen, target ? [target] : [], squad.ownerId, true);
+    }
+
+    const focusTarget = squad.combat?.focusTargetUnitId != null ? state.units.get(squad.combat.focusTargetUnitId) : null;
+    pushUniqueEnemyUnits(primary, secondary, seen, focusTarget ? [focusTarget] : [], squad.ownerId, true);
+
+    const preferredSquad = squad.combat?.combatTargetSquadId != null ? state.squads.get(squad.combat.combatTargetSquadId) : null;
+    if (preferredSquad && preferredSquad.ownerId !== squad.ownerId) {
+      pushUniqueEnemyUnits(primary, secondary, seen, getSquadUnits(state, preferredSquad), squad.ownerId, true);
+    }
+
+    const recentContactAge = squad.combat?.lastContactAt != null ? (state.t - squad.combat.lastContactAt) : Infinity;
+    const keepSearchRadius = recentContactAge <= Math.max(0.9, (config.disengageDelay || 0.6) * 2.5);
+    if (!Number.isFinite(recentContactAge) || !keepSearchRadius) {
+      return { primary, secondary };
+    }
+
+    const center = getSquadCenter(state, squad);
+    const ownUnits = getSquadUnits(state, squad);
+    let searchRadius = Math.max(config.zoneJoinPadding || 80, 220);
+    for (const unit of ownUnits) {
+      const range = unit?.attackRange || unit?.baseAttackRange || 60;
+      searchRadius = Math.max(searchRadius, range * (config.engageRangeFactor || 1.15) + 120);
+    }
+
+    const nearbyEnemySquads = [];
+    for (const other of state.squads.values()) {
+      if (!other || other.id === squad.id || other.ownerId === squad.ownerId) continue;
+      const enemyUnits = getSquadUnits(state, other);
+      if (!enemyUnits.length) continue;
+      const otherCenter = getSquadCenter(state, other);
+      const dist = d(center.x, center.y, otherCenter.x, otherCenter.y);
+      if (dist <= searchRadius) nearbyEnemySquads.push({ other, dist });
+    }
+    nearbyEnemySquads.sort((a, b) => a.dist - b.dist);
+
+    for (let i = 0; i < nearbyEnemySquads.length; i++) {
+      const entry = nearbyEnemySquads[i];
+      pushUniqueEnemyUnits(primary, secondary, seen, getSquadUnits(state, entry.other), squad.ownerId, i === 0 && primary.length === 0);
+    }
+
     return { primary, secondary };
   }
 

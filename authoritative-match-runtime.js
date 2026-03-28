@@ -5,24 +5,45 @@ const SharedSimState = require("./shared-sim-state");
 const SharedCitySim = require("./shared-city-sim");
 const SharedMatchBootstrap = require("./shared-match-bootstrap");
 const SQUADLOGIC = require("./squad-logic");
+const FrontPlanner = require("./front-planner");
 const CardSystem = require("./card-system");
 const GravAnchorAbility = require("./grav-anchor-ability");
+const MeteorSwarmAbility = require("./meteor-swarm-ability");
+const ThermoNukeAbility = require("./thermo-nuke-ability");
 const balance = require("./shared/balance.json");
 const { createSharedGameConfig } = require("./shared-game-config");
 
 const TICK_MS = 1000 / 30;
+const GAME_SPEED = 2.5;
 const FULL_SYNC_EVERY = 15;
+function gs(realSec) { return realSec * GAME_SPEED; }
 const CORE_ROSTER_UNIT_TYPES = new Set(["destroyer", "cruiser", "battleship"]);
 const UNIT_TYPES = balance.unitTypes || {};
 const UNIT_CAPS = { fighter: 300, destroyer: 100, cruiser: 50, battleship: 10, hyperDestroyer: 10 };
-const STORM_DMG_INTERVAL = 0.5;
-const ION_NEBULA_DURATION_SEC = 10;
+const STORM_DMG_INTERVAL = gs(0.5);
+const ION_NEBULA_DURATION_SEC = gs(10);
 const METEOR_RADIUS = 11;
 const METEOR_AOE_RADIUS = 120;
-const METEOR_IMPACT_DURATION = 1.85;
-const TIME_JUMP_REWIND_SEC = 60;
-const TIME_SNAPSHOT_INTERVAL = 5;
-const TIME_SNAPSHOT_HISTORY_SEC = 75;
+const METEOR_PREVIEW_RADIUS = Math.round(METEOR_AOE_RADIUS * 1.25);
+const METEOR_IMPACT_DURATION = gs(1.85);
+const PIRATE_OWNER_ID = -1;
+const PATROL_LIGHT_SPEED = 0.018;
+const PATROL_ATTACK_R = 170;
+const PATROL_ATTACK_RATE = 1.2;
+const PATROL_DMG = 18;
+const PATROL_BASE_SHOTS = 2;
+const MINE_FLOW_PHASE_NONE = "none";
+const MINE_LANE_TRIGGER_COOLDOWN_SEC = gs(7.5);
+const UNIT_BOUNDING_MUL = { fighter: 1.8, destroyer: 2, cruiser: 2, battleship: 2.2, hyperDestroyer: 2.5 };
+const UNIT_XP_DROPS = { fighter: 1, destroyer: 8, cruiser: 25, battleship: 50, hyperDestroyer: 100 };
+const UNIT_CREDIT_DROPS = { fighter: 5, destroyer: 50, cruiser: 150, battleship: 400, hyperDestroyer: 800 };
+const UNIT_KILL_ENERGY_BONUSES = {
+  fighter: { amount: 0.1 * 60, durationSec: 10 },
+  destroyer: { amount: 0.5 * 60, durationSec: 15 },
+  cruiser: { amount: 1 * 60, durationSec: 25 },
+  battleship: { amount: 4 * 60, durationSec: 60 },
+  hyperDestroyer: { amount: 10 * 60, durationSec: 120 }
+};
 
 const DEFAULT_PLAYER_COLORS = {
   1: 0xff8800,
@@ -39,9 +60,74 @@ function colorForId(id) {
   return 0x888888;
 }
 
-function cloneDeep(value) {
-  if (typeof structuredClone === "function") return structuredClone(value);
-  throw new Error("structuredClone is required for authoritative match runtime");
+function hash01(seed) {
+  const x = Math.sin(seed * 12.9898) * 43758.5453123;
+  return x - Math.floor(x);
+}
+
+function getMeteorSwarmBaseSpeed(CFG) {
+  return Math.hypot(CFG.WORLD_W, CFG.WORLD_H) / 19;
+}
+
+function getOrbitalStrikeConfig(abilityId) {
+  if (abilityId === "orbitalBarrage") {
+    return {
+      abilityId: "orbitalBarrage",
+      zoneRadius: 156,
+      primaryRadius: 84,
+      supportRadius: 72,
+      damageBase: 10,
+      damageMaxHpPct: 0.06,
+      flightDurationSec: 6.0,
+      flightVarianceSec: 0.55,
+      shotIntervalSec: 0.08,
+      salvoGapSec: 2.0,
+      impactFadeSec: 1.0,
+      salvoCount: 10,
+      shotsPerSalvo: 5
+    };
+  }
+  return {
+    abilityId: "orbitalStrike",
+    zoneRadius: 128,
+    primaryRadius: 90,
+    supportRadius: 78,
+    damageBase: 12,
+    damageMaxHpPct: 0.08,
+    flightDurationSec: 4.9,
+    flightVarianceSec: 0.35,
+    shotIntervalSec: 0.06,
+    salvoGapSec: 1.05,
+    impactFadeSec: 1.0,
+    salvoCount: 2,
+    shotsPerSalvo: 5
+  };
+}
+
+function getOrbitalStrikeTotalDuration(cfg) {
+  return cfg.salvoGapSec * Math.max(0, cfg.salvoCount - 1) +
+    cfg.flightDurationSec + cfg.flightVarianceSec +
+    cfg.impactFadeSec +
+    0.26;
+}
+
+function buildOrbitalSalvoTargets(zoneX, zoneY, seed, salvoIndex, cfg) {
+  if ((cfg.shotsPerSalvo || 1) <= 1) {
+    return [{ primary: true, tx: zoneX, ty: zoneY, radius: cfg.primaryRadius }];
+  }
+  const targets = [];
+  for (let shotIndex = 0; shotIndex < cfg.shotsPerSalvo; shotIndex++) {
+    const shotSeed = seed + salvoIndex * 181 + shotIndex * 47 + 19;
+    const ang = hash01(shotSeed + 1) * Math.PI * 2;
+    const rr = cfg.zoneRadius * (0.14 + Math.pow(hash01(shotSeed + 2), 0.72) * 0.72);
+    targets.push({
+      primary: shotIndex === 0,
+      tx: zoneX + Math.cos(ang) * rr,
+      ty: zoneY + Math.sin(ang) * rr * 0.74,
+      radius: shotIndex === 0 ? cfg.primaryRadius : cfg.supportRadius
+    });
+  }
+  return targets;
 }
 
 function applyBalanceToConfig(CFG) {
@@ -107,6 +193,11 @@ function cloneWaypoints(points) {
   return Array.isArray(points) ? points.map((pt) => ({ x: pt.x, y: pt.y })) : [];
 }
 
+function clonePoint(point) {
+  if (!point) return null;
+  return { x: point.x || 0, y: point.y || 0 };
+}
+
 function getSenderPid(state, action) {
   if (!action) return null;
   if (action._senderPlayerId != null) return action._senderPlayerId | 0;
@@ -125,8 +216,78 @@ function getUnitBaseSpeed(unit) {
   return unit.baseSpeed || unit.speed || 9;
 }
 
+function getUnitHitRadius(unit) {
+  const type = UNIT_TYPES[unit.unitType] || UNIT_TYPES.fighter || { sizeMultiplier: 1 };
+  const size = type.sizeMultiplier * 6 + 6;
+  const mul = UNIT_BOUNDING_MUL[unit.unitType] ?? UNIT_BOUNDING_MUL.fighter;
+  return size * mul;
+}
+
+function lineFormationOffsets(n, rows, dirX, dirY, sizeMul, hitSpacing, CFG) {
+  const sm = sizeMul || 1;
+  const hs = hitSpacing || 32;
+  const sx = Math.max((CFG.FORM_SPACING_X || 18) * sm, hs);
+  const sy = Math.max((CFG.FORM_SPACING_Y || 22) * sm, hs);
+  const cols = Math.ceil(n / Math.max(1, rows));
+  const out = [];
+  let idx = 0;
+  const angle = Math.atan2(dirY || 0, dirX || 1) + Math.PI / 2;
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  for (let r = 0; r < rows && idx < n; r++) {
+    for (let c = 0; c < cols && idx < n; c++) {
+      const x = (c - (cols - 1) / 2) * sx;
+      const y = r * sy;
+      out.push({ x: x * cos - y * sin, y: x * sin + y * cos });
+      idx++;
+    }
+  }
+  return out;
+}
+
+function pigFormationOffsets(n, dirX, dirY, depth, widthMul, sizeMul, hitSpacing, CFG) {
+  const depthRows = Math.max(1, depth || 3);
+  const wMul = Math.max(0.5, Math.min(2, widthMul || 1));
+  const sm = sizeMul || 1;
+  const hs = hitSpacing || 32;
+  const sx = Math.max((CFG.FORM_SPACING_X || 18) * wMul * sm, hs * wMul);
+  const sy = Math.max((CFG.FORM_SPACING_Y || 22) * sm, hs);
+  const out = [];
+  const angle = Math.atan2(dirY || 0, dirX || 1) + Math.PI / 2;
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  let placed = 0;
+  let row = 0;
+  while (placed < n) {
+    const inRow = Math.min(Math.max(1, Math.min(depthRows, row + 1)), n - placed);
+    for (let c = 0; c < inRow && placed < n; c++) {
+      const x = (c - (inRow - 1) / 2) * sx;
+      const y = row * sy * 1.85;
+      out.push({ x: x * cos - y * sin, y: x * sin + y * cos });
+      placed++;
+    }
+    row++;
+  }
+  return out;
+}
+
+function distToSegment(px, py, ax, ay, bx, by) {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const len2 = dx * dx + dy * dy;
+  if (len2 <= 1e-6) return Math.hypot(px - ax, py - ay);
+  const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len2));
+  const qx = ax + dx * t;
+  const qy = ay + dy * t;
+  return Math.hypot(px - qx, py - qy);
+}
+
 function getMeteorSpeed(CFG) {
   return Math.hypot(CFG.WORLD_W, CFG.WORLD_H) / 11;
+}
+
+function getMeteorVisualScale(aoeRadius) {
+  return Math.max(1, (aoeRadius || METEOR_AOE_RADIUS) / Math.max(1, METEOR_AOE_RADIUS));
 }
 
 function createAuthoritativeMatchRuntime(options) {
@@ -134,6 +295,7 @@ function createAuthoritativeMatchRuntime(options) {
   const io = opts.io;
   const roomId = opts.roomId;
   const seed = Number.isFinite(opts.seed) ? opts.seed : (Date.now() >>> 0);
+  const enableLaneFighterWaves = opts.enableLaneFighterWaves !== false;
   const rawSlots = Array.isArray(opts.slots) ? opts.slots : [];
   const CFG = applyBalanceToConfig(createSharedGameConfig());
   const state = {};
@@ -154,8 +316,9 @@ function createAuthoritativeMatchRuntime(options) {
   state._abilityCooldownsByPlayer = {};
   state._abilityUsedByPlayer = {};
   state._loanDebts = [];
-  state._timeSnapshots = [];
   state._nextAbilityMineId = 1;
+  state.sectorObjectives = [];
+  let nextMineId = 1;
 
   SQUADLOGIC.loadConfig(balance);
 
@@ -169,7 +332,7 @@ function createAuthoritativeMatchRuntime(options) {
     getPlanetRadius: (player) => getPlanetRadius(player, CFG),
     shieldRadius: (player) => shieldRadius(player, CFG),
     xpNeed: (level, player) => xpNeed(level, player, CFG),
-    getActiveGrowthBonusPerMin: () => 0,
+    getActiveGrowthBonusPerMin: (player) => getActiveGrowthBonusPerMin(player),
     getMapSeed: () => seed
   });
 
@@ -204,14 +367,84 @@ function createAuthoritativeMatchRuntime(options) {
     player.spawnIndex = slot.spawnIndex != null ? slot.spawnIndex : spawnIndex;
     state.players.set(player.id, player);
   }
-  const centerX = [...state.players.values()].reduce((sum, player) => sum + player.x, 0) / Math.max(1, state.players.size);
-  const centerY = [...state.players.values()].reduce((sum, player) => sum + player.y, 0) / Math.max(1, state.players.size);
-  state.centerObjectives.centerX = centerX || CFG.WORLD_W * 0.5;
-  state.centerObjectives.centerY = centerY || CFG.WORLD_H * 0.5;
+  const mineEntries = [];
+  for (let i = 0; i < filledSlots.length; i++) {
+    const slot = filledSlots[i];
+    const slotIndex = rawSlots.indexOf(slot);
+    const pid = slotToPid[slotIndex];
+    const spawnIndex = activeSpawnIndices[i] ?? i;
+    const pos = allSpawns[spawnIndex] || allSpawns[0];
+    mineEntries.push({ pos, ownerId: pid, virtualId: spawnIndex + 1 });
+  }
+  if (filledSlots.length === 2) {
+    for (let i = 0; i < allSpawns.length; i++) {
+      if (!activeSpawnIndices.includes(i)) {
+        mineEntries.push({ pos: allSpawns[i], ownerId: null, virtualId: -(i + 1), sectorObjectiveId: "sector:" + i });
+      }
+    }
+  }
+  placeMines(mineEntries);
+  placeNebulae();
+  for (const player of state.players.values()) rebuildTurrets(player);
+  FrontPlanner.buildCenterObjectives(state);
   citySimApi.rebuildZoneGrid();
 
   let tickTimer = null;
   const queuedActions = [];
+
+  const botPids = [];
+  for (let i = 0; i < filledSlots.length; i++) {
+    const slot = filledSlots[i];
+    if (slot.isBot) {
+      const slotIndex = rawSlots.indexOf(slot);
+      const pid = slotToPid[slotIndex];
+      if (pid != null) botPids.push(pid);
+    }
+  }
+  const botState = {};
+  for (const pid of botPids) {
+    botState[pid] = { nextPurchaseAt: gs(3 + Math.random() * 2), nextAbilityAt: gs(25 + Math.random() * 10), purchaseInterval: 4 };
+  }
+
+  function stepBotAI(dt) {
+    if (botPids.length === 0) return;
+    for (const pid of botPids) {
+      const player = state.players.get(pid);
+      if (!player || player.eliminated) continue;
+      const bs = botState[pid];
+      if (!bs) continue;
+
+      if (state.t >= bs.nextPurchaseAt) {
+        const destroyerType = UNIT_TYPES.destroyer;
+        const cruiserType = UNIT_TYPES.cruiser;
+        const battleshipType = UNIT_TYPES.battleship;
+        const credits = player.eCredits || 0;
+        let unitType = "destroyer";
+        if (battleshipType && credits >= (battleshipType.cost || 9999) * 3 && Math.random() < 0.15) unitType = "battleship";
+        else if (cruiserType && credits >= (cruiserType.cost || 9999) * 3 && Math.random() < 0.35) unitType = "cruiser";
+        const type = UNIT_TYPES[unitType];
+        const costPer = type ? (type.cost || 0) : 999999;
+        const unitCostMul = player.unitCostMul != null ? player.unitCostMul : 1;
+        const totalCost = Math.max(1, Math.round(costPer * unitCostMul)) * 3;
+        if (credits >= totalCost) {
+          purchaseFrontTriplet(pid, unitType);
+        }
+        const interval = Math.max(2, bs.purchaseInterval - (player.level || 0) * 0.08);
+        bs.nextPurchaseAt = state.t + gs(interval) + Math.random() * gs(1.5);
+      }
+
+      if (state.t >= bs.nextAbilityAt) {
+        if (isAbilityAvailable(pid, "resourceSurge")) {
+          executeAbilityAction({ pid, abilityId: "resourceSurge" });
+        } else if (isAbilityAvailable(pid, "fleetBoost")) {
+          executeAbilityAction({ pid, abilityId: "fleetBoost" });
+        } else if (isAbilityAvailable(pid, "activeShield")) {
+          executeAbilityAction({ pid, abilityId: "activeShield" });
+        }
+        bs.nextAbilityAt = state.t + gs(20) + Math.random() * gs(15);
+      }
+    }
+  }
 
   function getAbilityDef(abilityId) {
     return CardSystem.getAbilityDef(abilityId) || null;
@@ -244,10 +477,693 @@ function createAuthoritativeMatchRuntime(options) {
       getUnitAtkRange,
       getUnitEngagementRange,
       getUnitBaseSpeed,
+      getUnitHitRadius,
       shieldRadius: (player) => shieldRadius(player, CFG),
       getPlanetRadius: (player) => getPlanetRadius(player, CFG),
       getCoreCollisionRadius: (player) => getCoreCollisionRadius(player, CFG)
     };
+  }
+
+  function getFormationOffsets(n, formationType, formationRows, dirX, dirY, formationPigWidth, squad) {
+    let sizeMul = 1;
+    let maxHitR = 12;
+    if (Array.isArray(squad) && squad.length > 0) {
+      let maxSz = 0;
+      for (const unit of squad) {
+        const type = UNIT_TYPES[unit.unitType] || UNIT_TYPES.fighter || { sizeMultiplier: 1 };
+        if (type.sizeMultiplier > maxSz) maxSz = type.sizeMultiplier;
+        const hitR = getUnitHitRadius(unit);
+        if (hitR > maxHitR) maxHitR = hitR;
+      }
+      sizeMul = Math.max(1, maxSz * 0.6 + 0.4);
+    }
+    const hitSpacing = maxHitR * 2 + 8;
+    if (formationType === "line") {
+      return lineFormationOffsets(n, Math.max(1, formationRows || 1), dirX || 1, dirY || 0, sizeMul, hitSpacing, CFG);
+    }
+    return pigFormationOffsets(n, dirX || 1, dirY || 0, formationRows || 3, formationPigWidth ?? 1, sizeMul, hitSpacing, CFG);
+  }
+
+  function getActiveGrowthBonusPerMin(player) {
+    if (!player) return 0;
+    if (Array.isArray(player._growthBonuses)) {
+      player._growthBonuses = player._growthBonuses.filter((bonus) => bonus && bonus.expiresAt > state.t);
+    }
+    return (player._growthBonuses || []).reduce((sum, bonus) => sum + (bonus.amount || 0), 0);
+  }
+
+  function addTimedGrowthBonus(player, amountPerMin, durationSec) {
+    if (!player || !amountPerMin || !durationSec) return;
+    if (!Array.isArray(player._growthBonuses)) player._growthBonuses = [];
+    player._growthBonuses.push({ amount: amountPerMin, expiresAt: state.t + gs(durationSec) });
+  }
+
+  function bumpCardStateVersion(player) {
+    if (player) player.cardStateVersion = (player.cardStateVersion || 0) + 1;
+  }
+
+  function grantLevelCardDrops(player, sourceLabel) {
+    if (!player || typeof CardSystem.drawRandomCardForPlayer !== "function") return 0;
+    let drops = 0;
+    for (let i = 0; i < 2; i++) {
+      const result = CardSystem.drawRandomCardForPlayer(player, {
+        now: state.t,
+        level: player.level || 1,
+        rng: Math.random,
+        source: sourceLabel || "levelUp"
+      });
+      if (result && result.ok) drops++;
+    }
+    if (drops > 0) bumpCardStateVersion(player);
+    return drops;
+  }
+
+  function gainXP(player, amount) {
+    if (!player || !(amount > 0)) return;
+    const prevLevel = player.level || 1;
+    const gainMul = player.xpGainMul != null ? player.xpGainMul : 1;
+    player.xp = (player.xp || 0) + amount * gainMul;
+    while ((player.xp || 0) >= (player.xpNext || 1)) {
+      player.xp -= player.xpNext;
+      player.level = (player.level || 1) + 1;
+      if (player.level % 5 === 0) player.rerollCount = (player.rerollCount || 0) + 1;
+      player.pop = (player.pop || 0) + 10;
+      player.popFloat = (player.popFloat || player.pop || 0) + 10;
+      player._levelBonusMul = 1 + player.level * 0.01;
+      player.xpNext = xpNeed(player.level, player, CFG);
+      grantLevelCardDrops(player, "levelUp");
+    }
+    if ((player.level || 1) !== prevLevel) recomputeBuffDerivedStats(player);
+    player.pendingCardPicks = 0;
+  }
+
+  function createMine(x, y, ownerId, isRich, resourceType, opts) {
+    const options2 = opts || {};
+    const mine = {
+      id: nextMineId++,
+      x,
+      y,
+      ownerId: ownerId || null,
+      captureProgress: ownerId ? 1 : 0,
+      capturingUnitId: null,
+      isRich: !!isRich,
+      resourceType: resourceType || "money",
+      yieldAcc: 0,
+      laneRole: options2.laneRole || null,
+      pairKey: options2.pairKey || null,
+      homeMine: !!options2.homeMine,
+      instantLaneTrigger: options2.triggerTo ? { x: options2.triggerTo.x || 0, y: options2.triggerTo.y || 0 } : null,
+      sectorObjectiveId: options2.sectorObjectiveId || null,
+      _flowRate: 0,
+      _flowTargetPlayerId: ownerId || null,
+      _flowVisualTargetPlayerId: null,
+      _flowInterceptUnitId: null,
+      _flowInterceptSourceId: null,
+      _flowInterceptX: null,
+      _flowInterceptY: null,
+      _flowInterceptT: null,
+      _flowPhase: MINE_FLOW_PHASE_NONE,
+      _flowPhaseStartedAt: state.t,
+      _flowVersion: 0
+    };
+    state.mines.set(mine.id, mine);
+    return mine;
+  }
+
+  function createSectorObjective(x, y, opts) {
+    const options2 = opts || {};
+    const objective = {
+      id: options2.id || ("sector-objective-" + Math.round(x) + "-" + Math.round(y)),
+      anchorId: options2.anchorId != null ? options2.anchorId : null,
+      x,
+      y,
+      ownerId: options2.ownerId || null,
+      linkedMineIds: Array.isArray(options2.linkedMineIds) ? options2.linkedMineIds.slice() : [],
+      captureRadius: options2.captureRadius || Math.max((CFG.MINE_CAPTURE_RADIUS || 140) * 0.9, 120),
+      visualRadius: options2.visualRadius || 54,
+      _touchProtectedUntil: 0
+    };
+    if (!Array.isArray(state.sectorObjectives)) state.sectorObjectives = [];
+    state.sectorObjectives.push(objective);
+    return objective;
+  }
+
+  function setPirateBases(bases) {
+    state.pirateBases = Array.isArray(bases) ? bases : [];
+    state.pirateBase = state.pirateBases[0] || null;
+  }
+
+  function getPirateBases() {
+    return Array.isArray(state.pirateBases) ? state.pirateBases : [];
+  }
+
+  function getAlivePirateBases() {
+    return getPirateBases().filter((base) => base && (base.hp == null || base.hp > 0));
+  }
+
+  function refreshPirateBaseOrbitAnchors() {
+    const centerMines = [...state.mines.values()].filter((mine) => mine && (mine.isRich || mine.ownerId !== PIRATE_OWNER_ID));
+    if (!centerMines.length) return;
+    for (const pirateBase of getPirateBases()) {
+      if (!pirateBase) continue;
+      let bestMine = null;
+      let bestDist = Infinity;
+      for (const mine of centerMines) {
+        const dist = Math.hypot((pirateBase.x || 0) - (mine.x || 0), (pirateBase.y || 0) - (mine.y || 0));
+        if (dist < bestDist) {
+          bestDist = dist;
+          bestMine = mine;
+        }
+      }
+      if (!bestMine) continue;
+      pirateBase.orbitCenter = { x: bestMine.x || 0, y: bestMine.y || 0 };
+      pirateBase.orbitRadius = Math.max(160, Math.min(330, bestDist * 1.34));
+    }
+  }
+
+  function placeNebulae() {
+    state.nebulae = [];
+  }
+
+  function placeMines(entries) {
+    state.mines.clear();
+    state.sectorObjectives = [];
+    nextMineId = 1;
+    const centerX = CFG.WORLD_W * 0.5;
+    const centerY = CFG.WORLD_H * 0.5;
+    const centerMine = createMine(centerX, centerY, null, true);
+    setPirateBases([{
+      id: "pirate-base-center",
+      x: centerX,
+      y: centerY,
+      hp: 4000,
+      maxHp: 4000,
+      lastDamagedBy: null,
+      spawnCd: 0,
+      unitLimit: 12,
+      atkCd: 0,
+      attackRange: 520,
+      orbitCenter: { x: centerX, y: centerY },
+      orbitRadius: 150,
+      patrolAngleDeg: 0,
+      _respawnTimer: 0,
+      _initialSpawned: false
+    }]);
+    centerMine.ownerId = null;
+    centerMine.captureProgress = 0;
+    centerMine._captureProtectedUntil = Number.POSITIVE_INFINITY;
+    centerMine._pirateLocked = true;
+    centerMine._richYieldMultiplier = 3;
+
+    const inflR = CFG.INFLUENCE_R(CFG.POP_START);
+    const laneEntries = (Array.isArray(entries) ? entries : []).map((entry) => ({
+      id: entry.ownerId != null ? entry.ownerId : (entry.virtualId != null ? entry.virtualId : null),
+      x: entry.pos.x,
+      y: entry.pos.y
+    }));
+    for (const entry of entries || []) {
+      const spawn = entry.pos;
+      const playerId = entry.ownerId;
+      const linkedMineIds = [];
+      const startCount = CFG.MINE_START_PER_PLAYER || 2;
+      for (let index = 0; index < startCount; index++) {
+        const baseAngle = Math.atan2(spawn.y - centerY, spawn.x - centerX);
+        const spread = ((index - (startCount - 1) / 2) / Math.max(1, startCount - 1)) * 1.4;
+        const angle = baseAngle + spread;
+        const dist = inflR * 0.80;
+        const resourceType = index < Math.ceil(startCount / 2) ? "money" : "xp";
+        const mine = createMine(
+          UTILS.clamp(spawn.x + Math.cos(angle) * dist, 40, CFG.WORLD_W - 40),
+          UTILS.clamp(spawn.y + Math.sin(angle) * dist, 40, CFG.WORLD_H - 40),
+          playerId,
+          false,
+          resourceType,
+          {
+            homeMine: playerId != null,
+            sectorObjectiveId: playerId == null ? (entry.sectorObjectiveId || null) : null
+          }
+        );
+        if (playerId == null) linkedMineIds.push(mine.id);
+      }
+      if (playerId == null && entry.sectorObjectiveId) {
+        createSectorObjective(spawn.x, spawn.y, {
+          id: entry.sectorObjectiveId,
+          anchorId: entry.virtualId != null ? entry.virtualId : null,
+          linkedMineIds,
+          captureRadius: Math.max((CFG.MINE_CAPTURE_RADIUS || 140) * 0.92, 128)
+        });
+      }
+    }
+    const sideLaneMines = FrontPlanner.buildSideLaneMinePlacements
+      ? FrontPlanner.buildSideLaneMinePlacements(laneEntries, { x: centerX, y: centerY })
+      : [];
+    for (const mine of sideLaneMines) {
+      createMine(
+        UTILS.clamp(mine.x, 48, CFG.WORLD_W - 48),
+        UTILS.clamp(mine.y, 48, CFG.WORLD_H - 48),
+        null,
+        false,
+        mine.resourceType || "money",
+        mine
+      );
+    }
+    refreshPirateBaseOrbitAnchors();
+    FrontPlanner.buildCenterObjectives(state);
+  }
+
+  function clearMineFlowState(mine) {
+    if (!mine) return;
+    mine._flowRate = 0;
+    mine._flowTargetPlayerId = mine.ownerId || null;
+    mine._flowVisualTargetPlayerId = null;
+    mine._flowInterceptUnitId = null;
+    mine._flowInterceptSourceId = null;
+    mine._flowInterceptX = null;
+    mine._flowInterceptY = null;
+    mine._flowInterceptT = null;
+    mine._flowPhase = MINE_FLOW_PHASE_NONE;
+    mine._flowPhaseStartedAt = state.t;
+    mine._flowVersion = (mine._flowVersion || 0) + 1;
+  }
+
+  function setMineOwnerInstantly(mine, ownerId) {
+    if (!mine) return false;
+    const nextOwnerId = ownerId || null;
+    if (mine.ownerId === nextOwnerId && mine.captureProgress >= 1) return false;
+    mine.ownerId = nextOwnerId;
+    mine.captureProgress = nextOwnerId ? 1 : 0;
+    mine._capturingOwner = null;
+    mine._captureProtectedUntil = state.t + MINE_LANE_TRIGGER_COOLDOWN_SEC;
+    mine._instantLaneTriggerCooldownUntil = state.t + MINE_LANE_TRIGGER_COOLDOWN_SEC;
+    clearMineFlowState(mine);
+    return true;
+  }
+
+  function findLaneMineTriggerOwner(mine) {
+    const trigger = mine && mine.instantLaneTrigger;
+    if (!mine || !trigger) return null;
+    if ((mine._instantLaneTriggerCooldownUntil || 0) > state.t) return null;
+    let bestOwnerId = null;
+    let bestDist = Infinity;
+    for (const unit of state.units.values()) {
+      if (!unit || unit.hp <= 0 || unit.owner === PIRATE_OWNER_ID) continue;
+      if (unit.owner === mine.ownerId) continue;
+      const owner = state.players.get(unit.owner);
+      if (!owner || owner.pop <= 0 || owner.eliminated) continue;
+      const touchR = Math.max((CFG.MINE_GEM_INTERCEPT_R || 30), getUnitHitRadius(unit) + 6);
+      const dist = distToSegment(unit.x, unit.y, mine.x, mine.y, trigger.x, trigger.y);
+      if (dist > touchR) continue;
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestOwnerId = unit.owner;
+      }
+    }
+    return bestOwnerId;
+  }
+
+  function findSectorObjectiveTriggerOwner(objective) {
+    if (!objective) return null;
+    if ((objective._touchProtectedUntil || 0) > state.t) return null;
+    let bestOwnerId = null;
+    let bestDist = Infinity;
+    const touchRadius = objective.captureRadius || Math.max((CFG.MINE_CAPTURE_RADIUS || 140) * 0.9, 120);
+    for (const unit of state.units.values()) {
+      if (!unit || unit.hp <= 0 || unit.owner === PIRATE_OWNER_ID) continue;
+      const owner = state.players.get(unit.owner);
+      if (!owner || owner.pop <= 0 || owner.eliminated) continue;
+      const dist = Math.hypot((unit.x || 0) - (objective.x || 0), (unit.y || 0) - (objective.y || 0));
+      if (dist > touchRadius) continue;
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestOwnerId = unit.owner;
+      }
+    }
+    return bestOwnerId;
+  }
+
+  function setSectorObjectiveOwnerInstantly(objective, ownerId) {
+    if (!objective) return false;
+    const nextOwnerId = ownerId || null;
+    if (objective.ownerId === nextOwnerId) return false;
+    objective.ownerId = nextOwnerId;
+    objective._touchProtectedUntil = state.t + gs(3.5);
+    for (const mineId of objective.linkedMineIds || []) {
+      const mine = state.mines.get(mineId);
+      if (!mine) continue;
+      setMineOwnerInstantly(mine, nextOwnerId);
+    }
+    return true;
+  }
+
+  function stepSectorObjectives() {
+    for (const objective of state.sectorObjectives || []) {
+      if (!objective) continue;
+      if (objective.ownerId != null) {
+        const owner = state.players.get(objective.ownerId);
+        if (!owner || owner.pop <= 0 || owner.eliminated) {
+          setSectorObjectiveOwnerInstantly(objective, null);
+          continue;
+        }
+      }
+      const triggerOwnerId = findSectorObjectiveTriggerOwner(objective);
+      if (triggerOwnerId != null && triggerOwnerId !== objective.ownerId) {
+        setSectorObjectiveOwnerInstantly(objective, triggerOwnerId);
+      }
+    }
+  }
+
+  function mineYieldMul(player) {
+    return 1 + ((player && player.mineYieldBonus) || 0) / 100;
+  }
+
+  function getMineYieldPerSecond(mine, owner) {
+    let rate = (CFG.MINE_YIELD_PER_SEC || 1) * mineYieldMul(owner);
+    if (mine && mine.isRich) rate *= (mine._richYieldMultiplier || CFG.MINE_RICH_MULTIPLIER || 1);
+    return rate;
+  }
+
+  function getMineEnergyPerSecond(mine, owner) {
+    let rate = (CFG.MINE_ENERGY_PER_SEC || 0) * mineYieldMul(owner);
+    if (mine && mine.isRich) rate *= (mine._richYieldMultiplier || CFG.MINE_RICH_MULTIPLIER || 1);
+    return rate;
+  }
+
+  function stepMines(dt) {
+    stepSectorObjectives();
+    for (const mine of state.mines.values()) {
+      const triggerOwnerId = findLaneMineTriggerOwner(mine);
+      if (triggerOwnerId != null) setMineOwnerInstantly(mine, triggerOwnerId);
+      const ownersInRadius = new Map();
+      for (const unit of state.units.values()) {
+        if (!unit || unit.hp <= 0 || unit.owner === PIRATE_OWNER_ID) continue;
+        if (Math.hypot(unit.x - mine.x, unit.y - mine.y) <= (CFG.MINE_CAPTURE_RADIUS || 140)) {
+          if (mine.ownerId && unit.owner === mine.ownerId) continue;
+          ownersInRadius.set(unit.owner, (ownersInRadius.get(unit.owner) || 0) + 1);
+        }
+      }
+      const ownerIds = [...ownersInRadius.keys()];
+      const contested = ownerIds.length > 1;
+      const unitInRadiusOwner = ownerIds.length === 1 ? ownerIds[0] : null;
+      const unitInRadius = unitInRadiusOwner != null;
+      const protectedCapture = (mine._captureProtectedUntil != null) && state.t < mine._captureProtectedUntil;
+      mine._contested = contested;
+      if (contested) mine._capturingOwner = null;
+      if (!protectedCapture && !contested && unitInRadius && mine.ownerId !== unitInRadiusOwner) {
+        if (mine.ownerId && mine.captureProgress >= 1) {
+          mine.captureProgress = Math.max(0, mine.captureProgress - dt / (CFG.MINE_CAPTURE_TIME || 5));
+          if (mine.captureProgress <= 0) {
+            mine.ownerId = null;
+            mine.captureProgress = 0;
+            mine._capturingOwner = unitInRadiusOwner;
+          }
+        } else {
+          mine._capturingOwner = unitInRadiusOwner;
+          mine.captureProgress = Math.min(1, mine.captureProgress + dt / (CFG.MINE_CAPTURE_TIME || 5));
+          if (mine.captureProgress >= 1) {
+            mine.ownerId = unitInRadiusOwner;
+            mine.captureProgress = 1;
+            mine._capturingOwner = null;
+            mine._captureProtectedUntil = state.t + gs(CFG.MINE_CAPTURE_PROTECTION || 5);
+          }
+        }
+      } else if (!protectedCapture && !contested && !unitInRadius && !mine.ownerId && mine.captureProgress > 0) {
+        mine.captureProgress = Math.max(0, mine.captureProgress - dt / Math.max(1, (CFG.MINE_CAPTURE_TIME || 5) * 2));
+        if (mine.captureProgress <= 0) mine._capturingOwner = null;
+      }
+
+      if (mine.ownerId && mine.captureProgress >= 1) {
+        const owner = state.players.get(mine.ownerId);
+        if (!owner || owner.pop <= 0 || owner.eliminated) {
+          mine.ownerId = null;
+          mine.captureProgress = 0;
+          clearMineFlowState(mine);
+          continue;
+        }
+        mine._flowRate = getMineYieldPerSecond(mine, owner);
+        mine._flowTargetPlayerId = mine.ownerId;
+        mine._flowVisualTargetPlayerId = null;
+        const gain = (mine._flowRate || 0) * dt;
+        const energyGain = getMineEnergyPerSecond(mine, owner) * dt;
+        if (gain > 0 || energyGain > 0) {
+          const xpGain = gain * (CFG.MINE_XP_YIELD_MUL || 1);
+          if (mine.isRich) {
+            owner.eCredits = (owner.eCredits || 0) + gain;
+            gainXP(owner, xpGain);
+          } else if ((mine.resourceType || "money") === "money") {
+            owner.eCredits = (owner.eCredits || 0) + gain;
+          } else {
+            gainXP(owner, xpGain);
+          }
+          if (energyGain > 0) {
+            owner.popFloat = (owner.popFloat || owner.pop || 0) + energyGain;
+            owner.pop = Math.floor(owner.popFloat);
+          }
+        }
+      } else {
+        clearMineFlowState(mine);
+      }
+    }
+  }
+
+  function getTurretOrbitRadius(player) {
+    const coreRadius = getCoreCollisionRadius(player, CFG);
+    const planetRadius = getPlanetRadius(player, CFG);
+    const base = coreRadius + Math.max(34, planetRadius * 1.72);
+    const rangeMul = player && player.turretRangeMul != null ? player.turretRangeMul : 1;
+    return base * (1 + Math.max(0, rangeMul - 1) * 0.65);
+  }
+
+  function getTurretOrbitState(player, orbitT) {
+    const phase = ((((orbitT || 0) % 1) + 1) % 1) * Math.PI * 2 - Math.PI / 2;
+    const orbitRadius = getTurretOrbitRadius(player);
+    const nx = Math.cos(phase);
+    const ny = Math.sin(phase);
+    return {
+      x: player.x + nx * orbitRadius,
+      y: player.y + ny * orbitRadius,
+      orbitRadius,
+      nx,
+      ny
+    };
+  }
+
+  function getPatrolOrbitState(player, orbitT) {
+    const phase = ((((orbitT || 0) % 1) + 1) % 1) * Math.PI * 2 - Math.PI / 2;
+    const orbitRadius = getTurretOrbitRadius(player) + Math.max(22, getPlanetRadius(player, CFG) * 1.02);
+    return {
+      x: player.x + Math.cos(phase) * orbitRadius,
+      y: player.y + Math.sin(phase) * orbitRadius,
+      orbitRadius
+    };
+  }
+
+  function rebuildTurrets(player) {
+    if (!player) return;
+    const turretCount = 6;
+    player._fixedTurretCount = turretCount;
+    const turretHpMul = (player.turretHpMul != null ? player.turretHpMul : 1) * getLevelBonusMul(player);
+    const maxHp = Math.max(1, Math.round((player.pop || CFG.POP_START) * (CFG.TURRET_HP_RATIO ?? 0.1) * turretHpMul));
+    const oldTurrets = [];
+    for (const turretId of player.turretIds || []) {
+      const turret = state.turrets.get(turretId);
+      if (turret) oldTurrets.push(turret);
+    }
+    oldTurrets.sort((a, b) => (a.orbitSlot ?? 0) - (b.orbitSlot ?? 0));
+    const newTurretIds = [];
+    const reused = new Set();
+    for (let index = 0; index < turretCount; index++) {
+      const orbitT = index / turretCount;
+      const orbit = getTurretOrbitState(player, orbitT + state.t * 0.012);
+      let turret = oldTurrets.find((entry) => !reused.has(entry.id) && (entry.orbitSlot ?? -1) === index);
+      if (!turret) turret = oldTurrets.find((entry) => !reused.has(entry.id));
+      if (turret) {
+        turret.x = orbit.x;
+        turret.y = orbit.y;
+        turret.nx = orbit.nx;
+        turret.ny = orbit.ny;
+        turret.orbitSlot = index;
+        turret.orbitT = orbitT;
+        if (!turret._diedAt) {
+          turret.maxHp = maxHp;
+          if (turret.hp > maxHp) turret.hp = maxHp;
+        }
+        reused.add(turret.id);
+        newTurretIds.push(turret.id);
+      } else {
+        const turretId = state.nextTurretId++;
+        state.turrets.set(turretId, {
+          id: turretId,
+          owner: player.id,
+          x: orbit.x,
+          y: orbit.y,
+          nx: orbit.nx,
+          ny: orbit.ny,
+          orbitSlot: index,
+          orbitT,
+          hp: maxHp,
+          maxHp,
+          atkCd: 0
+        });
+        newTurretIds.push(turretId);
+      }
+    }
+    for (const turret of oldTurrets) {
+      if (!reused.has(turret.id) && !turret._diedAt) state.turrets.delete(turret.id);
+    }
+    player.turretIds = newTurretIds;
+  }
+
+  function syncTurretOrbit(turret, player) {
+    if (!turret || !player) return;
+    const orbitT = (turret.orbitT != null ? turret.orbitT : ((turret.orbitSlot || 0) / Math.max(1, player._fixedTurretCount || 6))) + state.t * 0.012;
+    const orbit = getTurretOrbitState(player, orbitT);
+    turret.x = orbit.x;
+    turret.y = orbit.y;
+    if (!turret._aimUntil || state.t > turret._aimUntil) {
+      turret.nx = orbit.nx;
+      turret.ny = orbit.ny;
+    }
+  }
+
+  function stepTurrets(dt) {
+    for (const turret of state.turrets.values()) {
+      if (!turret || turret.hp <= 0) continue;
+      const owner = state.players.get(turret.owner);
+      if (!owner) continue;
+      syncTurretOrbit(turret, owner);
+      turret.atkCd = Math.max(0, (turret.atkCd || 0) - dt);
+      if (turret.atkCd > 0) continue;
+      const turretRangeMul = owner.turretRangeMul != null ? owner.turretRangeMul : 1;
+      const range = (CFG.TURRET_ATTACK_RADIUS ?? 45) * turretRangeMul * 1.6;
+      let best = null;
+      let bestDist = Infinity;
+      for (const unit of state.units.values()) {
+        if (!unit || unit.hp <= 0 || unit.owner === turret.owner) continue;
+        const dist = (unit.x - turret.x) ** 2 + (unit.y - turret.y) ** 2;
+        if (dist <= range * range && dist < bestDist) {
+          bestDist = dist;
+          best = { target: unit, targetType: "unit" };
+        }
+      }
+      for (const otherTurret of state.turrets.values()) {
+        if (!otherTurret || otherTurret.hp <= 0 || otherTurret.owner === turret.owner) continue;
+        const dist = (otherTurret.x - turret.x) ** 2 + (otherTurret.y - turret.y) ** 2;
+        if (dist <= range * range && dist < bestDist) {
+          bestDist = dist;
+          best = { target: otherTurret, targetType: "turret" };
+        }
+      }
+      if (!best) continue;
+      const turretDmgMul = (owner.turretDmgMul != null ? owner.turretDmgMul : 1) * getLevelBonusMul(owner);
+      const damage = Math.max(1, Math.round((CFG.TURRET_ATTACK_DMG ?? 3) * turretDmgMul));
+      const dx = best.target.x - turret.x;
+      const dy = best.target.y - turret.y;
+      const dist = Math.hypot(dx, dy) || 1;
+      turret.nx = dx / dist;
+      turret.ny = dy / dist;
+      turret._aimUntil = state.t + gs(0.18);
+      turret.atkCd = 1 / (CFG.TURRET_ATTACK_RATE ?? 1.2);
+      state.bullets.push({
+        type: "laser",
+        fromX: turret.x,
+        fromY: turret.y,
+        toX: best.target.x,
+        toY: best.target.y,
+        ownerId: turret.owner,
+        dmg: damage,
+        duration: gs(0.38),
+        progress: 0,
+        targetId: best.target.id,
+        targetType: best.targetType,
+        sourceUnitId: null
+      });
+    }
+    for (const turret of state.turrets.values()) {
+      if (turret.hp <= 0 && turret._diedAt && state.t - turret._diedAt >= 60) {
+        const owner = state.players.get(turret.owner);
+        if (owner && owner.pop > 0) {
+          const turretHpMul = (owner.turretHpMul != null ? owner.turretHpMul : 1) * getLevelBonusMul(owner);
+          turret.maxHp = Math.max(1, Math.round(owner.pop * (CFG.TURRET_HP_RATIO ?? 0.1) * turretHpMul));
+          turret.hp = turret.maxHp;
+          turret._diedAt = null;
+        }
+      }
+    }
+  }
+
+  function stepPatrols(dt) {
+    for (const player of state.players.values()) {
+      if (!player || player.eliminated || (player._patrolCount || 0) === 0) continue;
+      player._patrols = player._patrols || [];
+      while (player._patrols.length < (player._patrolCount || 0)) player._patrols.push({ t: 0, atkCd: 0 });
+      const rangeMul = player.turretRangeMul != null ? player.turretRangeMul : 1;
+      const range = PATROL_ATTACK_R * rangeMul;
+      const dmgMul = (player.turretDmgMul != null ? player.turretDmgMul : 1) * getLevelBonusMul(player);
+      const damage = Math.max(1, Math.round(PATROL_DMG * dmgMul));
+      const shotCount = PATROL_BASE_SHOTS + (player.turretTargetBonus || 0);
+      for (const patrol of player._patrols) {
+        patrol.t = ((patrol.t || 0) + dt * PATROL_LIGHT_SPEED) % 1;
+        const pos = getPatrolOrbitState(player, patrol.t || 0);
+        patrol.atkCd = (patrol.atkCd || 0) - dt;
+        if (patrol.atkCd > 0) continue;
+        const enemies = [];
+        for (const unit of state.units.values()) {
+          if (!unit || unit.hp <= 0 || unit.owner === player.id) continue;
+          if ((unit.x - pos.x) ** 2 + (unit.y - pos.y) ** 2 <= range * range) enemies.push(unit);
+        }
+        if (!enemies.length) continue;
+        enemies.sort((a, b) => ((a.x - pos.x) ** 2 + (a.y - pos.y) ** 2) - ((b.x - pos.x) ** 2 + (b.y - pos.y) ** 2));
+        patrol.atkCd = 1 / PATROL_ATTACK_RATE;
+        for (let shot = 0; shot < Math.max(1, shotCount); shot++) {
+          const target = enemies[shot % enemies.length];
+          if (!target) continue;
+          state.bullets.push({
+            type: "laser",
+            fromX: pos.x,
+            fromY: pos.y,
+            toX: target.x,
+            toY: target.y,
+            ownerId: player.id,
+            dmg: damage,
+            duration: gs(0.38),
+            progress: 0,
+            targetId: target.id,
+            targetType: "unit",
+            sourceUnitId: null
+          });
+        }
+      }
+    }
+  }
+
+  function handlePirateBaseDestroyed(pirateBase) {
+    if (!pirateBase) return;
+    const killerId = pirateBase.lastDamagedBy;
+    const killer = killerId != null ? state.players.get(killerId) : null;
+    if (killer) {
+      for (let level = 0; level < 3; level++) {
+        killer.level = (killer.level || 1) + 1;
+        killer._levelBonusMul = 1 + (killer.level || 1) * 0.01;
+        killer.xpNext = xpNeed(killer.level, killer, CFG);
+        grantLevelCardDrops(killer, "pirateBaseLevel");
+      }
+      killer.eCredits = (killer.eCredits || 0) + 2000;
+      killer.popFloat = (killer.popFloat || killer.pop || 0) + 150;
+      killer.pop = Math.floor(killer.popFloat);
+    }
+    for (const mine of state.mines.values()) {
+      if (!mine.isRich) continue;
+      mine.ownerId = null;
+      mine.captureProgress = 0;
+      mine._capturingOwner = null;
+      mine._captureProtectedUntil = 0;
+      mine._pirateLocked = false;
+      mine._richYieldMultiplier = 3;
+      break;
+    }
+    const remaining = getPirateBases().filter((entry) => entry && entry.id !== pirateBase.id);
+    setPirateBases(remaining);
+    FrontPlanner.buildCenterObjectives(state);
   }
 
   function getAutoFrontSpecs(ownerId) {
@@ -340,7 +1256,7 @@ function createAuthoritativeMatchRuntime(options) {
   function queueShipBuild(ownerId, entry) {
     const queue = getShipBuildQueue(ownerId);
     const now = state.t || 0;
-    const executeAt = Math.max(now, queue.lastQueuedAt || now) + 1.0;
+    const executeAt = Math.max(now, queue.lastQueuedAt || now) + gs(1.0);
     const queued = { ...entry, ownerId, executeAt };
     queue.entries.push(queued);
     queue.lastQueuedAt = executeAt;
@@ -424,7 +1340,7 @@ function createAuthoritativeMatchRuntime(options) {
       formationRows: 1,
       formationWidth: 1,
       sourceTag: opts && opts.sourceTag ? opts.sourceTag : "spawn",
-      autoGroupUntil: state.t + 3,
+      autoGroupUntil: state.t + gs(3),
       allowAutoJoinRecentSpawn: !!(opts && opts.allowAutoJoinRecentSpawn),
       order: { type: "move", waypoints: cloneWaypoints(unit.waypoints), holdPoint: null }
     });
@@ -497,7 +1413,7 @@ function createAuthoritativeMatchRuntime(options) {
   }
 
   function purchaseFrontTriplet(ownerId, unitTypeKey) {
-    const quote = getUnitPurchaseQuote(ownerId, unitTypeKey, 3, 1);
+    const quote = getUnitPurchaseQuote(ownerId, unitTypeKey, 1, 3);
     if (!quote.ok) return quote;
     quote.player.eCredits -= quote.totalCost;
     const queued = queueShipBuild(ownerId, {
@@ -716,8 +1632,8 @@ function createAuthoritativeMatchRuntime(options) {
   function buildAnchorEffect(ownerId, x, y, abilityId) {
     const isMicro = abilityId === "microAnchor";
     const defaults = isMicro
-      ? { duration: 7, radius: 220, previewRadius: 220, pullBlend: 0.09 }
-      : { duration: 20, radius: 420, previewRadius: 420, pullBlend: 0.065 };
+      ? { duration: gs(7), radius: 220, previewRadius: 220, pullBlend: 0.09 }
+      : { duration: gs(20), radius: 420, previewRadius: 420, pullBlend: 0.065 };
     const built = GravAnchorAbility && typeof GravAnchorAbility.buildEffect === "function"
       ? GravAnchorAbility.buildEffect(x, y, ownerId, defaults)
       : {
@@ -756,8 +1672,8 @@ function createAuthoritativeMatchRuntime(options) {
         y: y + Math.sin(angle) * radial,
         ownerId,
         spawnedAt: state.t,
-        duration: large ? 22 : 15,
-        armedAt: state.t + 0.65,
+        duration: gs(800),
+        armedAt: state.t + gs(0.35),
         triggerRadius,
         blastRadius,
         damageBase,
@@ -776,7 +1692,7 @@ function createAuthoritativeMatchRuntime(options) {
       y: mine.y,
       ownerId: mine.ownerId,
       spawnedAt: state.t,
-      duration: 0.55,
+      duration: gs(0.55),
       radius: mine.blastRadius,
       blastRadius: mine.blastRadius,
       damageBase: mine.damageBase,
@@ -838,13 +1754,13 @@ function createAuthoritativeMatchRuntime(options) {
           unit.y = unit.y * (1 - pullBlend) + zone.y * pullBlend;
           unit.vx = 0;
           unit.vy = 0;
-          unit._anchorStasisUntil = state.t + 0.6;
-          unit._cryoSlowUntil = state.t + 0.6;
+          unit._anchorStasisUntil = state.t + gs(0.6);
+          unit._cryoSlowUntil = state.t + gs(0.6);
           unit._cryoSlowAmount = 1;
           if (unit.squadId != null) {
             SQUADLOGIC.clearCombatForSquad(state, unit.squadId, true);
             const squad = state.squads.get(unit.squadId);
-            if (squad) squad._zoneImmunityUntil = state.t + 0.6;
+            if (squad) squad._zoneImmunityUntil = state.t + gs(0.6);
           }
         }
         continue;
@@ -867,10 +1783,28 @@ function createAuthoritativeMatchRuntime(options) {
     const opts2 = options || {};
     const cosA = Math.cos(angle || 0);
     const sinA = Math.sin(angle || 0);
-    const dist = Math.hypot(CFG.WORLD_W, CFG.WORLD_H);
+    let tMin = Infinity;
+    if (cosA > 0.001) {
+      const t = targetX / cosA;
+      if (t > 0 && t < tMin) tMin = t;
+    }
+    if (cosA < -0.001) {
+      const t = (targetX - CFG.WORLD_W) / cosA;
+      if (t > 0 && t < tMin) tMin = t;
+    }
+    if (sinA > 0.001) {
+      const t = targetY / sinA;
+      if (t > 0 && t < tMin) tMin = t;
+    }
+    if (sinA < -0.001) {
+      const t = (targetY - CFG.WORLD_H) / sinA;
+      if (t > 0 && t < tMin) tMin = t;
+    }
+    if (tMin === Infinity || tMin <= 0) tMin = Math.hypot(CFG.WORLD_W, CFG.WORLD_H);
     const speed = opts2.speed || getMeteorSpeed(CFG);
-    const startX = targetX - cosA * dist;
-    const startY = targetY - sinA * dist;
+    const aoeRadius = opts2.aoeR || METEOR_PREVIEW_RADIUS;
+    const startX = targetX - cosA * tMin;
+    const startY = targetY - sinA * tMin;
     state._activeMeteors.push({
       x: startX,
       y: startY,
@@ -880,30 +1814,50 @@ function createAuthoritativeMatchRuntime(options) {
       vy: sinA * speed,
       angle: angle || 0,
       radius: opts2.radius || METEOR_RADIUS,
-      aoeR: opts2.aoeR || METEOR_AOE_RADIUS,
+      aoeR: aoeRadius,
       ownerId,
       alive: true,
       spawnedAt: state.t,
       impactDuration: METEOR_IMPACT_DURATION,
       styleKey: opts2.styleKey || "signal-bloom",
-      visualScale: opts2.visualScale || 1.0,
+      visualScale: opts2.visualScale || getMeteorVisualScale(aoeRadius),
       seed: opts2.seed != null ? opts2.seed : (((Math.round(targetX * 10) * 73856093) ^ (Math.round(targetY * 10) * 19349663)) >>> 0)
     });
   }
 
   function spawnMeteorSwarm(targetX, targetY, angle, ownerId) {
-    const baseAngle = angle || 0;
-    const count = 6;
-    for (let i = 0; i < count; i++) {
-      const spread = (i - (count - 1) / 2) * 0.08;
-      const radial = i * 24;
-      spawnMeteor(
-        targetX + Math.cos(baseAngle + Math.PI / 2) * radial,
-        targetY + Math.sin(baseAngle + Math.PI / 2) * radial,
-        baseAngle + spread,
+    const built = MeteorSwarmAbility && typeof MeteorSwarmAbility.buildCast === "function"
+      ? MeteorSwarmAbility.buildCast(targetX, targetY, ownerId, {
+          worldW: CFG.WORLD_W,
+          worldH: CFG.WORLD_H,
+          baseSpeed: getMeteorSwarmBaseSpeed(CFG),
+          baseAngle: angle
+        })
+      : null;
+    const shots = built && Array.isArray(built.shots) ? built.shots : null;
+    if (!shots || shots.length === 0) {
+      spawnMeteor(targetX, targetY, angle || 0, ownerId, { aoeR: METEOR_AOE_RADIUS, styleKey: "signal-bloom" });
+      return;
+    }
+    for (const shot of shots) {
+      state._activeMeteors.push({
+        x: shot.x,
+        y: shot.y,
+        targetX: shot.aimX,
+        targetY: shot.aimY,
+        vx: shot.vx,
+        vy: shot.vy,
+        angle: shot.angle,
+        radius: shot.radius,
+        aoeR: shot.aoeR,
         ownerId,
-        { aoeR: METEOR_AOE_RADIUS, styleKey: "signal-bloom" }
-      );
+        alive: true,
+        spawnedAt: state.t,
+        impactDuration: shot.impactDuration || 1.0,
+        styleKey: shot.styleKey || "signal-bloom",
+        visualScale: shot.visualScale || 1.0,
+        seed: shot.seed
+      });
     }
   }
 
@@ -935,38 +1889,34 @@ function createAuthoritativeMatchRuntime(options) {
   }
 
   function queueOrbitalStrike(zoneX, zoneY, ownerId, abilityId) {
-    const barrage = abilityId === "orbitalBarrage";
-    const salvoCount = barrage ? 6 : 2;
-    const shotsPerSalvo = 5;
-    const radius = barrage ? 320 : 250;
-    const damageBase = barrage ? 260 : 340;
-    const damageMaxHpPct = barrage ? 0.10 : 0.15;
+    const cfg = getOrbitalStrikeConfig(abilityId);
+    const seed = ((Math.round(zoneX * 10) * 73856093) ^ (Math.round(zoneY * 10) * 19349663) ^ ownerId) >>> 0;
     const owner = state.players.get(ownerId);
-    const coreX = owner ? owner.x : zoneX;
-    const coreY = owner ? owner.y : zoneY - 220;
+    const coreX = owner ? owner.x : zoneX - cfg.zoneRadius * 2.2;
+    const coreY = owner ? owner.y : zoneY + cfg.zoneRadius * 1.6;
     const shots = [];
-    for (let salvoIndex = 0; salvoIndex < salvoCount; salvoIndex++) {
-      for (let shotIndex = 0; shotIndex < shotsPerSalvo; shotIndex++) {
-        const ang = ((salvoIndex * shotsPerSalvo + shotIndex) / Math.max(1, salvoCount * shotsPerSalvo)) * Math.PI * 2;
-        const dist = shotIndex === 0 ? 0 : radius * (0.2 + ((shotIndex % 3) * 0.22));
-        const tx = zoneX + Math.cos(ang) * dist;
-        const ty = zoneY + Math.sin(ang) * dist;
-        const launchAt = salvoIndex * 0.5 + shotIndex * 0.08;
-        const flightDuration = 0.8 + (shotIndex % 3) * 0.05;
+    for (let salvoIndex = 0; salvoIndex < cfg.salvoCount; salvoIndex++) {
+      const salvoStart = salvoIndex * cfg.salvoGapSec;
+      const salvoTargets = buildOrbitalSalvoTargets(zoneX, zoneY, seed, salvoIndex, cfg);
+      for (let shotIndex = 0; shotIndex < salvoTargets.length; shotIndex++) {
+        const shotSeed = seed + salvoIndex * 101 + shotIndex * 17 + 13;
+        const target = salvoTargets[shotIndex];
+        const launchAt = salvoStart + shotIndex * cfg.shotIntervalSec;
+        const flightDuration = cfg.flightDurationSec + (hash01(shotSeed + 77) - 0.5) * cfg.flightVarianceSec * 2;
         shots.push({
           salvoIndex,
           shotIndex,
-          seed: ((salvoIndex + 1) * 101 + shotIndex * 17 + ownerId) >>> 0,
-          primary: shotIndex === 0,
+          seed: shotSeed,
+          primary: !!target.primary,
           sx: coreX,
           sy: coreY,
-          tx,
-          ty,
-          radius: barrage ? 110 : 130,
+          tx: target.tx,
+          ty: target.ty,
+          radius: target.radius,
           launchAt,
           arriveAt: launchAt + flightDuration,
           impactAt: launchAt + flightDuration,
-          fadeDuration: 0.5,
+          fadeDuration: cfg.impactFadeSec,
           resolved: false
         });
       }
@@ -974,14 +1924,14 @@ function createAuthoritativeMatchRuntime(options) {
     state._orbitalStrikes.push({
       x: zoneX,
       y: zoneY,
-      radius,
-      abilityId,
+      radius: cfg.zoneRadius,
+      abilityId: cfg.abilityId,
       ownerId,
       spawnedAt: state.t,
-      duration: (salvoCount - 1) * 0.5 + 2.4,
-      damageBase,
-      damageMaxHpPct,
-      seed: ((Math.round(zoneX * 10) * 73856093) ^ (Math.round(zoneY * 10) * 19349663) ^ ownerId) >>> 0,
+      duration: getOrbitalStrikeTotalDuration(cfg),
+      damageBase: cfg.damageBase,
+      damageMaxHpPct: cfg.damageMaxHpPct,
+      seed,
       coreX,
       coreY,
       shots
@@ -1015,38 +1965,39 @@ function createAuthoritativeMatchRuntime(options) {
     const owner = state.players.get(ownerId);
     const originX = owner ? owner.x : targetX;
     const originY = owner ? owner.y : targetY - 260;
-    const dx = targetX - originX;
-    const dy = targetY - originY;
-    const distance = Math.hypot(dx, dy) || 1;
-    const dirX = dx / distance;
-    const dirY = dy / distance;
-    const flightDuration = 3.2;
-    const speed = distance / flightDuration;
+    const built = ThermoNukeAbility && typeof ThermoNukeAbility.buildCast === "function"
+      ? ThermoNukeAbility.buildCast(targetX, targetY, ownerId, { originX, originY })
+      : null;
+    const fallbackDistance = Math.hypot(targetX - originX, targetY - originY) || 1;
+    const fallbackDirX = (targetX - originX) / fallbackDistance;
+    const fallbackDirY = (targetY - originY) / fallbackDistance;
     state._thermoNukes.push({
+      ...(built || {
+        seed: ((Math.round(targetX * 10) * 73856093) ^ (Math.round(targetY * 10) * 19349663) ^ ownerId) >>> 0,
+        x: originX,
+        y: originY,
+        originX,
+        originY,
+        startX: originX,
+        startY: originY,
+        targetX,
+        targetY,
+        dirX: fallbackDirX,
+        dirY: fallbackDirY,
+        vx: 0,
+        vy: 0,
+        distance: fallbackDistance,
+        flightDuration: 10,
+        impactAt: 10,
+        impactFadeDuration: 2.6,
+        previewRadius: 500,
+        impactRadius: 500,
+        duration: 20.6,
+        styleKey: "quietus-engine",
+        resolved: false
+      }),
       ownerId,
-      spawnedAt: state.t,
-      duration: 7.2,
-      seed: ((Math.round(targetX * 10) * 73856093) ^ (Math.round(targetY * 10) * 19349663) ^ ownerId) >>> 0,
-      x: originX,
-      y: originY,
-      originX,
-      originY,
-      startX: originX,
-      startY: originY,
-      targetX,
-      targetY,
-      dirX,
-      dirY,
-      vx: dirX * speed,
-      vy: dirY * speed,
-      distance,
-      flightDuration,
-      impactAt: flightDuration,
-      impactFadeDuration: 2.6,
-      previewRadius: 500,
-      impactRadius: 500,
-      styleKey: "thermo-nuke",
-      resolved: false
+      spawnedAt: state.t
     });
   }
 
@@ -1089,90 +2040,275 @@ function createAuthoritativeMatchRuntime(options) {
     }
   }
 
-  function saveTimeSnapshot() {
-    if (state.t < TIME_SNAPSHOT_INTERVAL) return;
-    const snapshots = state._timeSnapshots;
-    const last = snapshots.length ? snapshots[snapshots.length - 1] : null;
-    if (last && state.t - last.t < TIME_SNAPSHOT_INTERVAL) return;
-    const snapshotState = {};
-    for (const key of Object.keys(state)) {
-      if (key === "_timeSnapshots") continue;
-      snapshotState[key] = cloneDeep(state[key]);
+  function stepLaneFighterWaves() {
+    if (state._laneFighterWaveNextAt == null) state._laneFighterWaveNextAt = 0;
+    state._laneFighterWaveIndex = state._laneFighterWaveIndex || 0;
+    const waveInterval = 30;
+    while (state.t >= (state._laneFighterWaveNextAt || 0)) {
+      const firstWave = (state._laneFighterWaveIndex || 0) === 0;
+      for (const player of state.players.values()) {
+        if (!player || player.id == null || player.id <= 0 || player.eliminated) continue;
+        const wavePlan = firstWave
+          ? [
+              { frontType: "left", count: 1 },
+              { frontType: "center", count: 1 },
+              { frontType: "right", count: 1 }
+            ]
+          : [
+              { frontType: "left", count: 3 },
+              { frontType: "center", count: 3 },
+              { frontType: "right", count: 3 }
+            ];
+        for (const plan of wavePlan) {
+          spawnLaneAbilityUnits(player.id, plan.frontType, "fighter", plan.count, {
+            sourceTag: "timed:laneFighters:" + player.id + ":" + plan.frontType,
+            spread: 22,
+            forwardStep: 7,
+            allowAutoJoinRecentSpawn: true,
+            mutateUnit: (unit) => {
+              unit._autoLaneFighterWave = true;
+            }
+          });
+        }
+      }
+      state._laneFighterWaveNextAt = (state._laneFighterWaveNextAt || 0) + waveInterval;
+      state._laneFighterWaveIndex = (state._laneFighterWaveIndex || 0) + 1;
+      if (waveInterval <= 0) break;
     }
-    snapshots.push({ t: state.t, state: snapshotState });
-    while (snapshots.length && state.t - snapshots[0].t > TIME_SNAPSHOT_HISTORY_SEC) snapshots.shift();
   }
 
-  function restoreTimeSnapshot(snapshot) {
-    if (!snapshot || !snapshot.state) return false;
-    const keepSnapshots = (state._timeSnapshots || []).filter((entry) => entry.t <= snapshot.t);
-    for (const key of Object.keys(state)) {
-      if (key === "_timeSnapshots") continue;
-      delete state[key];
+  const RANDOM_BLACKHOLE_INTERVAL = gs(300);
+
+  function stepRandomEvents() {
+    if (state._randomBlackHoleNextAt == null) state._randomBlackHoleNextAt = state.t + RANDOM_BLACKHOLE_INTERVAL;
+    if (state.t >= (state._randomBlackHoleNextAt || 0)) {
+      state._randomBlackHoleNextAt = state.t + RANDOM_BLACKHOLE_INTERVAL;
+      const margin = 200;
+      const x = margin + Math.random() * (CFG.WORLD_W - 2 * margin);
+      const y = margin + Math.random() * (CFG.WORLD_H - 2 * margin);
+      spawnBlackHole(null, x, y, null);
     }
-    const cloned = cloneDeep(snapshot.state);
-    for (const key of Object.keys(cloned)) {
-      state[key] = cloned[key];
+  }
+
+  const PIRATE_FULL_SQUAD = ["destroyer", "destroyer", "destroyer", "destroyer", "cruiser", "cruiser", "cruiser", "battleship"];
+  const PIRATE_RESPAWN_CD = gs(180);
+
+  function spawnPirateUnit(x, y, unitTypeKey, pirateBaseId, batchTag) {
+    const type = UNIT_TYPES[unitTypeKey] || UNIT_TYPES.destroyer;
+    if (!type) return null;
+    const id = state.nextUnitId++;
+    const unit = {
+      id, owner: PIRATE_OWNER_ID, color: 0x666666,
+      unitType: unitTypeKey,
+      x, y, vx: 0, vy: 0,
+      hp: Math.round((type.hp || 100) * 1.5),
+      maxHp: Math.round((type.hp || 100) * 1.5),
+      dmg: type.damage, atkCd: 0,
+      attackRange: type.attackRange, maxTargets: type.maxTargets,
+      speed: type.speed * 0.7,
+      baseMaxHp: Math.round((type.hp || 100) * 1.5),
+      baseDamage: type.damage, baseAttackRate: type.attackRate,
+      baseAttackRange: type.attackRange, baseSpeed: type.speed * 0.7,
+      orbitTarget: false, popPenalty: 0, regenPerSec: 0, gfx: null,
+      waypoints: [], waypointIndex: 0,
+      leaderId: null, formationOffsetX: 0, formationOffsetY: 0,
+      formationType: "line", formationRows: 1, formationPigWidth: 1,
+      spawnTime: state.t,
+      _cryoSlowUntil: 0, _fireDotUntil: 0, _fireDotDps: 0,
+      _lastFacingAngle: 0, _formationAngle: 0,
+      _piratePatrol: true, _pirateBaseId: pirateBaseId
+    };
+    state.units.set(id, unit);
+    SQUADLOGIC.createSquad(state, [id], {
+      leaderUnitId: id, formationType: "line", formationRows: 1, formationWidth: 1,
+      sourceTag: batchTag || "pirate", autoGroupUntil: state.t + gs(3),
+      allowAutoJoinRecentSpawn: true,
+      order: { type: "idle", waypoints: [], holdPoint: null }
+    });
+    return unit;
+  }
+
+  function stepPirateBaseBehavior(dt) {
+    for (const pb of getAlivePirateBases()) {
+      if (!pb || pb.hp <= 0) continue;
+      const basePirateUnits = [];
+      for (const u of state.units.values()) {
+        if (u.owner === PIRATE_OWNER_ID && u._pirateBaseId === pb.id && u.hp > 0) basePirateUnits.push(u);
+      }
+      const pirateCount = basePirateUnits.length;
+      if (pb._respawnTimer == null) pb._respawnTimer = 0;
+      const needsInitialSpawn = !pb._initialSpawned && pirateCount === 0;
+
+      if (pirateCount === 0) {
+        if (needsInitialSpawn) pb._respawnTimer = 0;
+        else if (pb._respawnTimer <= 0) pb._respawnTimer = PIRATE_RESPAWN_CD;
+        if (!needsInitialSpawn) pb._respawnTimer -= dt;
+        if (needsInitialSpawn || pb._respawnTimer <= 0) {
+          pb._respawnTimer = 0;
+          pb._initialSpawned = true;
+          const oc = pb.orbitCenter || { x: pb.x, y: pb.y };
+          const oR = pb.orbitRadius || 280;
+          const batchTag = pb.id + "-" + Math.floor(state.t);
+          for (let i = 0; i < PIRATE_FULL_SQUAD.length; i++) {
+            const a = (Math.PI * 2 * i) / PIRATE_FULL_SQUAD.length + Math.random() * 0.2;
+            spawnPirateUnit(
+              oc.x + Math.cos(a) * oR * 0.52,
+              oc.y + Math.sin(a) * oR * 0.52,
+              PIRATE_FULL_SQUAD[i], pb.id, batchTag
+            );
+          }
+        }
+      } else {
+        pb._respawnTimer = 0;
+        pb._initialSpawned = true;
+      }
+
+      const oc = pb.orbitCenter || { x: pb.x, y: pb.y };
+      const patrolRadius = Math.max(108, (pb.orbitRadius || 260) * 1.15);
+      const pirateSquads = [...state.squads.values()].filter((sq) => {
+        if (sq.ownerId !== PIRATE_OWNER_ID) return false;
+        const leader = state.units.get(sq.leaderUnitId);
+        return leader && leader._pirateBaseId === pb.id;
+      });
+      for (let si = 0; si < pirateSquads.length; si++) {
+        const sq = pirateSquads[si];
+        if (sq.combat.mode === "approach" || sq.combat.mode === "engaged") continue;
+        const leader = state.units.get(sq.leaderUnitId);
+        if (!leader) continue;
+        if (!sq._patrolAngle) sq._patrolAngle = (si / Math.max(1, pirateSquads.length)) * Math.PI * 2;
+        sq._patrolAngle += dt * 0.15;
+        const targetX = oc.x + Math.cos(sq._patrolAngle) * patrolRadius;
+        const targetY = oc.y + Math.sin(sq._patrolAngle) * patrolRadius;
+        const dist = Math.hypot(leader.x - targetX, leader.y - targetY);
+        if (dist > 40 || !sq._patrolIssued) {
+          SQUADLOGIC.issueMoveOrder(state, sq.id, [{ x: targetX, y: targetY }], sq._patrolAngle);
+          sq._patrolIssued = true;
+        }
+      }
     }
-    state._timeSnapshots = keepSnapshots;
-    state._authorityMode = "server";
-    state._multiIsHost = true;
-    state._runsAuthoritativeSim = true;
-    state._multiSlots = rawSlots;
-    state._slotToPid = slotToPid;
-    serializer._prev.clear();
-    serializer.tickCount = FULL_SYNC_EVERY - 1;
-    return true;
+  }
+
+  const TURN_RATES = { fighter: 8.5, destroyer: 5.5, cruiser: 3.8, battleship: 2.5, hyperDestroyer: 4.0 };
+
+  function getUnitTurnRate(unitType) { return TURN_RATES[unitType] || TURN_RATES.fighter; }
+
+  function getUnitSpeed(unit) {
+    const owner = state.players.get(unit.owner);
+    const isPirate = unit.owner === PIRATE_OWNER_ID;
+    const classOrder = ["fighter", "destroyer", "cruiser", "battleship", "hyperDestroyer"];
+    const classIdx = classOrder.indexOf(unit.unitType || "fighter");
+    const baseIndividual = (unit.speed || UNIT_TYPES[unit.unitType || "fighter"]?.speed || 9) * 1.1 * Math.max(0.5, 1 - classIdx * 0.06);
+    const squadSpeed = (unit.squadId != null && typeof SQUADLOGIC.getSquadSpeed === "function")
+      ? (SQUADLOGIC.getSquadSpeed(state, unit.squadId) || baseIndividual)
+      : baseIndividual;
+    let mul = isPirate ? 1 : getPlayerUnitSpeedMul(owner);
+    if (!isPirate && state._fleetBoostUntil[unit.owner] && state._fleetBoostUntil[unit.owner] > state.t) mul *= 1.5;
+    if (!isPirate && state._battleMarchUntil[unit.owner] && state._battleMarchUntil[unit.owner] > state.t) mul *= 1.3;
+    const cryoMul = (unit._cryoSlowUntil && state.t < unit._cryoSlowUntil) ? Math.max(0.2, 1 - (unit._cryoSlowAmount || 0.4)) : 1;
+    const hyperMul = (unit._pirateHyperUntil && state.t < unit._pirateHyperUntil) ? 6 : 1;
+    return { squad: squadSpeed * mul * cryoMul * hyperMul, individual: baseIndividual * mul * cryoMul * hyperMul };
   }
 
   function stepUnits(dt) {
-    const movementCfg = balance.movement || {};
-    const waypointRadius = movementCfg.waypointRadius || 28;
     const helpers = getCombatHelpers();
     for (const unit of state.units.values()) {
       if (!unit || unit.hp <= 0) continue;
       const owner = state.players.get(unit.owner);
-      if (!owner || owner.eliminated) continue;
+      const isPirate = unit.owner === PIRATE_OWNER_ID;
+      if (!isPirate && (!owner || owner.eliminated)) continue;
       if (unit._anchorStasisUntil && state.t < unit._anchorStasisUntil) {
-        unit.vx = 0;
-        unit.vy = 0;
-        continue;
+        unit.vx = 0; unit.vy = 0; continue;
       }
       if (unit._fireDotUntil && state.t < unit._fireDotUntil && unit._fireDotDps) {
         applyUnitDamage(unit, unit._fireDotDps * dt, null, unit.lastDamagedBy || null);
       }
       if (unit.regenPerSec) unit.hp = Math.min(unit.maxHp || unit.hp, unit.hp + unit.regenPerSec * dt);
+
       let desired = SQUADLOGIC.getUnitMovementTarget(unit, state, helpers);
       if (unit._blackHolePullUntil && state.t < unit._blackHolePullUntil) {
-        desired = {
-          tx: unit._blackHolePullX != null ? unit._blackHolePullX : unit.x,
-          ty: unit._blackHolePullY != null ? unit._blackHolePullY : unit.y,
-          moveMode: "blackhole_pull"
-        };
+        desired = { tx: unit._blackHolePullX ?? unit.x, ty: unit._blackHolePullY ?? unit.y, moveMode: "blackhole_pull" };
       }
-      const dx = (desired.tx || unit.x) - unit.x;
-      const dy = (desired.ty || unit.y) - unit.y;
-      const dist = Math.hypot(dx, dy);
-      if (dist <= 1) {
-        unit.vx = 0;
-        unit.vy = 0;
-        continue;
+      const speeds = getUnitSpeed(unit);
+      const isFreeChase = desired.moveMode === "free_chase";
+      const isBlackHole = desired.moveMode === "blackhole_pull";
+      let dx = (desired.tx || unit.x) - unit.x;
+      let dy = (desired.ty || unit.y) - unit.y;
+      let dist = Math.hypot(dx, dy);
+
+      if (isFreeChase && dist > 1) {
+        const atkR = getUnitAtkRange(unit) * 0.72;
+        if (dist <= atkR) {
+          unit._lastFacingAngle = Math.atan2(dy, dx);
+          unit.vx = Math.cos(unit._lastFacingAngle);
+          unit.vy = Math.sin(unit._lastFacingAngle);
+          continue;
+        }
       }
-      let speed = getUnitBaseSpeed(unit) * getPlayerUnitSpeedMul(owner);
-      if (state._fleetBoostUntil[unit.owner] && state._fleetBoostUntil[unit.owner] > state.t) speed *= 1.5;
-      if (state._battleMarchUntil[unit.owner] && state._battleMarchUntil[unit.owner] > state.t) speed *= 1.3;
-      if (unit._cryoSlowUntil && state.t < unit._cryoSlowUntil) speed *= Math.max(0.2, 1 - (unit._cryoSlowAmount || 0.4));
-      if (desired.moveMode === "blackhole_pull" && unit._blackHolePullSpeed) speed = Math.max(speed, unit._blackHolePullSpeed);
-      const moveDist = Math.min(speed * dt, dist);
-      const nx = dx / Math.max(1e-6, dist);
-      const ny = dy / Math.max(1e-6, dist);
-      unit.x += nx * moveDist;
-      unit.y += ny * moveDist;
-      unit.vx = nx * speed;
-      unit.vy = ny * speed;
-      unit._lastFacingAngle = Math.atan2(ny, nx);
-      if (dist <= waypointRadius && Array.isArray(unit.waypoints) && unit.waypointIndex < unit.waypoints.length) {
-        unit.waypointIndex += 1;
+
+      if (dist <= 0.5 || desired.moveMode === "stop") {
+        unit.vx = 0; unit.vy = 0; continue;
+      }
+
+      const desiredAngle = Math.atan2(dy, dx);
+      let curFacing = unit._lastFacingAngle ?? desiredAngle;
+      let angleDiff = desiredAngle - curFacing;
+      while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+      while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+      const turnStep = getUnitTurnRate(unit.unitType || "fighter") * dt;
+      if (Math.abs(angleDiff) > turnStep) curFacing += Math.sign(angleDiff) * turnStep;
+      else curFacing = desiredAngle;
+      unit._lastFacingAngle = curFacing;
+
+      const moveScale = Math.max(0.3, 1 - Math.abs(angleDiff) * 0.2);
+      const effectiveSpeed = isBlackHole ? Math.max(speeds.squad, unit._blackHolePullSpeed || 0)
+        : (isFreeChase ? speeds.individual : speeds.squad);
+      const maxMove = effectiveSpeed * dt;
+      const decel = (!isFreeChase && !isBlackHole && dist < 20) ? (dist / 20) : 1;
+      const moveDist = Math.min(maxMove * decel * moveScale, dist);
+      if (moveDist > 0.01) {
+        unit.x += Math.cos(curFacing) * moveDist;
+        unit.y += Math.sin(curFacing) * moveDist;
+      }
+      const spd = dt > 0 ? moveDist / dt : 0;
+      unit.vx = Math.cos(curFacing) * spd;
+      unit.vy = Math.sin(curFacing) * spd;
+    }
+
+    for (const unit of state.units.values()) {
+      if (!unit || unit.hp <= 0) continue;
+      const sq = unit.squadId != null ? state.squads.get(unit.squadId) : null;
+      if (sq && (sq.combat.mode === "engaged" || sq.combat.mode === "approach")) continue;
+      const uHitR = getUnitHitRadius(unit);
+      for (const other of state.units.values()) {
+        if (!other || other.id === unit.id || other.hp <= 0 || other.owner === unit.owner) continue;
+        const oHitR = getUnitHitRadius(other);
+        const minD = (uHitR + oHitR) * 0.5;
+        const cdx = unit.x - other.x, cdy = unit.y - other.y;
+        const cDist = Math.hypot(cdx, cdy);
+        if (cDist < minD && cDist > 0.01) {
+          const overlap = minD - cDist;
+          const push = overlap * 0.03 * dt;
+          unit.x += (cdx / cDist) * push;
+          unit.y += (cdy / cDist) * push;
+        }
+      }
+    }
+
+    for (const unit of state.units.values()) {
+      if (!unit || unit.hp <= 0) continue;
+      for (const cp of state.players.values()) {
+        if (cp.eliminated) continue;
+        const noFlyR = getCoreCollisionRadius(cp, CFG);
+        const dToCity = Math.hypot(unit.x - cp.x, unit.y - cp.y);
+        if (dToCity > 0 && dToCity < noFlyR) {
+          const scale = noFlyR / dToCity;
+          unit.x = cp.x + (unit.x - cp.x) * scale;
+          unit.y = cp.y + (unit.y - cp.y) * scale;
+        }
+      }
+      if (typeof SQUADLOGIC.getLaneClampForUnit === "function") {
+        const clampPt = SQUADLOGIC.getLaneClampForUnit(unit, state, 12);
+        if (clampPt) { unit.x = clampPt.x; unit.y = clampPt.y; }
       }
       unit.x = UTILS.clamp(unit.x, 0, CFG.WORLD_W);
       unit.y = UTILS.clamp(unit.y, 0, CFG.WORLD_H);
@@ -1184,32 +2320,115 @@ function createAuthoritativeMatchRuntime(options) {
     for (const unit of state.units.values()) {
       if (!unit || unit.hp <= 0) continue;
       const owner = state.players.get(unit.owner);
-      if (!owner || owner.eliminated) continue;
+      const isPirate = unit.owner === PIRATE_OWNER_ID;
+      if (!isPirate && (!owner || owner.eliminated)) continue;
       unit.atkCd = Math.max(0, (unit.atkCd || 0) - dt);
       if (unit.atkCd > 0) continue;
       const plan = SQUADLOGIC.getUnitFirePlan(unit, state, helpers);
-      if (!plan || plan.type === "none") continue;
-      const damage = Math.max(1, (unit.baseDamage || unit.dmg || 0) * getPlayerDamageMul(owner));
-      const attackRate = Math.max(0.05, (unit.baseAttackRate || 0.2) * getPlayerAttackRateMul(owner));
-      if (plan.type === "units") {
+      const damage = Math.max(1, (unit.baseDamage || unit.dmg || 0) * (isPirate ? 1 : getPlayerDamageMul(owner)));
+      const attackRate = Math.max(0.05, (unit.baseAttackRate || 0.2) * (isPirate ? 1 : getPlayerAttackRateMul(owner)));
+      if (plan && plan.type === "units") {
         for (const target of plan.targets || []) {
           if (!target || target.owner === unit.owner || target.hp <= 0) continue;
           applyUnitDamage(target, damage, unit.id, unit.owner);
-          if (owner.attackEffect === "cryo") {
-            target._cryoSlowUntil = Math.max(target._cryoSlowUntil || 0, state.t + (balance.cryoEffect?.duration || 2));
+          state.bullets.push({
+            type: "laser",
+            fromX: unit.x, fromY: unit.y,
+            toX: target.x, toY: target.y,
+            ownerId: unit.owner, dmg: damage,
+            duration: gs(0.38), progress: 0,
+            targetId: target.id, targetType: "unit",
+            sourceUnitId: unit.id
+          });
+          if (owner && owner.attackEffect === "cryo") {
+            target._cryoSlowUntil = Math.max(target._cryoSlowUntil || 0, state.t + gs(balance.cryoEffect?.duration || 2));
             target._cryoSlowAmount = balance.cryoEffect?.slowPercent || 0.4;
           }
-          if (owner.attackEffect === "fire") {
-            target._fireDotUntil = Math.max(target._fireDotUntil || 0, state.t + (balance.fireEffect?.duration || 3));
+          if (owner && owner.attackEffect === "fire") {
+            target._fireDotUntil = Math.max(target._fireDotUntil || 0, state.t + gs(balance.fireEffect?.duration || 3));
             target._fireDotDps = Math.max(target._fireDotDps || 0, balance.fireEffect?.dotDamagePerSec || 3);
           }
         }
-      } else if (plan.type === "city" && plan.city) {
+      } else if (plan && plan.type === "city" && plan.city) {
         applyCityDamage(plan.city, damage, unit.owner);
-      } else if (plan.type === "turret" && plan.turret) {
+        state.bullets.push({
+          type: "laser",
+          fromX: unit.x, fromY: unit.y,
+          toX: plan.city.x, toY: plan.city.y,
+          ownerId: unit.owner, dmg: damage,
+          duration: gs(0.38), progress: 0,
+          targetId: plan.city.id, targetType: "city",
+          sourceUnitId: unit.id
+        });
+      } else if (plan && plan.type === "turret" && plan.turret) {
         plan.turret.hp = Math.max(0, (plan.turret.hp || 0) - damage);
+        if (plan.turret.hp <= 0 && plan.turret._diedAt == null) plan.turret._diedAt = state.t;
+        state.bullets.push({
+          type: "laser",
+          fromX: unit.x, fromY: unit.y,
+          toX: plan.turret.x, toY: plan.turret.y,
+          ownerId: unit.owner, dmg: damage,
+          duration: gs(0.38), progress: 0,
+          targetId: plan.turret.id, targetType: "turret",
+          sourceUnitId: unit.id
+        });
+      } else {
+        const squad = unit.squadId != null ? state.squads.get(unit.squadId) : null;
+        const pirateBase = squad && squad.order && squad.order.type === "attackPirateBase" ? state.pirateBase : null;
+        if (!pirateBase || pirateBase.hp <= 0) continue;
+        const attackRadius = Math.max(44, getUnitAtkRange(unit));
+        if (Math.hypot(unit.x - pirateBase.x, unit.y - pirateBase.y) > attackRadius) continue;
+        pirateBase.hp = Math.max(0, pirateBase.hp - damage);
+        pirateBase.lastDamagedBy = unit.owner;
+        if (pirateBase.hp <= 0) handlePirateBaseDestroyed(pirateBase);
       }
       unit.atkCd = 1 / attackRate;
+    }
+  }
+
+  function stepBullets(dt) {
+    for (let index = state.bullets.length - 1; index >= 0; index--) {
+      const bullet = state.bullets[index];
+      if (!bullet) {
+        state.bullets.splice(index, 1);
+        continue;
+      }
+      if (bullet.type === "laser") {
+        if (bullet.targetType === "unit" && bullet.targetId != null && !state.units.has(bullet.targetId)) {
+          state.bullets.splice(index, 1);
+          continue;
+        }
+        if (bullet.targetType === "turret" && bullet.targetId != null) {
+          const turret = state.turrets.get(bullet.targetId);
+          if (!turret || turret.hp <= 0) {
+            state.bullets.splice(index, 1);
+            continue;
+          }
+        }
+        bullet.progress = (bullet.progress || 0) + dt / Math.max(0.01, bullet.duration || 0.2);
+        if (bullet.progress < 1) continue;
+        if (bullet.targetType === "unit") {
+          const unit = state.units.get(bullet.targetId);
+          if (unit && unit.owner !== bullet.ownerId) applyUnitDamage(unit, bullet.dmg || 0, bullet.sourceUnitId, bullet.ownerId);
+        } else if (bullet.targetType === "turret") {
+          const turret = state.turrets.get(bullet.targetId);
+          if (turret && turret.owner !== bullet.ownerId) {
+            turret.hp = Math.max(0, (turret.hp || 0) - (bullet.dmg || 0));
+            if (turret.hp <= 0 && turret._diedAt == null) turret._diedAt = state.t;
+          }
+        } else if (bullet.targetType === "pirateBase") {
+          const pirateBase = state.pirateBase;
+          if (pirateBase && pirateBase.hp > 0) {
+            pirateBase.hp = Math.max(0, pirateBase.hp - (bullet.dmg || 0));
+            pirateBase.lastDamagedBy = bullet.ownerId;
+            if (pirateBase.hp <= 0) handlePirateBaseDestroyed(pirateBase);
+          }
+        }
+        state.bullets.splice(index, 1);
+        continue;
+      }
+      bullet.progress = (bullet.progress || 0) + dt / Math.max(0.01, bullet.duration || 0.5);
+      if (bullet.progress >= 1) state.bullets.splice(index, 1);
     }
   }
 
@@ -1261,7 +2480,7 @@ function createAuthoritativeMatchRuntime(options) {
           CFG.BLACKHOLE_GRAVITY * 2.4,
           (bh.radius || currentRadius) * (0.35 + influence * 1.35)
         ) * Math.max(0.55, sizeFrac * sizeFrac);
-        unit._blackHolePullUntil = state.t + 0.18;
+        unit._blackHolePullUntil = state.t + gs(0.18);
         unit._blackHolePullX = bh.x;
         unit._blackHolePullY = bh.y;
         unit._blackHolePullSpeed = pullSpeed;
@@ -1281,7 +2500,22 @@ function createAuthoritativeMatchRuntime(options) {
       if (!unit || unit.hp > 0) continue;
       deadUnitIds.push(unit.id);
       const owner = state.players.get(unit.owner);
-      if (owner) owner.deadUnits = (owner.deadUnits || 0) + 1;
+      if (owner) {
+        owner.deadUnits = (owner.deadUnits || 0) + 1;
+        const penalty = unit.popPenalty || 1;
+        owner.popFloat = Math.max(0, (owner.popFloat || owner.pop || 0) - penalty);
+        owner.pop = Math.floor(owner.popFloat);
+      }
+      const killerId = state.players.has(unit.lastDamagedBy) ? unit.lastDamagedBy : null;
+      if (killerId != null && killerId !== unit.owner) {
+        const killer = state.players.get(killerId);
+        if (killer) {
+          gainXP(killer, UNIT_XP_DROPS[unit.unitType] || 1);
+          killer.eCredits = (killer.eCredits || 0) + (UNIT_CREDIT_DROPS[unit.unitType] || 0);
+          const bonus = UNIT_KILL_ENERGY_BONUSES[unit.unitType];
+          if (bonus) addTimedGrowthBonus(killer, bonus.amount, bonus.durationSec);
+        }
+      }
     }
     for (const id of deadUnitIds) state.units.delete(id);
     SQUADLOGIC.syncSquadsFromState(state);
@@ -1310,7 +2544,7 @@ function createAuthoritativeMatchRuntime(options) {
       ownerId: pid,
       ownerColor: player.color || 0xffc84b,
       spawnedAt: state.t,
-      duration: 4.35,
+      duration: gs(4.35),
       burstDuration: 3.75,
       finishDuration: 0.6,
       targetX: player.x || 0,
@@ -1338,7 +2572,7 @@ function createAuthoritativeMatchRuntime(options) {
       ownerColor: player.color || 0xff8f48,
       targetColor: targetCity.color || 0x68d8ff,
       spawnedAt: state.t,
-      duration: 4.44,
+      duration: gs(4.44),
       signalDuration: 0.88,
       drainDuration: 3.0,
       finishDuration: 0.56,
@@ -1397,12 +2631,12 @@ function createAuthoritativeMatchRuntime(options) {
       return true;
     }
     if (abilityId === "fleetBoost") {
-      state._fleetBoostUntil[action.pid] = state.t + 20;
+      state._fleetBoostUntil[action.pid] = state.t + gs(20);
       applyAbilitySuccess(action.pid, abilityId);
       return true;
     }
     if (abilityId === "gloriousBattleMarch") {
-      state._battleMarchUntil[action.pid] = state.t + 30;
+      state._battleMarchUntil[action.pid] = state.t + gs(30);
       applyAbilitySuccess(action.pid, abilityId);
       return true;
     }
@@ -1415,44 +2649,6 @@ function createAuthoritativeMatchRuntime(options) {
       const ok = useRaiderCapture(action.pid, action.targetCityId);
       if (ok) applyAbilitySuccess(action.pid, abilityId);
       return ok;
-    }
-    if (abilityId === "droneSwarm") {
-      const out = spawnLaneAbilityUnits(action.pid, action.frontType || "center", "fighter", 6, {
-        sourceTag: "ability:fighterWing:" + (action.frontType || "center"),
-        spread: 24,
-        forwardStep: 8,
-        allowAutoJoinRecentSpawn: true,
-        mutateUnit: (unit) => {
-          unit._fighterWingSummon = true;
-          unit.hp = Math.round(unit.hp * 0.72);
-          unit.maxHp = unit.hp;
-          unit.baseMaxHp = Math.max(1, unit.hp);
-          unit.dmg = Math.max(1, Math.round((unit.dmg || 1) * 1.12));
-          unit.baseDamage = unit.dmg;
-        }
-      });
-      if (out.ok) applyAbilitySuccess(action.pid, abilityId);
-      return out.ok;
-    }
-    if (abilityId === "frigateWarp") {
-      const out = spawnLaneAbilityUnits(action.pid, action.frontType || "center", "destroyer", 1, {
-        sourceTag: "ability:frigateWarp:" + (action.frontType || "center"),
-        allowAutoJoinRecentSpawn: true,
-        mutateUnit: (unit) => {
-          unit._frigateSummon = true;
-          unit.hp = Math.round((unit.hp || 1) * 1.6);
-          unit.maxHp = unit.hp;
-          unit.baseMaxHp = unit.hp;
-          unit.dmg = Math.max(1, Math.round((unit.dmg || 1) * 1.35));
-          unit.baseDamage = unit.dmg;
-          unit.attackRange = Math.round((unit.attackRange || 1) * 1.12);
-          unit.baseAttackRange = unit.attackRange;
-          unit.speed = (unit.speed || 1) * 1.18;
-          unit.baseSpeed = unit.speed;
-        }
-      });
-      if (out.ok) applyAbilitySuccess(action.pid, abilityId);
-      return out.ok;
     }
     if (abilityId === "minefield" || abilityId === "minefieldLarge") {
       const out = deployMinefield(abilityId, action.x, action.y, action.pid);
@@ -1476,22 +2672,9 @@ function createAuthoritativeMatchRuntime(options) {
     }
     if (abilityId === "loan") {
       player.eCredits = (player.eCredits || 0) + 5000;
-      state._loanDebts.push({ pid: action.pid, deductAt: state.t + 180, amount: 7500 });
+      state._loanDebts.push({ pid: action.pid, deductAt: state.t + gs(180), amount: 7500 });
       applyAbilitySuccess(action.pid, abilityId);
       return true;
-    }
-    if (abilityId === "timeJump") {
-      const targetT = Math.max(0, state.t - TIME_JUMP_REWIND_SEC);
-      let snap = null;
-      for (let i = state._timeSnapshots.length - 1; i >= 0; i--) {
-        if (state._timeSnapshots[i].t <= targetT) {
-          snap = state._timeSnapshots[i];
-          break;
-        }
-      }
-      const ok = restoreTimeSnapshot(snap);
-      if (ok) applyAbilitySuccess(action.pid, abilityId);
-      return ok;
     }
     return false;
   }
@@ -1522,6 +2705,25 @@ function createAuthoritativeMatchRuntime(options) {
       if (card.unitCostMul) player.unitCostMul *= card.unitCostMul;
       if (card.attackEffect) player.attackEffect = card.attackEffect;
     }
+    syncOwnedUnitsForPlayerBuffStats(player);
+  }
+
+  function syncOwnedUnitsForPlayerBuffStats(player) {
+    if (!player || player.id == null) return;
+    const hpMul = (player.unitHpMul != null ? player.unitHpMul : 1) * getLevelBonusMul(player);
+    for (const unit of state.units.values()) {
+      if (!unit || unit.owner !== player.id || unit.hp <= 0) continue;
+      if (unit.baseMaxHp == null) unit.baseMaxHp = (UNIT_TYPES[unit.unitType] && UNIT_TYPES[unit.unitType].hp) || unit.maxHp || unit.hp || 1;
+      const prevMax = Math.max(1, unit.maxHp || unit.baseMaxHp || 1);
+      const nextMax = Math.max(1, Math.round(unit.baseMaxHp * hpMul));
+      if (prevMax !== nextMax) {
+        const ratio = prevMax > 0 ? (unit.hp || prevMax) / prevMax : 1;
+        unit.maxHp = nextMax;
+        unit.hp = Math.max(0, Math.min(nextMax, ratio * nextMax));
+      } else {
+        unit.maxHp = nextMax;
+      }
+    }
   }
 
   function getOwnedSquadIdsFromLeaderIds(action, senderPid) {
@@ -1550,7 +2752,16 @@ function createAuthoritativeMatchRuntime(options) {
     if (action.type === "move") {
       const squadIds = getOwnedSquadIdsFromLeaderIds(action, senderPid);
       const waypoints = cloneWaypoints(action.waypoints && action.waypoints.length ? action.waypoints : [{ x: action.x, y: action.y }]);
-      for (const squadId of squadIds) SQUADLOGIC.issueMoveOrder(state, squadId, waypoints, action.angle, action.commandQueue);
+      for (const squadId of squadIds) {
+        if (action.capture) SQUADLOGIC.issueCaptureOrder(state, squadId, action.mineId, waypoints[0] || null, waypoints, action.captureQueue, action.commandQueue);
+        else SQUADLOGIC.issueMoveOrder(state, squadId, waypoints, action.angle, action.commandQueue);
+      }
+      return;
+    }
+    if (action.type === "attackPirateBase") {
+      const squadIds = getOwnedSquadIdsFromLeaderIds(action, senderPid);
+      const waypoints = cloneWaypoints(action.waypoints && action.waypoints.length ? action.waypoints : [{ x: action.x, y: action.y }]);
+      for (const squadId of squadIds) SQUADLOGIC.issuePirateBaseOrder(state, squadId, waypoints, action.commandQueue);
       return;
     }
     if (action.type === "chase") {
@@ -1567,7 +2778,11 @@ function createAuthoritativeMatchRuntime(options) {
     }
     if (action.type === "focusFire") {
       const squadIds = getOwnedSquadIdsFromLeaderIds(action, senderPid);
-      for (const squadId of squadIds) SQUADLOGIC.setSquadFocusTarget(state, squadId, action.targetUnitId);
+      for (const squadId of squadIds) {
+        const squad = state.squads.get(squadId);
+        if (squad && squad.combat && squad.combat.mode !== "idle") SQUADLOGIC.setSquadFocusTarget(state, squadId, action.targetUnitId);
+        else SQUADLOGIC.issueAttackUnitOrder(state, squadId, action.targetUnitId, [], action.commandQueue);
+      }
       return;
     }
     if (action.type === "formation") {
@@ -1575,6 +2790,9 @@ function createAuthoritativeMatchRuntime(options) {
       for (const squadId of squadIds) {
         SQUADLOGIC.setSquadFormation(state, squadId, action.formationType || "line", action.formationRows || 1, action.formationPigWidth || 1);
         SQUADLOGIC.requestFormationRecalc(state, squadId, true);
+        if (typeof SQUADLOGIC.recalculateFormation === "function") {
+          SQUADLOGIC.recalculateFormation(state, squadId, { getFormationOffsets }, true);
+        }
       }
       return;
     }
@@ -1583,7 +2801,10 @@ function createAuthoritativeMatchRuntime(options) {
         ? action.squadIds.filter((id) => state.squads.get(id)?.ownerId === senderPid)
         : [];
       if (ownedSquadIds.length >= 2) {
-        SQUADLOGIC.mergeSquads(state, ownedSquadIds, action.formationType || "line", action.formationRows || 1, action.formationPigWidth || 1);
+        const merged = SQUADLOGIC.mergeSquads(state, ownedSquadIds, action.formationType || "line", action.formationRows || 1, action.formationPigWidth || 1);
+        if (merged && typeof SQUADLOGIC.recalculateFormation === "function") {
+          SQUADLOGIC.recalculateFormation(state, merged.id, { getFormationOffsets }, true);
+        }
       }
       return;
     }
@@ -1600,7 +2821,10 @@ function createAuthoritativeMatchRuntime(options) {
       const player = state.players.get(senderPid);
       if (!player) return;
       const result = CardSystem.activateBuffCard(player, action.instanceId, state.t);
-      if (result && result.ok) recomputeBuffDerivedStats(player);
+      if (result && result.ok) {
+        recomputeBuffDerivedStats(player);
+        bumpCardStateVersion(player);
+      }
       return;
     }
     if (action.type === "castAbilityCard") {
@@ -1608,6 +2832,7 @@ function createAuthoritativeMatchRuntime(options) {
       if (!player) return;
       const result = CardSystem.consumeAbilityCard(player, action.instanceId);
       if (!result || !result.ok || !result.cardDef) return;
+      bumpCardStateVersion(player);
       executeAbilityAction({ ...action, pid: senderPid, abilityId: result.cardDef.abilityId || action.abilityId });
     }
   }
@@ -1619,29 +2844,57 @@ function createAuthoritativeMatchRuntime(options) {
   }
 
   function tick() {
-    const dt = TICK_MS / 1000;
-    state.t += dt;
-    state._frameCtr = (state._frameCtr || 0) + 1;
-    while (queuedActions.length > 0) handlePlayerAction(queuedActions.shift());
-    stepPlayerState(dt);
-    stepAbilityCooldowns(dt);
-    processShipBuildQueues();
-    citySimApi.stepCities(dt);
-    SQUADLOGIC.step(state, dt, getCombatHelpers());
-    stepUnits(dt);
-    stepCombat(dt);
-    stepAbilityStorms();
-    stepAbilityZoneEffects(dt);
-    stepMeteors(dt);
-    stepOrbitalStrikes();
-    stepThermoNukes(dt);
-    stepBlackHoles(dt);
-    stepLoanDebts();
-    stepEconomyAbilityFx();
-    cleanupDestroyed();
-    citySimApi.rebuildZoneGrid();
-    saveTimeSnapshot();
-    broadcastSnapshot();
+    try {
+      const dt = (TICK_MS / 1000) * GAME_SPEED;
+      state.t += dt;
+      state._frameCtr = (state._frameCtr || 0) + 1;
+      while (queuedActions.length > 0) handlePlayerAction(queuedActions.shift());
+      stepPlayerState(dt);
+      stepAbilityCooldowns(dt);
+      processShipBuildQueues();
+      stepBotAI(dt);
+      citySimApi.stepCities(dt);
+      if ((state._frameCtr % 15) === 0) {
+        for (const player of state.players.values()) rebuildTurrets(player);
+      }
+      SQUADLOGIC.syncSquadsFromState(state);
+      FrontPlanner.step(state, dt, { squadLogic: SQUADLOGIC, getFormationOffsets });
+      SQUADLOGIC.buildEngagementZones(state, getCombatHelpers());
+      SQUADLOGIC.updateSquadCombatState(state, getCombatHelpers());
+      SQUADLOGIC.updateCombat(state, dt, getCombatHelpers());
+      SQUADLOGIC.updateResumeOrders(state, dt, getCombatHelpers());
+      stepUnits(dt);
+      stepCombat(dt);
+      for (const unit of state.units.values()) {
+        if (unit && unit._formationRebuildAt != null && state.t >= unit._formationRebuildAt && unit.squadId != null) {
+          unit._formationRebuildAt = undefined;
+          SQUADLOGIC.requestFormationRecalc(state, unit.squadId, false);
+          if (typeof SQUADLOGIC.recalculateFormation === "function") {
+            SQUADLOGIC.recalculateFormation(state, unit.squadId, { getFormationOffsets }, false);
+          }
+        }
+      }
+      stepTurrets(dt);
+      stepPatrols(dt);
+      stepBullets(dt);
+      stepMines(dt);
+      stepAbilityStorms();
+      stepAbilityZoneEffects(dt);
+      stepMeteors(dt);
+      stepOrbitalStrikes();
+      stepThermoNukes(dt);
+      if (enableLaneFighterWaves) stepLaneFighterWaves();
+      stepBlackHoles(dt);
+      stepLoanDebts();
+      stepEconomyAbilityFx();
+      stepPirateBaseBehavior(dt);
+      stepRandomEvents();
+      cleanupDestroyed();
+      citySimApi.rebuildZoneGrid();
+      broadcastSnapshot();
+    } catch (err) {
+      console.error("[AUTH-RUNTIME] tick error (room=" + roomId + " t=" + (state.t || 0).toFixed(2) + "):", err);
+    }
   }
 
   return {
@@ -1651,8 +2904,11 @@ function createAuthoritativeMatchRuntime(options) {
     slotToPid,
     start() {
       if (tickTimer != null) return;
-      saveTimeSnapshot();
-      broadcastSnapshot();
+      try {
+        broadcastSnapshot();
+      } catch (err) {
+        console.error("[AUTH-RUNTIME] start error (room=" + roomId + "):", err);
+      }
       tickTimer = setInterval(tick, TICK_MS);
     },
     stop() {

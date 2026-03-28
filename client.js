@@ -56,6 +56,10 @@
   window.__joinRoom = showLoadingAlert;
   window.__refreshLobbyList = function () {};
 
+  function isServerAuthorityRemote() {
+    return state._authorityMode === "server" && !!(state._multiSlots) && !state._multiIsHost;
+  }
+
   function sendPlayerAction(payload) {
     if (actionGatewayApi && actionGatewayApi.sendPlayerAction) {
       return actionGatewayApi.sendPlayerAction(payload);
@@ -3506,6 +3510,18 @@
     return result;
   }
 
+  function consumeAbilityCardForPlayerLocal(pid, instanceId, shouldBroadcast) {
+    if (!CardSystemApi) return { ok: false, reason: "no_card_system" };
+    const p = state.players.get(pid);
+    if (!p) return { ok: false, reason: "no_player" };
+    ensurePlayerCardState(p);
+    const result = CardSystemApi.consumeAbilityCard(p, instanceId);
+    if (!result || !result.ok) return result;
+    markPlayerCardStateDirty(p, shouldBroadcast);
+    recomputePlayerCardDerivedStats(p);
+    return result;
+  }
+
   function getNearestEnemyPlayer(pid) {
     const p = state.players.get(pid);
     if (!p) return null;
@@ -3569,14 +3585,6 @@
       if (!raidPoint) return null;
       action.x = raidPoint.x;
       action.y = raidPoint.y;
-      return action;
-    }
-    if (abilityDef.targeting === "lane") {
-      const laneOption = pickBotLaneAbilityFrontOption(pid);
-      if (!laneOption) return null;
-      action.frontType = laneOption.frontType;
-      action.x = laneOption.previewPoint.x;
-      action.y = laneOption.previewPoint.y;
       return action;
     }
     if (abilityDef.targeting === "city") {
@@ -6674,6 +6682,15 @@
     frontLaneGfx.drawCircle(center.x, center.y, arenaRadius * 0.78);
   }
 
+  function normalizeFloatingDamageText(text) {
+    if (typeof text !== "string" || !text) return text;
+    return text.replace(/-?\d+\.\d+/g, (match) => {
+      const value = Number(match);
+      if (!Number.isFinite(value)) return match;
+      return String(Math.round(value));
+    });
+  }
+
   function updateFloatingDamage(dt) {
     destroyTransientChildren(floatingDamageLayer);
     for (let i = state.floatingDamage.length - 1; i >= 0; i--) {
@@ -6685,7 +6702,7 @@
       }
       const lift = (1 - fd.ttl) * 35;
       if (!rectInView(fd.x - 20, fd.y - lift - 20, fd.x + 20, fd.y + 20, 40)) continue;
-      const txt = new PIXI.Text(fd.text, { fontSize: 18, fill: fd.color, fontWeight: "bold" });
+      const txt = new PIXI.Text(normalizeFloatingDamageText(fd.text), { fontSize: 18, fill: fd.color, fontWeight: "bold" });
       txt.anchor.set(0.5, 0.5);
       txt.position.set(fd.x, fd.y - lift);
       txt.alpha = fd.ttl;
@@ -7012,12 +7029,6 @@
     } : null;
   }
 
-  const LANE_TARGETED_ABILITY_IDS = new Set(["droneSwarm", "frigateWarp"]);
-
-  function isLaneTargetedAbility(abilityId) {
-    return LANE_TARGETED_ABILITY_IDS.has(abilityId);
-  }
-
   function getLaneAbilityFrontOptions(ownerId) {
     const owner = state.players.get(ownerId);
     if (!owner) return [];
@@ -7048,36 +7059,6 @@
       });
     }
     return options;
-  }
-
-  function pickLaneAbilityFrontOption(ownerId, x, y) {
-    const options = getLaneAbilityFrontOptions(ownerId);
-    let best = null;
-    for (const option of options) {
-      const sample = projectPointOnPolyline(option.points, x || 0, y || 0);
-      if (!sample) continue;
-      const maxDist = option.laneHalfWidth + 52;
-      if (sample.dist > maxDist) continue;
-      if (!best || sample.dist < best.dist) best = { ...option, projected: sample, dist: sample.dist };
-    }
-    return best;
-  }
-
-  function pickBotLaneAbilityFrontOption(ownerId) {
-    const options = getLaneAbilityFrontOptions(ownerId);
-    if (options.length === 0) return null;
-    let best = null;
-    for (const option of options) {
-      let score = option.frontType === "center" ? 2 : 0;
-      for (const u of state.units.values()) {
-        if (!u || u.hp <= 0 || u.owner === ownerId || u.owner == null || u.owner <= 0) continue;
-        const sample = projectPointOnPolyline(option.points, u.x || 0, u.y || 0);
-        if (!sample || sample.dist > option.laneHalfWidth + 70) continue;
-        score += 1.5 + sample.progress / Math.max(1, option.totalLen || 1);
-      }
-      if (!best || score > best.score) best = { ...option, score };
-    }
-    return best || options[0];
   }
 
   function spawnLaneAbilityUnits(ownerId, frontType, unitTypeKey, count, opts) {
@@ -8505,26 +8486,26 @@
 
   const MINE_FLOW_VARIANTS = {
     money: {
-      routeStyle: "braid",
-      beamDash: [6, 9],
-      laneCount: 2,
-      laneOffset: 10,
-      pulseSpeed: 0.21,
-      packetSpeed: 0.052,
-      arcBias: 20,
-      arcMul: 0.12,
-      packetStyle: "prism"
-    },
-    xp: {
-      routeStyle: "ladder",
-      beamDash: [4, 8],
+      routeStyle: "relay",
+      beamDash: [10, 8],
       laneCount: 1,
       laneOffset: 0,
-      pulseSpeed: 0.22,
-      packetSpeed: 0.046,
-      arcBias: 14,
-      arcMul: 0.09,
-      packetStyle: "relay"
+      pulseSpeed: 0.24,
+      packetSpeed: 0.23,
+      arcBias: 12,
+      arcMul: 0.08,
+      packetStyle: "chip"
+    },
+    xp: {
+      routeStyle: "relay",
+      beamDash: [10, 8],
+      laneCount: 1,
+      laneOffset: 0,
+      pulseSpeed: 0.24,
+      packetSpeed: 0.23,
+      arcBias: 12,
+      arcMul: 0.08,
+      packetStyle: "chip"
     }
   };
 
@@ -8546,56 +8527,57 @@
     const unitCount = state.units ? state.units.size : 0;
     const squadCount = state.squads ? state.squads.size : 0;
     const packetCount = state.mineFlowPackets ? state.mineFlowPackets.length : 0;
+    const isRemote = !!(state._multiSlots && !state._multiIsHost);
     const heavyLoad = unitCount >= 60 || squadCount >= 40 || packetCount >= 24;
     const severeLoad = unitCount >= 110 || squadCount >= 70 || packetCount >= 40;
     if (level === LOD.LEVELS.FAR) {
       return {
         routeSamples: severeLoad ? 3 : (heavyLoad ? 4 : 6),
         maxPacketsPerMine: 0,
-        maxTotalPackets: severeLoad ? 10 : (heavyLoad ? 16 : 24),
-        beamAlpha: severeLoad ? 0.10 : (heavyLoad ? 0.18 : 0.30),
+        maxTotalPackets: 0,
+        beamAlpha: severeLoad ? 0.12 : (heavyLoad ? 0.20 : 0.35),
         shimmer: false,
         bridges: false,
-        packetScale: severeLoad ? 0.42 : (heavyLoad ? 0.50 : 0.60),
-        updateEveryFrames: severeLoad ? 6 : (heavyLoad ? 5 : 4),
-        roughCullPad: heavyLoad ? 120 : 150,
+        packetScale: 0,
+        updateEveryFrames: severeLoad ? 8 : (heavyLoad ? 6 : 4),
+        roughCullPad: heavyLoad ? 100 : 140,
         allowDashes: false,
         simplePackets: true,
         singleLane: true,
-        maxRoutes: severeLoad ? 10 : (heavyLoad ? 15 : 20)
+        maxRoutes: severeLoad ? 6 : (heavyLoad ? 10 : 16)
       };
     }
     if (level === LOD.LEVELS.MID) {
       return {
         routeSamples: severeLoad ? 4 : (heavyLoad ? 6 : 8),
         maxPacketsPerMine: severeLoad ? 0 : 1,
-        maxTotalPackets: severeLoad ? 14 : (heavyLoad ? 22 : 32),
-        beamAlpha: severeLoad ? 0.14 : (heavyLoad ? 0.24 : 0.40),
+        maxTotalPackets: severeLoad ? 8 : (heavyLoad ? 16 : 26),
+        beamAlpha: severeLoad ? 0.18 : (heavyLoad ? 0.30 : 0.48),
         shimmer: false,
         bridges: false,
         packetScale: severeLoad ? 0.46 : (heavyLoad ? 0.58 : 0.72),
         updateEveryFrames: severeLoad ? 5 : (heavyLoad ? 4 : 3),
-        roughCullPad: heavyLoad ? 150 : 190,
-        allowDashes: false,
+        roughCullPad: heavyLoad ? 140 : 180,
+        allowDashes: !severeLoad,
         simplePackets: true,
         singleLane: true,
-        maxRoutes: severeLoad ? 12 : (heavyLoad ? 18 : 24)
+        maxRoutes: severeLoad ? 10 : (heavyLoad ? 16 : 22)
       };
     }
     return {
       routeSamples: severeLoad ? 5 : (heavyLoad ? 7 : 10),
-      maxPacketsPerMine: severeLoad ? 0 : (heavyLoad ? 1 : 2),
-      maxTotalPackets: severeLoad ? 18 : (heavyLoad ? 28 : 42),
-      beamAlpha: severeLoad ? 0.18 : (heavyLoad ? 0.30 : 0.54),
-      shimmer: false,
+      maxPacketsPerMine: severeLoad ? 0 : (heavyLoad ? 1 : 3),
+      maxTotalPackets: severeLoad ? 14 : (heavyLoad ? 24 : 42),
+      beamAlpha: severeLoad ? 0.24 : (heavyLoad ? 0.38 : 0.60),
+      shimmer: !severeLoad && !heavyLoad,
       bridges: false,
-      packetScale: severeLoad ? 0.52 : (heavyLoad ? 0.64 : 0.82),
+      packetScale: severeLoad ? 0.52 : (heavyLoad ? 0.64 : 0.85),
       updateEveryFrames: severeLoad ? 4 : (heavyLoad ? 3 : 2),
       roughCullPad: heavyLoad ? 180 : 220,
-      allowDashes: !heavyLoad,
+      allowDashes: true,
       simplePackets: severeLoad || heavyLoad || packetCount >= 24,
-      singleLane: severeLoad || heavyLoad || packetCount >= 28,
-      maxRoutes: severeLoad ? 14 : (heavyLoad ? 20 : 30)
+      singleLane: true,
+      maxRoutes: severeLoad ? 12 : (heavyLoad ? 18 : 30)
     };
   }
 
@@ -8893,7 +8875,14 @@
   function buildMineFlowRouteGeometry(mine, owner, visualTarget, detail, variant, resourceType, channelSign) {
     if (mine && mine.homeMine && !mine.pairKey) {
       const geom = {
-        main: mfBuildRoutePoints(
+        main: buildMineCoreLaneRoutePoints(
+          { x: mine.x, y: mine.y },
+          owner,
+          mine,
+          detail,
+          variant,
+          channelSign
+        ) || mfBuildRoutePoints(
           { x: mine.x, y: mine.y },
           { x: owner.x, y: owner.y },
           mine.id * 11.13,
@@ -8908,7 +8897,14 @@
         redirect: null
       };
       if (mine._flowInterceptX != null && mine._flowInterceptY != null && visualTarget && visualTarget.id !== mine.ownerId) {
-        geom.redirect = mfBuildRoutePoints(
+        geom.redirect = buildMineCoreLaneRoutePoints(
+          { x: mine._flowInterceptX, y: mine._flowInterceptY },
+          visualTarget,
+          mine,
+          detail,
+          variant,
+          channelSign
+        ) || mfBuildRoutePoints(
           { x: mine._flowInterceptX, y: mine._flowInterceptY },
           { x: visualTarget.x, y: visualTarget.y },
           mine.id * 17.29,
@@ -9377,38 +9373,52 @@
   }
 
   function updateMineFlowVisuals(dt) {
-    ensureMineFlowVisuals();
-    const detail = getMineFlowDetail();
-    if (detail.updateEveryFrames > 1 && ((state._frameCtr || 0) % detail.updateEveryFrames) !== 0) return;
-    updateMineAmbientVisuals();
-    const beamG = state._mineFlowBeamGfx;
-    const packetG = state._mineFlowPacketGfx;
-    beamG.clear();
-    packetG.clear();
-    const routes = new Map();
-    for (const mine of state.mines.values()) {
-      if (!mine.ownerId || mine.captureProgress < 1) continue;
-      const owner = state.players.get(mine.ownerId);
-      if (!owner) continue;
-      if (!isMineFlowLikelyVisible(mine, owner, detail)) continue;
-      const outputs = getMineOutputResourceTypes(mine);
-      const signs = outputs.length === 2 ? [-1, 1] : [0];
-      for (let ri = 0; ri < outputs.length; ri++) {
+    try {
+      ensureMineFlowVisuals();
+      const detail = getMineFlowDetail();
+      if (detail.updateEveryFrames > 1 && ((state._frameCtr || 0) % detail.updateEveryFrames) !== 0) return;
+      updateMineAmbientVisuals();
+      const beamG = state._mineFlowBeamGfx;
+      const packetG = state._mineFlowPacketGfx;
+      beamG.clear();
+      packetG.clear();
+      const routes = new Map();
+      for (const mine of state.mines.values()) {
+        if (!mine.ownerId || mine.captureProgress < 1) continue;
+        const owner = state.players.get(mine.ownerId);
+        if (!owner) continue;
+        if (!isMineFlowLikelyVisible(mine, owner, detail)) continue;
+        const outputs = getMineOutputResourceTypes(mine);
+        const signs = outputs.length === 2 ? [-1, 1] : [0];
+        for (let ri = 0; ri < outputs.length; ri++) {
+          if (detail.maxRoutes != null && routes.size >= detail.maxRoutes) break;
+          try {
+            const route = buildMineFlowRoute(mine, detail, outputs[ri], signs[ri] || 0);
+            if (!route) continue;
+            routes.set(route.key, route);
+          } catch (routeErr) {
+            if (!state._mineFlowRouteErrLogged) {
+              console.warn("[MINE-VFX] route build error:", routeErr, "mine=", mine.id);
+              state._mineFlowRouteErrLogged = true;
+            }
+          }
+        }
         if (detail.maxRoutes != null && routes.size >= detail.maxRoutes) break;
-        const route = buildMineFlowRoute(mine, detail, outputs[ri], signs[ri] || 0);
-        if (!route) continue;
-        routes.set(route.key, route);
       }
-      if (detail.maxRoutes != null && routes.size >= detail.maxRoutes) break;
-    }
 
-    syncMineFlowPackets(routes, detail, dt);
+      syncMineFlowPackets(routes, detail, dt);
 
-    for (const route of routes.values()) drawMineFlowRoute(beamG, route, detail);
-    for (let i = 0; i < state.mineFlowPackets.length; i++) {
-      const pkt = state.mineFlowPackets[i];
-      const route = routes.get(pkt.routeKey || getMineFlowRouteKey({ id: pkt.mineId }, pkt.resourceType || (pkt.isCredit ? "money" : "xp")));
-      if (route) drawMineFlowPacket(packetG, route, pkt, detail);
+      for (const route of routes.values()) drawMineFlowRoute(beamG, route, detail);
+      for (let i = 0; i < state.mineFlowPackets.length; i++) {
+        const pkt = state.mineFlowPackets[i];
+        const route = routes.get(pkt.routeKey || getMineFlowRouteKey({ id: pkt.mineId }, pkt.resourceType || (pkt.isCredit ? "money" : "xp")));
+        if (route) drawMineFlowPacket(packetG, route, pkt, detail);
+      }
+    } catch (err) {
+      if (!state._mineFlowErrLogged) {
+        console.error("[MINE-VFX] updateMineFlowVisuals error:", err);
+        state._mineFlowErrLogged = true;
+      }
     }
   }
 
@@ -9535,8 +9545,6 @@
     state.nextMineFlowPacketId = 1;
     state.t = 0;
     state.timeScale = 1;
-    state._timeRewindFx = null;
-    state._timeRewindFxToken = 0;
     state._domTimers = {};
     state._gameOver = false;
     state._pendingFullSnap = null;
@@ -9604,9 +9612,6 @@
       makeZoneVisual(me);
 
       centerOn(me.x, me.y);
-      state._timeSnapshots = [];
-      state._lastTimeSnapshotAt = 0;
-      state._timeJumpAvailableAt = toSimSeconds(61);
 
       placeMines([{ pos: { x: cx, y: topY }, ownerId: 1 }], soloRnd);
       placeNebulae(soloRnd);
@@ -9636,10 +9641,6 @@
       makeZoneVisual(bot);
 
       centerOn(me.x, me.y);
-
-      state._timeSnapshots = [];
-      state._lastTimeSnapshotAt = 0;
-      state._timeJumpAvailableAt = toSimSeconds(state.players.size * 61);
 
       placeMines([{ pos: mePos, ownerId: 1 }, { pos: botPos, ownerId: 2 }], soloRnd);
       placeNebulae(soloRnd);
@@ -9744,10 +9745,6 @@
 
     centerOn(me.x, me.y);
 
-    state._timeSnapshots = [];
-    state._lastTimeSnapshotAt = 0;
-    state._timeJumpAvailableAt = toSimSeconds(state.players.size * 61);
-
     const mineEntries = spawnPositions.map((pos, idx) => {
       if (idx === playerSpawnIdx) return { pos, ownerId: 1, virtualId: idx + 1 };
       const botIdx = botSpawnIndices.indexOf(idx);
@@ -9810,8 +9807,6 @@
     state.nextMineFlowPacketId = 1;
     state.t = 0;
     state.timeScale = 1;
-    state._timeRewindFx = null;
-    state._timeRewindFxToken = 0;
     state._domTimers = {};
     state._gameOver = false;
     state._pendingFullSnap = null;
@@ -9869,10 +9864,6 @@
       makeCityVisual(pl);
       makeZoneVisual(pl);
     }
-    state._timeSnapshots = [];
-    state._lastTimeSnapshotAt = 0;
-    state._timeJumpAvailableAt = toSimSeconds(state.players.size * 61);
-
     const me = state.players.get(state.myPlayerId);
     centerOn(me.x, me.y);
 
@@ -11184,6 +11175,7 @@
 
   /** Visual-only bullet simulation for remote clients (no damage, no hit detection). */
   function stepBulletsVisual(dt) {
+    const isRemote = !!(state._multiSlots && !state._multiIsHost);
     for (let i = state.bullets.length - 1; i >= 0; i--) {
       const b = state.bullets[i];
       if (b.type === "laser") {
@@ -11194,8 +11186,27 @@
           const p = state.players.get(b.targetId);
           if (!p || p.eliminated) { state.bullets.splice(i, 1); continue; }
         }
+        if (isRemote && !b._soundPlayed && (b.progress || 0) < 0.1) {
+          b._soundPlayed = true;
+          if (typeof playLaserSound === "function") playLaserSound(b.fromX || 0, b.fromY || 0, b.toX || 0, b.toY || 0);
+        }
         b.progress = (b.progress || 0) + dt / (b.duration || 0.2);
-        if (b.progress >= 1) state.bullets.splice(i, 1);
+        if (b.progress >= 1) {
+          if (isRemote && b.targetType === "unit" && b.targetId != null) {
+            const target = state.units.get(b.targetId);
+            if (target) {
+              target._hitFlashT = state.t;
+              state.floatingDamage.push({ x: target.x, y: target.y - 22, text: "-" + (b.dmg || 0), color: b.color ?? 0xaa44ff, ttl: 1.0 });
+            }
+          } else if (isRemote && b.targetType === "turret" && b.targetId != null) {
+            const t = state.turrets.get(b.targetId);
+            if (t) state.floatingDamage.push({ x: t.x, y: t.y - 18, text: "-" + (b.dmg || 0), color: 0xaa44ff, ttl: 1.0 });
+          } else if (isRemote && b.targetType === "pirateBase") {
+            const pb = state.pirateBase;
+            if (pb) state.floatingDamage.push({ x: pb.x, y: pb.y - 30, text: "-" + (b.dmg || 0), color: 0xaa44ff, ttl: 0.9 });
+          }
+          state.bullets.splice(i, 1);
+        }
       } else if (b.type === "ranged") {
         const dx = b.toX - b.x, dy = b.toY - b.y;
         const dl = Math.hypot(dx, dy) || 1;
@@ -11246,6 +11257,38 @@
       if (nearOnly && !isNearCamera(bx, by)) continue;
       if (!LOD.canDraw("bullets")) break;
       CombatVFX.drawBullet(g, b, zoom, now);
+    }
+  }
+
+  let _deathBurstGfx = null;
+  function drawDeathBursts() {
+    if (!_deathBurstGfx || _deathBurstGfx.destroyed) {
+      _deathBurstGfx = new PIXI.Graphics();
+      bulletsLayer.addChild(_deathBurstGfx);
+    }
+    _deathBurstGfx.clear();
+    if (!state._deathBursts || state._deathBursts.length === 0) return;
+    for (let i = state._deathBursts.length - 1; i >= 0; i--) {
+      const burst = state._deathBursts[i];
+      const elapsed = state.t - burst.t0;
+      if (elapsed > burst.duration) {
+        state._deathBursts.splice(i, 1);
+        continue;
+      }
+      if (!inView(burst.x, burst.y)) continue;
+      const t = elapsed / burst.duration;
+      const radius = burst.maxRadius * t;
+      const alpha = Math.max(0, 1 - t);
+      const r = (burst.color >> 16) & 0xff;
+      const g = (burst.color >> 8) & 0xff;
+      const b2 = burst.color & 0xff;
+      const bright = ((Math.min(255, r + 80) << 16) | (Math.min(255, g + 80) << 8) | Math.min(255, b2 + 80));
+      _deathBurstGfx.lineStyle(2, bright, alpha * 0.9);
+      _deathBurstGfx.beginFill(burst.color, alpha * 0.3);
+      _deathBurstGfx.drawCircle(burst.x, burst.y, radius);
+      _deathBurstGfx.endFill();
+      _deathBurstGfx.lineStyle(1, 0xffffff, alpha * 0.6);
+      _deathBurstGfx.drawCircle(burst.x, burst.y, radius * 0.5);
     }
   }
 
@@ -12971,6 +13014,11 @@
     const me = state.players.get(state.myPlayerId);
     if (!me) return false;
     if (!isCoreRosterUnitType(unitTypeKey)) return false;
+    if (isServerAuthorityRemote()) {
+      sendPlayerAction({ type: "purchaseFrontTriplet", pid: state.myPlayerId, unitType: unitTypeKey });
+      state.targetPoints = [];
+      return true;
+    }
     if (state._multiSlots && !state._multiIsHost && state._socket) {
       sendPlayerAction({ type: "purchaseFrontTriplet", pid: state.myPlayerId, unitType: unitTypeKey });
       const optRes = purchaseFrontTriplet(me.id, unitTypeKey);
@@ -13176,6 +13224,7 @@
   }
 
   function activateHandCardInstance(instance, activationContext) {
+    void activationContext;
     const me = state.players.get(state.myPlayerId);
     if (!me || !instance) return;
     const cardDef = getCardDefById(instance.cardId);
@@ -13183,6 +13232,7 @@
     if (cardDef.kind === "buff") {
       triggerCardPlayFlashByRarity(cardDef.rarity);
       if (isRemoteGameplayClient()) {
+        activateBuffCardForPlayer(state.myPlayerId, instance.instanceId, false);
         sendPlayerAction({ type: "activateBuffCard", pid: state.myPlayerId, instanceId: instance.instanceId });
       } else {
         activateBuffCardForPlayer(state.myPlayerId, instance.instanceId);
@@ -13194,10 +13244,13 @@
     if (!cardDef.targeting || cardDef.targeting === "instant") {
       triggerCardPlayFlashByRarity(cardDef.rarity);
       if (isRemoteGameplayClient()) {
+        consumeAbilityCardForPlayerLocal(state.myPlayerId, instance.instanceId, false);
         sendPlayerAction({ type: "castAbilityCard", pid: state.myPlayerId, instanceId: instance.instanceId });
       } else {
         castAbilityCardForPlayer({ pid: state.myPlayerId, instanceId: instance.instanceId });
       }
+      state._pendingAbilityCardInstanceId = null;
+      me.pendingAbilityCardId = null;
       return;
     }
     startAbilityTargeting(cardDef.abilityId);
@@ -13216,8 +13269,10 @@
       instanceId
     }, extraPayload || {});
     if (cardDef) triggerCardPlayFlashByRarity(cardDef.rarity);
-    if (isRemoteGameplayClient()) sendPlayerAction(payload);
-    else castAbilityCardForPlayer(payload);
+    if (isRemoteGameplayClient()) {
+      consumeAbilityCardForPlayerLocal(state.myPlayerId, instanceId, false);
+      sendPlayerAction(payload);
+    } else castAbilityCardForPlayer(payload);
     state._pendingAbilityCardInstanceId = null;
     if (me) me.pendingAbilityCardId = null;
     cancelAbilityTargeting();
@@ -13227,7 +13282,7 @@
   function isGameplayDropTarget(clientX, clientY) {
     const target = document.elementFromPoint(clientX, clientY);
     if (!target) return false;
-    if (target.closest("#hud, #topRightPanel, #bottomRightPanel, #cardHud, #gameChatWrap, #enemyComparePanel, #minimapWrap, #victoryOverlay, #abilityOverlay, #cardModal, #mainMenu, #nicknameScreen, #lobbyScreen, #multiConnectScreen")) {
+    if (target.closest("#hud, #topRightPanel, #bottomRightPanel, #cardHud, #gameChatWrap, #enemyComparePanel, #victoryOverlay, #abilityOverlay, #cardModal, #mainMenu, #nicknameScreen, #lobbyScreen, #multiConnectScreen")) {
       return false;
     }
     return !!target.closest("canvas, #gameWrap");
@@ -13320,7 +13375,7 @@
       if (done) done();
       return;
     }
-    ghost.style.transition = "left 180ms cubic-bezier(0.2, 0.8, 0.2, 1), top 180ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 180ms ease, transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1)";
+    ghost.style.transition = "left 130ms cubic-bezier(0.2, 0.8, 0.2, 1), top 130ms cubic-bezier(0.2, 0.8, 0.2, 1), opacity 130ms ease, transform 130ms cubic-bezier(0.2, 0.8, 0.2, 1)";
     requestAnimationFrame(() => {
       ghost.style.left = Math.round(targetLeft) + "px";
       ghost.style.top = Math.round(targetTop) + "px";
@@ -13330,7 +13385,7 @@
     window.setTimeout(() => {
       if (ghost.parentNode) ghost.parentNode.removeChild(ghost);
       if (done) done();
-    }, 190);
+    }, 140);
   }
 
   function animateCardGhostReturn(ghost, sourceRect, done) {
@@ -13343,14 +13398,41 @@
     animateFloatingCardGhost(ghost, currentLeft, currentTop - 30, "rotate(-8deg) scale(0.92)", 0, done);
   }
 
+  function syncHandZoneCountLabel(container) {
+    if (!container) return;
+    const isAbilityHand = container.id === "abilityHandCards";
+    const countEl = document.getElementById(isAbilityHand ? "abilityHandCount" : "buffHandCount");
+    if (!countEl) return;
+    const limit = isAbilityHand
+      ? (CardSystemApi ? CardSystemApi.ABILITY_HAND_LIMIT : 10)
+      : (CardSystemApi ? CardSystemApi.BUFF_HAND_LIMIT : 30);
+    countEl.textContent = `${container.querySelectorAll(".hand-card").length}/${limit}`;
+  }
+
+  function removeHandCardFromLayout(cardEl) {
+    if (!cardEl) return;
+    const container = cardEl.closest(".card-zone-body");
+    if (!container) {
+      if (cardEl.parentNode) cardEl.parentNode.removeChild(cardEl);
+      return;
+    }
+    const prevSnapshot = captureHandCardSnapshot(container);
+    if (cardEl.parentNode === container) container.removeChild(cardEl);
+    container.dataset.stackLayoutKey = "";
+    container.dataset.textFitKey = "";
+    layoutHandCards(container);
+    fitHandCardDescriptions(container);
+    syncHandZoneCountLabel(container);
+    animateHandCardLayoutTransition(container, prevSnapshot);
+  }
+
   function animateHandCardActivation(cardEl, done) {
     if (!cardEl) {
       if (done) done();
       return;
     }
     clearHoveredHandCard(cardEl);
-    cardEl.classList.add("activating-card");
-    beginCardHudFreeze(180);
+    beginCardHudFreeze(140);
     const rect = cardEl.getBoundingClientRect();
     const ghost = cardEl.cloneNode(true);
     ghost.classList.remove("is-hovered", "pending-target", "drag-source", "activating-card");
@@ -13359,8 +13441,8 @@
     ghost.style.left = rect.left + "px";
     ghost.style.top = rect.top + "px";
     document.body.appendChild(ghost);
+    removeHandCardFromLayout(cardEl);
     animateCardGhostCommit(ghost, () => {
-      cardEl.classList.remove("activating-card");
       if (done) done();
     });
   }
@@ -13475,23 +13557,21 @@
         if (keepsCardInHandOnActivate) {
           cardEl.classList.remove("drag-source");
           if (ghost) {
-            animateCardGhostReturn(ghost, sourceRect, () => activateHandCardInstance(instance, { fromDrag: true }));
+            animateCardGhostCommit(ghost, () => activateHandCardInstance(instance, { fromDrag: true }));
             ghost = null;
           } else {
             activateHandCardInstance(instance, { fromDrag: true });
           }
           return;
         }
-        cardEl.classList.add("activating-card");
-        beginCardHudFreeze(180);
+        beginCardHudFreeze(140);
+        removeHandCardFromLayout(cardEl);
         if (ghost) {
           animateCardGhostCommit(ghost, () => {
-            cardEl.classList.remove("drag-source", "activating-card");
             activateHandCardInstance(instance, { fromDrag: true });
           });
           ghost = null;
         } else {
-          cardEl.classList.remove("drag-source", "activating-card");
           activateHandCardInstance(instance, { fromDrag: true });
         }
       };
@@ -13679,28 +13759,6 @@
         title: "Щит пустоты",
         desc: "Временная неуязвимость своих юнитов.",
         expiresAt: ownVoidShieldUntil
-      });
-    }
-
-    const ownDroneUnits = [...state.units.values()].filter((u) => u.owner === me.id && u._fighterWingSummon);
-    if (ownDroneUnits.length > 0) {
-      entries.push({
-        id: "ability:droneSwarm",
-        icon: "✈️",
-        title: "Истребительное звено",
-        desc: "На поле призвано истребителей: " + ownDroneUnits.length,
-        permanent: true
-      });
-    }
-
-    const ownFrigates = [...state.units.values()].filter((u) => u.owner === me.id && u._frigateSummon);
-    if (ownFrigates.length > 0) {
-      entries.push({
-        id: "ability:frigateWarp",
-        icon: "🛰️",
-        title: "Вызов фрегата",
-        desc: "Усиленный фрегат в бою: " + ownFrigates.length,
-        permanent: true
       });
     }
 
@@ -14074,12 +14132,18 @@
         }
         div.addEventListener("click", () => {
           if (cardTooltipEl) { cardTooltipEl.remove(); cardTooltipEl = null; }
-          if (state._socket && !state._multiIsHost) {
+          if (isServerAuthorityRemote()) {
             sendPlayerAction({ type: "cardChoice", pid: state.myPlayerId, card: card });
+            me.pendingCardPicks = picks - 1;
+            state._pendingCardChoices = null;
+          } else {
+            if (state._socket && !state._multiIsHost) {
+              sendPlayerAction({ type: "cardChoice", pid: state.myPlayerId, card: card });
+            }
+            applyCard(me, card);
+            me.pendingCardPicks = picks - 1;
+            state._pendingCardChoices = null;
           }
-          applyCard(me, card);
-          me.pendingCardPicks = picks - 1;
-          state._pendingCardChoices = null;
           renderPick();
         });
         choicesEl.appendChild(div);
@@ -14167,21 +14231,25 @@
     el("hudPatrols", patrolCount);
 
     const lb = getLevelBonusMul(me);
+    const myHpMul = (me.unitHpMul != null ? me.unitHpMul : 1) * lb;
     const myDmgMul = (me.unitDmgMul != null ? me.unitDmgMul : 1) * lb;
     const myAtkRMul = (me.unitAtkRateMul != null ? me.unitAtkRateMul : 1) * lb;
     const mySpdMul = (me.unitSpeedMul != null ? me.unitSpeedMul : 1) * lb;
     const myAtkRangeMul = (me.unitAtkRangeMul != null ? me.unitAtkRangeMul : 1) * getRangeLevelMul(me);
     const fmtM = (v) => "×" + v.toFixed(2);
+    el("hudHpMul", fmtM(myHpMul));
     el("hudDmgMul", fmtM(myDmgMul));
     el("hudRateMul", fmtM(myAtkRMul));
     el("hudRangeMul", fmtM(myAtkRangeMul));
     el("hudSpeedMul", fmtM(mySpdMul));
 
+    const hpMulEl = document.getElementById("hudHpMul");
     const dmgMulEl = document.getElementById("hudDmgMul");
     const rateMulEl = document.getElementById("hudRateMul");
     const rangeMulEl = document.getElementById("hudRangeMul");
     const speedMulEl = document.getElementById("hudSpeedMul");
     const colorMul = (e, v) => { if (e) e.style.color = v > 1 ? "#66dd88" : v < 1 ? "#ff5555" : "#aabbcc"; };
+    colorMul(hpMulEl, myHpMul);
     colorMul(dmgMulEl, myDmgMul);
     colorMul(rateMulEl, myAtkRMul);
     colorMul(rangeMulEl, myAtkRangeMul);
@@ -14714,8 +14782,6 @@
     { id: "fleetBoost", name: "Форсаж эскадры", desc: "+50% скорости всем своим юнитам на 20с", cooldown: 70, icon: "⚡" },
     { id: "resourceSurge", name: "Ресурсный всплеск", desc: "+2200 eCredits мгновенно", cooldown: 150, icon: "💎" },
     { id: "raiderCapture", name: "Похищение энергии", desc: "Крадёт 12% энергии выбранного ядра, но не больше 70", cooldown: 110, icon: "🔌", targeting: "city" },
-    { id: "droneSwarm", name: "Истребительное звено", desc: "Вызывает 6 истребителей на выбранную линию", cooldown: 85, icon: "✈️", targeting: "lane" },
-    { id: "frigateWarp", name: "Вызов фрегата", desc: "Вызывает усиленный фрегат на выбранную линию", cooldown: 110, icon: "🛰️", targeting: "lane" },
     { id: "minefield", name: "Малое минное поле", desc: "5 мин ложатся вглубь своего коридора и взрываются по площади", cooldown: 90, icon: "🧨", targeting: "point" },
     { id: "minefieldLarge", name: "Большое минное поле", desc: "25 мин плотным полем уходят вглубь коридора и перекрывают проход", cooldown: 135, icon: "🧨", targeting: "point" },
     { id: "meteor", name: "Линейный метеор", desc: "Один быстрый метеор по линии. Младшая версия дождя.", cooldown: 95, icon: "☄️", targeting: "angle" },
@@ -14726,8 +14792,7 @@
     { id: "gravAnchor", name: "Грав. якорь", desc: "Легендарная зона стяжки и фиксации врагов", cooldown: 110, icon: "⚓", targeting: "point" },
     { id: "orbitalStrike", name: "Орбитальный удар", desc: "2 залпа по 5 выстрелов в случайные точки выбранной зоны", cooldown: 95, icon: "💥", targeting: "point" },
     { id: "orbitalBarrage", name: "Орбитальная канонада", desc: "10 залпов по 5 выстрелов накрывают зону случайными попаданиями", cooldown: 145, icon: "💥", targeting: "point" },
-    { id: "thermoNuke", name: "Термоядерный импульс", desc: "Сверхтяжёлый удар по огромной зоне", cooldown: 200, icon: "☢️", targeting: "point" },
-    { id: "timeJump", name: "Временной скачок", desc: "Пасхалка: откат на 1 минуту назад", cooldown: 0, oneTime: true, icon: "⏪" }
+    { id: "thermoNuke", name: "Термоядерный импульс", desc: "Сверхтяжёлый удар по огромной зоне", cooldown: 200, icon: "☢️", targeting: "point" }
   ];
 
   state._abilityCooldowns = {};
@@ -14735,10 +14800,6 @@
   state._abilityUsedByPlayer = state._abilityUsedByPlayer || {};
   state._abilityAnnouncements = state._abilityAnnouncements || [];
   state._abilityTargeting = null;
-  state._timeSnapshots = state._timeSnapshots || [];
-  state._lastTimeSnapshotAt = state._lastTimeSnapshotAt ?? 0;
-  state._timeRewindFx = state._timeRewindFx || null;
-  state._timeRewindFxToken = state._timeRewindFxToken || 0;
   state._abilityStorms = [];
   state._meteorTargeting = null; // {phase:'point'|'angle', x, y, angle}
   state._activeMeteors = [];
@@ -14863,11 +14924,9 @@
     abilityCards.innerHTML = "";
     const myCds = state._abilityCooldownsByPlayer[state.myPlayerId] || state._abilityCooldowns || {};
     const myUsed = state._abilityUsedByPlayer[state.myPlayerId] || [];
-    const timeJumpAvailableAt = state._timeJumpAvailableAt ?? 0;
 
     function activateAbilityFromPicker(def) {
       const instantAbilities = {
-        timeJump: () => useTimeJump(),
         activeShield: () => { useActiveShield(state.myPlayerId); },
         fleetBoost: () => { useFleetBoost(state.myPlayerId); },
         resourceSurge: () => { useResourceSurge(state.myPlayerId); }
@@ -14884,11 +14943,9 @@
 
     for (const def of ABILITY_DEFS) {
       const used = def.oneTime && myUsed.includes(def.id);
-      const onCooldownStart = def.id === "timeJump" && state.t < timeJumpAvailableAt;
       const cd = used ? 1 : (myCds[def.id] ?? 0);
       const cdReal = fromSimSeconds(cd);
-      const timeJumpStartReal = fromSimSeconds(Math.max(0, timeJumpAvailableAt - state.t));
-      const ready = !used && cd <= 0 && !onCooldownStart;
+      const ready = !used && cd <= 0;
       const card = document.createElement("div");
       card.style.cssText = `
         width:130px;height:190px;background:linear-gradient(180deg,#12143a 0%,#1a1d55 100%);
@@ -14905,7 +14962,7 @@
         <div style="font-size:36px;line-height:1;margin-top:2px;">${def.icon}</div>
         <div style="color:#ddeeff;font-size:13px;font-weight:700;text-align:center;min-height:34px;display:flex;align-items:center;justify-content:center;">${def.name}</div>
         <div style="color:#8899bb;font-size:11px;text-align:center;line-height:1.3;flex:1;display:flex;align-items:flex-start;justify-content:center;">${def.desc}</div>
-        <div style="min-height:18px;color:#ff6644;font-size:12px;font-weight:600;text-align:center;">${!ready ? (def.id === "timeJump" && state.t < timeJumpAvailableAt ? "через " + Math.ceil(timeJumpStartReal) + "с" : Math.ceil(cdReal) + "с") : "&nbsp;"}</div>
+        <div style="min-height:18px;color:#ff6644;font-size:12px;font-weight:600;text-align:center;">${!ready ? Math.ceil(cdReal) + "с" : "&nbsp;"}</div>
       `;
       if (ready) card.addEventListener("click", () => activateAbilityFromPicker(def));
       abilityCards.appendChild(card);
@@ -15000,7 +15057,9 @@
     const spawnOpts = castAbilityId === "ionField"
       ? { durationSec: 3 }
       : null;
-    if (state._multiSlots && !state._multiIsHost && state._socket) {
+    if (isServerAuthorityRemote()) {
+      sendPlayerAction({ type: "useAbility", abilityId: castAbilityId, pid: state.myPlayerId, x: wx, y: wy });
+    } else if (state._multiSlots && !state._multiIsHost && state._socket) {
       sendPlayerAction({ type: "useAbility", abilityId: castAbilityId, pid: state.myPlayerId, x: wx, y: wy });
     } else {
       _spawnIonNebulaLocal(wx, wy, state.myPlayerId, spawnOpts);
@@ -15477,6 +15536,10 @@
     g.endFill();
   }
 
+  function getMeteorVisualScale(aoeRadius) {
+    return Math.max(1, (aoeRadius || METEOR_AOE_RADIUS) / Math.max(1, METEOR_AOE_RADIUS));
+  }
+
   function _spawnMeteorLocal(targetX, targetY, angle, ownerId) {
     const cosA = Math.cos(angle), sinA = Math.sin(angle);
     let tMin = Infinity;
@@ -15487,13 +15550,14 @@
     if (tMin === Infinity || tMin <= 0) tMin = Math.hypot(CFG.WORLD_W, CFG.WORLD_H);
     const sx = targetX - cosA * tMin;
     const sy = targetY - sinA * tMin;
+    const aoeRadius = METEOR_PREVIEW_RADIUS;
     state._activeMeteors.push({
       x: sx, y: sy,
       vx: Math.cos(angle) * METEOR_SPEED_PX_PER_S,
       vy: Math.sin(angle) * METEOR_SPEED_PX_PER_S,
       angle,
       radius: METEOR_RADIUS,
-      aoeR: METEOR_AOE_RADIUS,
+      aoeR: aoeRadius,
       ownerId: ownerId === undefined ? state.myPlayerId : ownerId,
       alive: true,
       gfx: null,
@@ -15501,7 +15565,7 @@
       spawnedAt: state.t,
       impactDuration: METEOR_IMPACT_DURATION,
       styleKey: "signal-bloom",
-      visualScale: 1.0,
+      visualScale: getMeteorVisualScale(aoeRadius),
       seed: getMeteorSeed(targetX, targetY, angle)
     });
   }
@@ -15545,7 +15609,9 @@
 
   function useMeteor(targetX, targetY, angle) {
     const def = ABILITY_DEFS.find(d => d.id === "meteor");
-    if (state._multiSlots && !state._multiIsHost && state._socket) {
+    if (isServerAuthorityRemote()) {
+      sendPlayerAction({ type: "useAbility", abilityId: "meteor", pid: state.myPlayerId, x: targetX, y: targetY, angle });
+    } else if (state._multiSlots && !state._multiIsHost && state._socket) {
       sendPlayerAction({ type: "useAbility", abilityId: "meteor", pid: state.myPlayerId, x: targetX, y: targetY, angle });
     } else {
       _spawnMeteorLocal(targetX, targetY, angle, state.myPlayerId);
@@ -15609,7 +15675,7 @@
       return {
         abilityId: MINEFIELD_LARGE_ID,
         mineCount: 25,
-        duration: toSimSeconds(48),
+        duration: toSimSeconds(800),
         armDelay: toSimSeconds(0.35),
         triggerRadius: 13,
         blastRadius: 92,
@@ -15627,7 +15693,7 @@
     return {
       abilityId: MINEFIELD_SMALL_ID,
       mineCount: 5,
-      duration: toSimSeconds(40),
+      duration: toSimSeconds(800),
       armDelay: toSimSeconds(0.35),
       triggerRadius: 14,
       blastRadius: 84,
@@ -16318,17 +16384,6 @@
     }
   }
 
-  const TIME_JUMP_REWIND_REAL_SEC = 60;
-  const TIME_JUMP_REWIND_SEC = toSimSeconds(TIME_JUMP_REWIND_REAL_SEC);
-  const TIME_SNAPSHOT_INTERVAL_REAL_SEC = 5;
-  const TIME_SNAPSHOT_INTERVAL = toSimSeconds(TIME_SNAPSHOT_INTERVAL_REAL_SEC);
-  const TIME_SNAPSHOT_MAX = 15;
-  const TIME_REWIND_FREEZE_ENTER_SEC = 1.0;
-  const TIME_REWIND_PULSE_SEQ_SEC = 2.3;
-  const TIME_REWIND_ANIM_SEC = 2.0;
-  const TIME_REWIND_RESUME_SEC = 1.5;
-  const TIME_REWIND_APPLY_AT_SEC = TIME_REWIND_FREEZE_ENTER_SEC + TIME_REWIND_PULSE_SEQ_SEC;
-  const TIME_REWIND_TOTAL_SEC = TIME_REWIND_APPLY_AT_SEC + TIME_REWIND_ANIM_SEC + TIME_REWIND_RESUME_SEC;
   const ION_NEBULA_DURATION_SEC = 15;
   const MAX_RENDERED_BLACKHOLES = 4;
   const MAX_RENDERED_BLACKHOLES_REMOTE = 2;
@@ -16600,328 +16655,6 @@
       trajGfx: null,
       overlayGfx: null
     };
-  }
-
-  function saveTimeSnapshot() {
-    const inSolo = !state._multiSlots;
-    const inMpHost = state._multiIsHost && state._multiSlots;
-    if (!inSolo && !inMpHost || state._timeSnapshots == null) return;
-    const now = state.t;
-    if (now < (state._timeJumpAvailableAt ?? 0)) return;
-    if (now - state._lastTimeSnapshotAt < TIME_SNAPSHOT_INTERVAL) return;
-    state._lastTimeSnapshotAt = now;
-    const players = [];
-    for (const p of state.players.values()) {
-      players.push(cloneForSnapshot(p));
-    }
-    const units = [];
-    for (const u of state.units.values()) {
-      units.push(cloneForSnapshot(u));
-    }
-    const turrets = [];
-    for (const t of state.turrets.values()) {
-      turrets.push(cloneForSnapshot(t));
-    }
-    const bullets = state.bullets.map(b => ({ ...b }));
-    const res = [];
-    for (const r of state.res.values()) {
-      res.push(cloneForSnapshot(r));
-    }
-    state._timeSnapshots.push({
-      t: now,
-      nextUnitId: state.nextUnitId,
-      nextResId: state.nextResId,
-      nextSquadId: state.nextSquadId,
-      nextEngagementZoneId: state.nextEngagementZoneId,
-      players,
-      units,
-      turrets,
-      bullets,
-      res,
-      squads: state.squads ? [...state.squads.values()].map(cloneForSnapshot) : [],
-      engagementZones: state.engagementZones ? [...state.engagementZones.values()].map(cloneForSnapshot) : [],
-      storm: snapshotStormLike(state.storm),
-      abilityStorms: (state._abilityStorms || []).map(snapshotStormLike),
-      blackHoles: (state._blackHoles || []).map(snapshotBlackHole),
-      meteors: (state._activeMeteors || []).map(snapshotMeteor),
-      orbitalStrikes: (state._orbitalStrikes || []).map(snapshotOrbitalStrike),
-      thermoNukes: (state._thermoNukes || []).map(snapshotThermoNuke),
-      pirateRaids: (state._pirateRaids || []).map(snapshotPirateRaidForTime),
-      economyAbilityFx: (state._economyAbilityFx || []).map(snapshotEconomyAbilityFx),
-      abilityZoneEffects: (state._abilityZoneEffects || []).map(cloneForSnapshot),
-      nextStormAt: state._nextStormAt,
-      randomBlackHoleNextAt: state._randomBlackHoleNextAt,
-      randomMeteorNextAt: state._randomMeteorNextAt,
-      randomMeteorScheduled: (state._randomMeteorScheduled || []).map(cloneForSnapshot)
-    });
-    while (state._timeSnapshots.length > TIME_SNAPSHOT_MAX) state._timeSnapshots.shift();
-  }
-
-  function markAbilityUsed(pid, abilityId) {
-    if (!state._abilityUsedByPlayer[pid]) state._abilityUsedByPlayer[pid] = [];
-    if (!state._abilityUsedByPlayer[pid].includes(abilityId)) state._abilityUsedByPlayer[pid].push(abilityId);
-  }
-
-  function restoreFromTimeSnapshot(snap, eliminatedBeforeRewind, usedByPid) {
-    const destroyGfx = (o) => {
-      if (o && o.gfx && o.gfx.parent) o.gfx.parent.removeChild(o.gfx);
-      if (o && o.gfx && o.gfx.destroy) o.gfx.destroy(getSafePixiDestroyOptions());
-    };
-    for (const p of state.players.values()) {
-      if (p.cityGfx && p.cityGfx.parent) p.cityGfx.parent.removeChild(p.cityGfx);
-      if (p.zoneGfx && p.zoneGfx.parent) p.zoneGfx.parent.removeChild(p.zoneGfx);
-      if (p.zoneGlow && p.zoneGlow.parent) p.zoneGlow.parent.removeChild(p.zoneGlow);
-      if (p.zoneShellGfx && p.zoneShellGfx.parent) p.zoneShellGfx.parent.removeChild(p.zoneShellGfx);
-      if (p.zoneLightGfx && p.zoneLightGfx.parent) p.zoneLightGfx.parent.removeChild(p.zoneLightGfx);
-      if (p._patrolSpriteLayer && p._patrolSpriteLayer.parent) p._patrolSpriteLayer.parent.removeChild(p._patrolSpriteLayer);
-      if (p.shieldGfx && p.shieldGfx.parent) p.shieldGfx.parent.removeChild(p.shieldGfx);
-    }
-    for (const u of state.units.values()) destroyGfx(u);
-    for (const t of state.turrets.values()) {
-      destroyGfx(t);
-      if (t.labelGfx && t.labelGfx.parent) t.labelGfx.parent.removeChild(t.labelGfx);
-      if (t.radiusGfx && t.radiusGfx.parent) t.radiusGfx.parent.removeChild(t.radiusGfx);
-    }
-    for (const r of state.res.values()) destroyGfx(r);
-    if (state.storm) destroyIonStormVisual(state.storm);
-    for (const s of state._abilityStorms || []) destroyIonStormVisual(s);
-    for (const bh of state._blackHoles || []) destroyBlackHoleVisual(bh);
-    for (const m of state._activeMeteors || []) removeMeteorGfx(m);
-    for (const strike of state._orbitalStrikes || []) destroyOrbitalStrikeVisual(strike);
-    for (const strike of state._thermoNukes || []) destroyThermoNukeVisual(strike);
-    for (const raid of state._pirateRaids || []) destroyPirateRaidVisual(raid);
-    for (const effect of state._economyAbilityFx || []) destroyEconomyAbilityVisual(effect);
-    for (const zone of state._abilityZoneEffects || []) destroyAbilityZoneVisual(zone);
-
-    state.players.clear();
-    state.units.clear();
-    state.turrets.clear();
-    state.bullets.length = 0;
-    state.res.clear();
-    state._shipBuildQueues = new Map();
-    state.squads = new Map();
-    state.engagementZones = new Map();
-    state.t = snap.t;
-    state.nextUnitId = snap.nextUnitId;
-    state.nextResId = snap.nextResId;
-    state.nextSquadId = snap.nextSquadId ?? 1;
-    state.nextEngagementZoneId = snap.nextEngagementZoneId ?? 1;
-    state.coreFrontPolicies = snap.coreFrontPolicies || {};
-    state.frontGraph = snap.frontGraph || {};
-    state.squadFrontAssignments = snap.squadFrontAssignments || {};
-    state.centerObjectives = snap.centerObjectives || { centerX: 0, centerY: 0, richMineId: null, centerMineIds: [], pirateBaseIds: [], livePirateBaseIds: [], securedByPlayerId: null, requiredMineCount: 0 };
-
-    for (const o of snap.players) {
-      const p = { ...o, cityGfx: null, zoneGfx: null, zoneGlow: null, zoneShellGfx: null, zoneLightGfx: null, shieldGfx: null, label: null };
-      state.players.set(p.id, p);
-      if (eliminatedBeforeRewind.includes(p.id)) {
-        if (!state.botPlayerIds) state.botPlayerIds = new Set();
-        state.botPlayerIds.add(p.id);
-        p._isBot = true;
-      }
-      makeCityVisual(p);
-      makeZoneVisual(p);
-    }
-    for (const o of snap.units) {
-      const u = { ...o, gfx: null };
-      state.units.set(u.id, u);
-      makeUnitVisual(u);
-    }
-    for (const o of snap.turrets) {
-      const t = { ...o, gfx: null, labelGfx: null, radiusGfx: null };
-      state.turrets.set(t.id, t);
-    }
-    for (const b of snap.bullets) state.bullets.push({ ...b });
-    for (const o of snap.res) {
-      const r = { ...o, gfx: null };
-      state.res.set(r.id, r);
-      makeResVisual(r);
-    }
-    for (const sq of (snap.squads || [])) {
-      state.squads.set(sq.id, cloneForSnapshot(sq));
-    }
-    for (const z of (snap.engagementZones || [])) {
-      state.engagementZones.set(z.id, cloneForSnapshot(z));
-    }
-    state.storm = restoreStormLikeSnapshot(snap.storm);
-    state._abilityStorms = (snap.abilityStorms || []).map(restoreStormLikeSnapshot);
-    state._blackHoles = (snap.blackHoles || []).map(restoreBlackHoleSnapshot);
-    state._activeMeteors = (snap.meteors || []).map(restoreMeteorSnapshot);
-    state._orbitalStrikes = (snap.orbitalStrikes || []).map(restoreOrbitalStrikeSnapshot);
-    state._thermoNukes = (snap.thermoNukes || []).map(restoreThermoNukeSnapshot);
-    state._pirateRaids = (snap.pirateRaids || []).map(restorePirateRaidSnapshotForTime);
-    state._economyAbilityFx = (snap.economyAbilityFx || []).map(restoreEconomyAbilityFxSnapshot);
-    state._abilityZoneEffects = (snap.abilityZoneEffects || []).map(cloneForSnapshot);
-    state._meteorImpactEffects = [];
-    state._nextStormAt = snap.nextStormAt != null ? snap.nextStormAt : STORM_STARTUP_DELAY;
-    state._randomBlackHoleNextAt = snap.randomBlackHoleNextAt != null ? snap.randomBlackHoleNextAt : (state.t + toSimSeconds(300));
-    state._randomMeteorNextAt = snap.randomMeteorNextAt != null ? snap.randomMeteorNextAt : (state.t + toSimSeconds(240));
-    state._randomMeteorScheduled = (snap.randomMeteorScheduled || []).map(cloneForSnapshot);
-    if (typeof SQUADLOGIC !== "undefined" && SQUADLOGIC && typeof SQUADLOGIC.syncSquadsFromState === "function") {
-      SQUADLOGIC.syncSquadsFromState(state);
-    }
-    markAbilityUsed(usedByPid, "timeJump");
-    rebuildGrid();
-    for (const p of state.players.values()) {
-      redrawZone(p);
-      if (typeof rebuildTurrets === "function") rebuildTurrets(p);
-    }
-  }
-
-  function beginTimeRewindSequence(usedByPid, snap, eliminatedBeforeRewind, opts) {
-    const options = opts || {};
-    const existing = state._timeRewindFx;
-    if (existing && existing.active) {
-      if (options.token != null && existing.token === options.token) return existing;
-      return null;
-    }
-    const nowSec = (typeof performance !== "undefined" ? performance.now() : Date.now()) / 1000;
-    const token = options.token != null ? options.token : ((state._timeRewindFxToken || 0) + 1);
-    state._timeRewindFxToken = Math.max(state._timeRewindFxToken || 0, token);
-    state._timeRewindFx = {
-      active: true,
-      token,
-      usedByPid,
-      startedAtReal: nowSec,
-      rewindSeconds: TIME_JUMP_REWIND_REAL_SEC,
-      freezeEnterSec: TIME_REWIND_FREEZE_ENTER_SEC,
-      pulseSeqSec: TIME_REWIND_PULSE_SEQ_SEC,
-      rewindSec: TIME_REWIND_ANIM_SEC,
-      resumeSec: TIME_REWIND_RESUME_SEC,
-      applyAtSec: TIME_REWIND_APPLY_AT_SEC,
-      totalSec: TIME_REWIND_TOTAL_SEC,
-      snapshot: snap || null,
-      eliminatedBeforeRewind: Array.isArray(eliminatedBeforeRewind) ? eliminatedBeforeRewind.slice() : [],
-      applied: false,
-      appliedAtReal: null,
-      remoteOnly: !!options.remoteOnly,
-      resumeTimeScale: options.remoteOnly ? null : (state.timeScale || 1)
-    };
-    state.timeScale = 0;
-    if (!options.remoteOnly) pushAbilityAnnouncement(usedByPid, "timeJump");
-    return state._timeRewindFx;
-  }
-
-  function stepTimeRewindSequence(nowSec) {
-    const fx = state._timeRewindFx;
-    if (!fx || !fx.active) return;
-    const elapsed = nowSec - (fx.startedAtReal || nowSec);
-    if (!fx.applied && elapsed >= (fx.applyAtSec || TIME_REWIND_APPLY_AT_SEC)) {
-      fx.applied = true;
-      fx.appliedAtReal = nowSec;
-      if (fx.snapshot && (!state._multiSlots || state._multiIsHost)) {
-        restoreFromTimeSnapshot(fx.snapshot, fx.eliminatedBeforeRewind || [], fx.usedByPid);
-      }
-    }
-    if (elapsed >= (fx.totalSec || TIME_REWIND_TOTAL_SEC)) {
-      if (typeof TimeRewindRenderer !== "undefined" && TimeRewindRenderer && typeof TimeRewindRenderer.destroy === "function") {
-        TimeRewindRenderer.destroy(fx);
-      }
-      if (fx.resumeTimeScale != null) state.timeScale = fx.resumeTimeScale;
-      state._timeRewindFx = null;
-    }
-  }
-
-  function syncTimeRewindFromSnapshot(snap) {
-    if (!state._multiSlots || state._multiIsHost) return;
-    const incoming = snap && snap.timeRewindFx ? snap.timeRewindFx : null;
-    const active = state._timeRewindFx;
-    if (incoming) {
-      if (!active || active.token !== incoming.token) {
-        beginTimeRewindSequence(incoming.triggeredByPid ?? state.myPlayerId, null, null, {
-          remoteOnly: true,
-          token: incoming.token
-        });
-      } else if (incoming.applied && !active.applied) {
-        active.applied = true;
-        active.appliedAtReal = (typeof performance !== "undefined" ? performance.now() : Date.now()) / 1000;
-      }
-      return;
-    }
-    if (active && active.remoteOnly && active.applied && active.startedAtReal != null) {
-      const localNowSec = (typeof performance !== "undefined" ? performance.now() : Date.now()) / 1000;
-      const keepUntil = (active.applyAtSec || TIME_REWIND_APPLY_AT_SEC) + 0.75;
-      if (localNowSec - active.startedAtReal >= keepUntil) {
-        if (typeof TimeRewindRenderer !== "undefined" && TimeRewindRenderer && typeof TimeRewindRenderer.destroy === "function") {
-          TimeRewindRenderer.destroy(active);
-        }
-        state._timeRewindFx = null;
-      }
-    }
-  }
-
-  function drawTimeRewindFx(nowSec) {
-    const fx = state._timeRewindFx;
-    if (!fx || !fx.active) {
-      if (typeof TimeRewindRenderer !== "undefined" && TimeRewindRenderer && typeof TimeRewindRenderer.hide === "function") {
-        TimeRewindRenderer.hide(fx);
-      }
-      return;
-    }
-    if (typeof TimeRewindRenderer === "undefined" || !TimeRewindRenderer || typeof TimeRewindRenderer.render !== "function") return;
-    const units = [];
-    for (const u of state.units.values()) {
-      if (!u || u.hp <= 0) continue;
-      units.push({
-        id: u.id,
-        x: u.x,
-        y: u.y,
-        vx: u.vx || 0,
-        vy: u.vy || 0,
-        hp: u.hp,
-        a: Math.atan2(u.vy || 0, u.vx || 1),
-        _rewindColor: "#" + colorForId(u.owner).toString(16).padStart(6, "0")
-      });
-      if (units.length >= 28) break;
-    }
-    TimeRewindRenderer.render(fx, {
-      layer: screenFxLayer,
-      width: app.screen.width,
-      height: app.screen.height,
-      nowSec,
-      camera: { x: cam.x, y: cam.y, zoom: cam.zoom || 1 },
-      units
-    });
-  }
-
-  function useTimeJump() {
-    const def = ABILITY_DEFS.find(d => d.id === "timeJump");
-    if (!def || def.oneTime && (state._abilityUsedByPlayer[state.myPlayerId] || []).includes("timeJump")) return;
-    if (state._timeRewindFx && state._timeRewindFx.active) return;
-    if (state._multiSlots && !state._multiIsHost && state._socket) {
-      sendPlayerAction({ type: "useAbility", abilityId: "timeJump", pid: state.myPlayerId });
-      cancelAbilityTargeting();
-      hideAbilityPicker();
-      return;
-    }
-    const availableAt = state._timeJumpAvailableAt ?? 0;
-    if (state.t < availableAt) {
-      cancelAbilityTargeting();
-      hideAbilityPicker();
-      return;
-    }
-    if (!state._timeSnapshots || state._timeSnapshots.length === 0) {
-      cancelAbilityTargeting();
-      hideAbilityPicker();
-      return;
-    }
-    const targetT = Math.max(0, state.t - TIME_JUMP_REWIND_SEC);
-    let snap = null;
-    for (let i = state._timeSnapshots.length - 1; i >= 0; i--) {
-      if (state._timeSnapshots[i].t <= targetT) {
-        snap = state._timeSnapshots[i];
-        break;
-      }
-    }
-    if (!snap) {
-      cancelAbilityTargeting();
-      hideAbilityPicker();
-      return;
-    }
-    const eliminatedBeforeRewind = [...state.players.values()].filter(p => p.eliminated).map(p => p.id);
-    beginTimeRewindSequence(state.myPlayerId, snap, eliminatedBeforeRewind);
-    cancelAbilityTargeting();
-    hideAbilityPicker();
   }
 
   function stepMeteors(dt) {
@@ -17232,22 +16965,6 @@
     p.shieldRegenCd = 0;
   }
 
-  function useDroneSwarm(pid, frontType) {
-    return spawnLaneAbilityUnits(pid, frontType || "center", "fighter", 6, {
-      sourceTag: "ability:fighterWing:" + (frontType || "center"),
-      spread: 24,
-      forwardStep: 8,
-      mutateUnit: (u) => {
-        u._fighterWingSummon = true;
-        u.hp = Math.round(u.hp * 0.72);
-        u.maxHp = u.hp;
-        u.baseMaxHp = Math.max(1, u.hp);
-        u.dmg = Math.max(1, Math.round((u.dmg || 1) * 1.12));
-        u.baseDamage = u.dmg;
-      }
-    });
-  }
-
   function useFleetBoost(pid) {
     state._fleetBoostUntil = state._fleetBoostUntil || {};
     state._fleetBoostUntil[pid] = state.t + toSimSeconds(20);
@@ -17274,27 +16991,6 @@
       gfx: null,
       trajGfx: null,
       overlayGfx: null
-    });
-  }
-
-  function useFrigateWarp(pid, frontType) {
-    return spawnLaneAbilityUnits(pid, frontType || "center", "destroyer", 1, {
-      sourceTag: "ability:frigateWarp:" + (frontType || "center"),
-      spread: 0,
-      forwardStep: 0,
-      mutateUnit: (frigate) => {
-        frigate._frigateSummon = true;
-        frigate.hp = Math.round((frigate.hp || 1) * 1.6);
-        frigate.maxHp = frigate.hp;
-        frigate.baseMaxHp = frigate.hp;
-        frigate.dmg = Math.max(1, Math.round((frigate.dmg || 1) * 1.35));
-        frigate.baseDamage = frigate.dmg;
-        frigate.attackRange = Math.round((frigate.attackRange || 1) * 1.12);
-        frigate.baseAttackRange = frigate.attackRange;
-        frigate.speed = (frigate.speed || 1) * 1.18;
-        frigate.baseSpeed = frigate.speed;
-        state.floatingDamage.push({ x: frigate.x, y: frigate.y - 28, text: "ФРЕГАТ", color: 0xbfe6ff, ttl: 1.4 });
-      }
     });
   }
 
@@ -17584,40 +17280,8 @@
       cancelAbilityTargeting();
       return { ok: true };
     }
-    if (abilityId === "timeJump") {
-      if (!state._timeSnapshots || state._timeSnapshots.length === 0) return { ok: false, reason: "no_snapshots" };
-      const targetT = Math.max(0, state.t - TIME_JUMP_REWIND_SEC);
-      let snap = null;
-      for (let i = state._timeSnapshots.length - 1; i >= 0; i--) {
-        if (state._timeSnapshots[i].t <= targetT) {
-          snap = state._timeSnapshots[i];
-          break;
-        }
-      }
-      if (snap) {
-        const eliminatedBeforeRewind = [...state.players.values()].filter((p) => p.eliminated).map((p) => p.id);
-        beginTimeRewindSequence(pid, snap, eliminatedBeforeRewind);
-        pushAbilityAnnouncement(pid, abilityId);
-      }
-      cancelAbilityTargeting();
-      return { ok: !!snap };
-    }
     if (abilityId === "shieldOvercharge") {
       useShieldOvercharge(pid);
-      if (!def.oneTime) setAbilityCooldown(pid, abilityId, def.cooldown || 0);
-      pushAbilityAnnouncement(pid, abilityId);
-      cancelAbilityTargeting();
-      return { ok: true };
-    }
-    if (abilityId === "droneSwarm") {
-      if (!useDroneSwarm(pid, action.frontType).ok) return { ok: false, reason: "no_front" };
-      if (!def.oneTime) setAbilityCooldown(pid, abilityId, def.cooldown || 0);
-      pushAbilityAnnouncement(pid, abilityId);
-      cancelAbilityTargeting();
-      return { ok: true };
-    }
-    if (abilityId === "frigateWarp") {
-      if (!useFrigateWarp(pid, action.frontType).ok) return { ok: false, reason: "no_front" };
       if (!def.oneTime) setAbilityCooldown(pid, abilityId, def.cooldown || 0);
       pushAbilityAnnouncement(pid, abilityId);
       cancelAbilityTargeting();
@@ -18782,30 +18446,6 @@
       spatialRiftRenderer.destroyPreview(state);
     }
 
-    if (isLaneTargetedAbility(state._abilityTargeting)) {
-      screenG.rect(0, 0, app.screen.width, app.screen.height);
-      screenG.fill({ color: 0x050814, alpha: 0.22 });
-      const laneOption = pickLaneAbilityFrontOption(state.myPlayerId, mx, my);
-      const laneOptions = getLaneAbilityFrontOptions(state.myPlayerId);
-      const me = state.players.get(state.myPlayerId);
-      const laneColor = me ? (me.color || colorForId(me.id)) : 0x66aaff;
-      for (const option of laneOptions) {
-        const active = laneOption && laneOption.frontType === option.frontType;
-        drawCorridorPolyline(g, option.points, laneColor, option.frontType === "center" ? 98 : 86, {
-          fillAlpha: active ? 0.14 : 0.05,
-          coreAlpha: active ? 0.18 : 0.08,
-          edgeAlpha: active ? 0.30 : 0.14,
-          lightAlpha: active ? 0.42 : 0.18,
-          dashSpeed: active ? 34 : 18
-        });
-        const marker = option.previewPoint || option.spawnPoint;
-        if (marker) {
-          g.circle(marker.x, marker.y, active ? 34 : 24);
-          g.stroke({ color: active ? 0xffffff : laneColor, width: active ? 3 : 1.6, alpha: active ? 0.75 : 0.35 });
-        }
-      }
-    }
-
     if (state._abilityTargeting === MINEFIELD_SMALL_ID || state._abilityTargeting === MINEFIELD_LARGE_ID) {
       const me = state.players.get(state.myPlayerId);
       const laneColor = me ? (me.color || colorForId(me.id)) : 0x66aaff;
@@ -19297,28 +18937,7 @@
       e.preventDefault();
       const wx = (e.clientX - cam.x) / cam.zoom;
       const wy = (e.clientY - cam.y) / cam.zoom;
-      if (isLaneTargetedAbility(state._abilityTargeting)) {
-        const laneSelection = pickLaneAbilityFrontOption(state.myPlayerId, wx, wy);
-        if (!laneSelection) return;
-        const payload = {
-          frontType: laneSelection.frontType,
-          x: laneSelection.previewPoint.x,
-          y: laneSelection.previewPoint.y
-        };
-        if (confirmPendingAbilityCardCast(payload)) return;
-        const def = ABILITY_DEFS.find((d) => d.id === state._abilityTargeting);
-        if (state._multiSlots && !state._multiIsHost && state._socket) {
-          sendPlayerAction({ type: "useAbility", abilityId: state._abilityTargeting, pid: state.myPlayerId, ...payload });
-        } else {
-          const result = state._abilityTargeting === "droneSwarm"
-            ? useDroneSwarm(state.myPlayerId, laneSelection.frontType)
-            : useFrigateWarp(state.myPlayerId, laneSelection.frontType);
-          if (!result || !result.ok) return;
-          if (def) setAbilityCooldown(state.myPlayerId, state._abilityTargeting, def.cooldown);
-          pushAbilityAnnouncement(state.myPlayerId, state._abilityTargeting);
-        }
-        cancelAbilityTargeting();
-      } else if (state._abilityTargeting === "ionNebula" || state._abilityTargeting === "ionField") {
+      if (state._abilityTargeting === "ionNebula" || state._abilityTargeting === "ionField") {
         if (!confirmPendingAbilityCardCast({ x: wx, y: wy })) useIonNebula(wx, wy, state._abilityTargeting);
       } else if (state._abilityTargeting === "blackHole" || state._abilityTargeting === "microBlackHole") {
         if (confirmPendingAbilityCardCast({ x: wx, y: wy })) return;
@@ -19486,7 +19105,13 @@
       } else {
         const pointAbilities = ["gravAnchor", "microAnchor", "fakeSignature", "timeSingularity", "nanoSwarm", "gravWave", "resourceRaid", "thermoNuke", "hyperJump"];
         if (pointAbilities.includes(state._abilityTargeting)) {
-          if (!confirmPendingAbilityCardCast({ x: wx, y: wy })) useAbilityAtPoint(state._abilityTargeting, wx, wy, state.myPlayerId);
+          if (confirmPendingAbilityCardCast({ x: wx, y: wy })) { /* card handled */ }
+          else if (state._multiSlots && !state._multiIsHost && state._socket) {
+            sendPlayerAction({ type: "useAbility", abilityId: state._abilityTargeting, pid: state.myPlayerId, x: wx, y: wy });
+            cancelAbilityTargeting();
+          } else {
+            useAbilityAtPoint(state._abilityTargeting, wx, wy, state.myPlayerId);
+          }
         }
       }
     }
@@ -21186,7 +20811,6 @@
     PLAYER_LIGHT_SYNC_KEYS,
     PLAYER_FULL_SYNC_KEYS,
     UNIT_FULL_SYNC_KEYS,
-    syncTimeRewindFromSnapshot,
     makePlayer,
     makeCityVisual,
     makeZoneVisual,
@@ -21237,9 +20861,7 @@
     useGloriousBattleMarch,
     useLoan,
     useRaiderCapture,
-    beginTimeRewindSequence,
     applyCard,
-    TIME_JUMP_REWIND_SEC,
     activateBuffCardForPlayer,
     castAbilityCardForPlayer,
     executeAbilityAction
@@ -21351,6 +20973,7 @@
     updateAbilityAnnouncements,
     updateMineFlowVisuals,
     drawBullets,
+    drawDeathBursts,
     drawStorm,
     drawNebulae,
     drawAbilityStorms,
@@ -21364,7 +20987,6 @@
     drawPirateRaids,
     drawEconomyAbilityFx,
     drawMeteorImpactEffects,
-    drawTimeRewindFx,
     drawAbilityTargetPreview,
     clearAbilityPreview,
     neonEdgeSprite,
@@ -21517,7 +21139,6 @@
     const includePerfHud = opts.includePerfHud !== false;
     const includeDestroyFlush = opts.includeDestroyFlush !== false;
     const frameStart = performance.now();
-    stepTimeRewindSequence(now / 1000);
     let dt = Math.min(0.05, (now - lastT) / 1000);
     dt *= CFG.GAME_SPEED;
     const timeScale = state.timeScale || 1;
@@ -21529,19 +21150,22 @@
     if (state._gameOver) {
       return;
     }
-    state.t += dt;
-    state._lastDt = dt;
-    stepPlayerCardStates();
-    processShipBuildQueues();
+    const isRemoteClient = !!(state._multiSlots && !state._multiIsHost);
+    const isServerAuthority = isRemoteClient && state._authorityMode === "server";
 
-    if (typeof saveTimeSnapshot === "function") saveTimeSnapshot();
+    if (!isServerAuthority) {
+      state.t += dt;
+      state._lastDt = dt;
+      stepPlayerCardStates();
+      processShipBuildQueues();
+    } else {
+      state._lastDt = dt;
+    }
 
     state._frameCtr = (state._frameCtr || 0) + 1;
     state._vp = getViewport();
     LOD.resetFrameCounts();
     rebuildSpatialHash();
-
-    const isRemoteClient = !!(state._multiSlots && !state._multiIsHost);
 
     if (!isRemoteClient) {
       requireRuntime(hostSimRuntimeApi, "HostSimRuntime").step(dt);
@@ -21573,7 +21197,7 @@
       }
     }
 
-    if (hostNetworkRuntimeApi && hostNetworkRuntimeApi.step) hostNetworkRuntimeApi.step(now);
+    if (!isServerAuthority && hostNetworkRuntimeApi && hostNetworkRuntimeApi.step) hostNetworkRuntimeApi.step(now);
 
     if (state._menuBackdropActive) stepMenuBackdropScenario();
     if (state._menuBackdropActive) stepMenuBackdropCamera(dt);
