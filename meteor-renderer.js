@@ -358,7 +358,7 @@
     drawCorridor(traj, meteor.x, meteor.y, angle, halfWidth, detail, timeSec, opts.worldW, opts.worldH, false);
 
     var alpha = 1;
-    var meteorScale = (meteor.visualScale || 1.0) * 8.8;
+    var meteorScale = (meteor.visualScale || 1.0) * 10.6;
     drawMeteorFlightAura(body, meteor.x, meteor.y, angle, meteorScale, style, alpha, detail.flightFxCount, timeSec);
     drawMeteorSparkField(body, meteor.x, meteor.y, angle, detail.sparkCount + 4, 1.05, 34 * style.tailLen * meteorScale, 0.40 * alpha, timeSec);
     drawMeteorBody(body, meteor.x, meteor.y, angle, meteorScale, style, alpha);

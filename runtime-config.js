@@ -6,11 +6,12 @@
   const existing = window.__VOIDFRONT_RUNTIME_CONFIG || {};
   window.__VOIDFRONT_RUNTIME_CONFIG = {
     serverUrl: existing.serverUrl || null,
-    authorityMode: existing.authorityMode || "server",
+    authorityMode: existing.authorityMode || "local",
     releaseChannel: existing.releaseChannel || "local",
     enableDebugTools: existing.enableDebugTools !== false,
     enablePerfHud: existing.enablePerfHud !== false,
     enableTestUi: existing.enableTestUi !== false,
-    yandexSdkEnabled: existing.yandexSdkEnabled === true
+    yandexSdkEnabled: existing.yandexSdkEnabled === true,
+    singleOnly: existing.singleOnly !== false
   };
 })();

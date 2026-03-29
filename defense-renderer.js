@@ -268,14 +268,22 @@
     var sz = (detail.shape === "dot" ? 4.5 : 8.5) * scale;
 
     if (detail.shape === "dot") {
-      g.beginFill(palette.core, 0.16);
-      g.drawCircle(x, y, 6.2 * scale);
+      var half = Math.max(2.4, 3.1 * scale);
+      var barrelLen = Math.max(5.5, 8.5 * scale * barrelMul);
+      g.beginFill(palette.core, 0.12);
+      g.drawCircle(x, y, 5.6 * scale);
       g.endFill();
-      g.beginFill(palette.core, 0.85);
-      g.drawCircle(x, y, sz);
+      g.beginFill(0x081020, 0.92);
+      g.drawRect(x - half - 1, y - half - 1, (half + 1) * 2, (half + 1) * 2);
       g.endFill();
-      g.beginFill(0xffffff, 0.85);
-      g.drawCircle(x, y, Math.max(1.6, 1.6 * scale));
+      g.beginFill(palette.core, 0.88);
+      g.drawRect(x - half, y - half, half * 2, half * 2);
+      g.endFill();
+      g.lineStyle(Math.max(1.2, 1.4 * scale), palette.solid, 0.9);
+      g.moveTo(x, y);
+      g.lineTo(x + nx * barrelLen, y + ny * barrelLen);
+      g.beginFill(0xffffff, 0.88);
+      g.drawCircle(x, y, Math.max(1.2, 1.3 * scale));
       g.endFill();
       return;
     }

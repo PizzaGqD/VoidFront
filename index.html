@@ -2,7 +2,8 @@
 <html lang="ru">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover,interactive-widget=resizes-content" />
+  <meta name="theme-color" content="#070a12" />
   <title>VoidFront</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="style.css" />
@@ -10,6 +11,12 @@
 <body>
   <!-- Background music -->
   <audio id="bgMusic" preload="auto" autoplay playsinline></audio>
+  <div id="rotatePrompt" class="rotate-prompt" aria-live="polite" aria-hidden="true">
+    <div class="rotate-prompt-card">
+      <div class="rotate-prompt-title">Поверните устройство</div>
+      <div class="rotate-prompt-text">Для VoidFront нужен горизонтальный режим.</div>
+    </div>
+  </div>
   <div id="musicPlayerDock" class="music-player-dock" aria-label="Музыкальный плеер">
     <div id="musicPlayer" class="music-player-bar">
       <div class="mp-header-row">
@@ -46,13 +53,33 @@
 
   <!-- Главное меню -->
   <div id="mainMenu" class="menu-overlay menu-screen menu-splash">
-    <div class="menu-box">
+    <div class="menu-box menu-box-main">
       <h1 class="menu-title menu-title-vf">VOIDFRONT</h1>
       <p class="menu-tagline">Claim the void. Break the balance.</p>
       <div class="menu-buttons">
-        <button type="button" id="btnSingle" class="menu-btn">Одиночка с ботами</button>
-        <button type="button" id="btnMulti" class="menu-btn">Мультиплеер</button>
-        <button type="button" id="btnTestMap400" class="menu-btn secondary">Тест карта 400v400</button>
+        <button type="button" id="btnSingle" class="menu-btn">Играть</button>
+        <button type="button" id="menuMusicToggle" class="menu-btn secondary">Выкл музыку</button>
+      </div>
+      <details id="singleProfilePanel" class="single-meta-panel single-meta-collapsible">
+        <summary class="single-meta-summary">Профиль</summary>
+        <div class="single-meta-panel-body">
+          <div id="singleProfileSummary"></div>
+        </div>
+      </details>
+      <details id="singleHistoryPanel" class="single-meta-panel single-meta-collapsible">
+        <summary class="single-meta-summary">История матчей</summary>
+        <div class="single-meta-panel-body">
+          <div class="single-meta-panel-header">
+            <span class="muted">Последние матчи</span>
+            <button type="button" id="singleProfileReset" class="menu-btn secondary single-reset-btn">Сбросить прогресс</button>
+          </div>
+          <div id="singleResultsHistory" class="single-results-history"></div>
+        </div>
+      </details>
+      <div class="menu-footer-card">
+        <span class="menu-footer-label">Автор: PizzaGqD</span>
+        <a href="https://dtf.ru/pizzagqd" target="_blank" rel="noopener noreferrer">Блог на DTF</a>
+        <a href="https://www.donationalerts.com/r/pizzagqd" target="_blank" rel="noopener noreferrer">Поддержать</a>
       </div>
     </div>
   </div>
@@ -62,11 +89,7 @@
     <div class="menu-box">
       <p class="menu-subtitle">Введите ник</p>
       <input type="text" id="nicknameInput" class="menu-input" maxlength="24" placeholder="Ваш ник (до 24 символов)" />
-      <p class="muted" style="margin-top:8px">Ник будет виден другим в мультиплеере.</p>
-      <div id="soloColorRow" style="display:none; margin-top:12px">
-        <p class="menu-subtitle" style="margin-bottom:6px">Цвет (только одиночка)</p>
-        <div id="soloColorPicker" class="color-picker" style="flex-wrap:wrap; gap:6px"></div>
-      </div>
+      <p class="muted" style="margin-top:8px">Ник сохраняется в локальном профиле и показывается в истории матчей.</p>
       <div id="soloBotCountRow" style="display:none; margin-top:12px">
         <p class="menu-subtitle" style="margin-bottom:6px">Количество ботов (1–4)</p>
         <div id="soloBotCountPicker" class="row" style="gap:8px; flex-wrap:wrap"></div>
@@ -82,9 +105,15 @@
   <div id="soloLobbyScreen" class="menu-overlay menu-screen" style="display:none">
     <div class="menu-box" style="max-width:420px">
       <p class="menu-subtitle">Одиночка — настройки</p>
-      <p class="muted" style="margin-bottom:10px">Выбери формат матча и стартовую позицию. Дуэль даёт одного бота на противоположном углу, квадратная схватка запускает матч против трёх ботов.</p>
+      <p class="muted solo-lobby-intro" style="margin-bottom:10px">Выбери формат матча, сложность ботов, цвет и стартовую позицию.</p>
+      <p class="muted solo-lobby-label" style="margin-bottom:6px">Сложность:</p>
+      <div id="soloDifficultyPicker" class="row" style="gap:8px; flex-wrap:wrap; margin-bottom:14px"></div>
+      <p class="muted solo-lobby-label" style="margin-bottom:6px">Цвет:</p>
+      <div id="soloColorRow" style="margin-bottom:12px">
+        <div id="soloColorPicker" class="color-picker" style="flex-wrap:wrap; gap:6px"></div>
+      </div>
       <div id="soloSpawnPicker" class="row" style="gap:8px; flex-wrap:wrap; margin-bottom:14px"></div>
-      <p class="muted" style="margin-bottom:6px">Соперники:</p>
+      <p class="muted solo-lobby-label" style="margin-bottom:6px">Соперники:</p>
       <div id="soloModePicker" class="row" style="gap:8px; flex-wrap:wrap; margin-bottom:14px"></div>
       <div class="row" style="margin-top:14px">
         <button type="button" id="soloLobbyBack" class="menu-btn secondary">Назад</button>
@@ -182,7 +211,6 @@
       </div>
       <div id="lvlUpXpText" class="lvlup-xp-text">(0)</div>
     </div>
-    <div id="topActiveBuffBar" class="top-active-buff-bar" style="display:none"></div>
     <button type="button" id="abilitiesBtn" class="abilities-btn-stub" title="Способности" style="display:none">Способности</button>
     <div id="abilityAnnouncementLine" class="ability-announcement-line" aria-live="polite"></div>
   </div>
@@ -196,7 +224,7 @@
     </div>
   </div>
 
-  <!-- Top-right panel: Leaderboard + Test + Speed + Toggles + Squads -->
+  <!-- Top-right panel: Leaderboard -->
   <details id="topRightPanel" class="topright-panel hud-collapse-panel" open>
     <summary class="hud-collapse-summary hud-collapse-summary-panel">Правая панель</summary>
     <div class="hud-collapse-content hud-collapse-content-panel">
@@ -207,75 +235,6 @@
           <tbody id="leaderboardBody"></tbody>
         </table>
       </div>
-      <div id="squadStripRight" class="squad-strip-right"></div>
-      <details id="squadControlBox" class="box squad-control-right hud-collapse-box" style="display:none" open>
-        <summary class="subtitle hud-collapse-summary">Управление отрядом</summary>
-        <div class="hud-collapse-content">
-          <div id="squadControlOne" style="display:none">
-            <div class="row">
-              <button type="button" id="splitSquadBtnOne">Разделить</button>
-              <button type="button" id="splitByTypeBtnOne">Разделить по типу</button>
-            </div>
-            <div class="row">
-              <label>Строй</label>
-              <select id="formationSelect">
-                <option value="lineByType" selected>Шеренга по типу</option>
-                <option value="line">Шеренга</option>
-                <option value="pig">Свинья</option>
-              </select>
-              <span id="formationLineRow" class="formation-row-controls">
-                <label>Рядов</label>
-                <button type="button" id="formationRowsMinus" class="pill">−</button>
-                <input id="formationRows" type="number" min="1" value="2" style="width:2.5em" />
-                <button type="button" id="formationRowsPlus" class="pill">+</button>
-              </span>
-              <span id="formationPigRow" class="formation-row-controls" style="display:none">
-                <label>Глубина</label>
-                <button type="button" id="formationPigDepthMinus" class="pill">−</button>
-                <span id="formationPigDepthVal" class="mono">3</span>
-                <button type="button" id="formationPigDepthPlus" class="pill">+</button>
-                <label>Ширина</label>
-                <button type="button" id="formationPigWidthMinus" class="pill">−</button>
-                <span id="formationPigWidthVal" class="mono">1.0</span>
-                <button type="button" id="formationPigWidthPlus" class="pill">+</button>
-              </span>
-            </div>
-            <div class="muted">Ctrl+1…9 — бинд, 1…9 — выбор.</div>
-          </div>
-          <div id="squadControlMulti" style="display:none">
-            <div class="row">
-              <button id="mergeSquadBtn">Объединить в отряд</button>
-              <button id="splitSquadBtn">Разделить</button>
-              <button id="splitByTypeBtn">Разделить по типу</button>
-            </div>
-            <div class="row">
-              <label>Строй</label>
-              <select id="formationSelectMulti">
-                <option value="lineByType" selected>Шеренга по типу</option>
-                <option value="line">Шеренга</option>
-                <option value="pig">Свинья</option>
-              </select>
-              <span id="formationLineRowMulti" class="formation-row-controls">
-                <label>Рядов</label>
-                <button type="button" id="formationRowsMinusMulti" class="pill">−</button>
-                <input id="formationRowsMulti" type="number" min="1" value="2" style="width:2.5em" />
-                <button type="button" id="formationRowsPlusMulti" class="pill">+</button>
-              </span>
-              <span id="formationPigRowMulti" class="formation-row-controls" style="display:none">
-                <label>Глубина</label>
-                <button type="button" id="formationPigDepthMinusMulti" class="pill">−</button>
-                <span id="formationPigDepthValMulti" class="mono">3</span>
-                <button type="button" id="formationPigDepthPlusMulti" class="pill">+</button>
-                <label>Ширина</label>
-                <button type="button" id="formationPigWidthMinusMulti" class="pill">−</button>
-                <span id="formationPigWidthValMulti" class="mono">1.0</span>
-                <button type="button" id="formationPigWidthPlusMulti" class="pill">+</button>
-              </span>
-            </div>
-            <div class="muted">Формация применяется ко всем выделенным.</div>
-          </div>
-        </div>
-      </details>
     </div>
   </details>
 
@@ -422,6 +381,13 @@
       </div>
     </details>
 
+    <details class="hud-section" id="hudBuffs" open>
+      <summary class="hud-section-header hud-collapse-summary">✨ Баффы</summary>
+      <div class="hud-collapse-content">
+        <div id="hudBuffSummary" class="hud-buff-summary"></div>
+      </div>
+    </details>
+
     <details class="box hud-collapse-box" id="hudShipyard" open>
       <summary class="subtitle hud-collapse-summary">Верфь — покупка кораблей</summary>
       <div class="hud-collapse-content">
@@ -489,7 +455,12 @@
     <div class="victory-box">
       <div class="victory-title">ПОБЕДА!</div>
       <div id="victoryText" class="victory-desc"></div>
-      <button id="victoryRestart" type="button">Новая игра</button>
+      <div id="victoryStats" class="single-victory-stats"></div>
+      <div id="victoryRewards" class="single-victory-rewards"></div>
+      <div class="single-victory-actions">
+        <button id="victoryMenu" type="button" class="menu-btn secondary">В меню</button>
+        <button id="victoryRestart" type="button">Новая игра</button>
+      </div>
     </div>
   </div>
 
@@ -532,15 +503,20 @@
     <div class="card-hand-layout">
       <div id="buffHandZone" class="card-zone buff-card-zone">
         <div class="card-zone-header">
-          <span>Бафф-карты</span>
-          <span id="buffHandCount" class="card-zone-count">0/30</span>
+          <span class="card-zone-title">Бафф-карты</span>
+          <div class="card-zone-actions">
+            <button type="button" id="buffActivateAllBtn" class="card-zone-action-btn">Активировать всё</button>
+            <span id="buffHandCount" class="card-zone-count">0/30</span>
+          </div>
         </div>
         <div id="buffHandCards" class="card-zone-body"></div>
       </div>
       <div id="abilityHandZone" class="card-zone ability-card-zone">
         <div class="card-zone-header">
-          <span>Карты способностей</span>
-          <span id="abilityHandCount" class="card-zone-count">0/10</span>
+          <span class="card-zone-title">Карты способностей</span>
+          <div class="card-zone-actions">
+            <span id="abilityHandCount" class="card-zone-count">0/10</span>
+          </div>
         </div>
         <div id="abilityHandCards" class="card-zone-body"></div>
       </div>
@@ -550,47 +526,17 @@
   </div>
   <!-- /gameWrap -->
 
-  <!-- Меню: все кнопки работают сразу, client.js подставляет логику через window -->
-  <script>
-  (function() {
-    function showScreen(id) {
-      ["mainMenu", "nicknameScreen", "soloLobbyScreen", "multiConnectScreen", "lobbyScreen"].forEach(function(s) {
-        var el = document.getElementById(s);
-        if (el) el.style.display = (s === id) ? "flex" : "none";
-      });
-      var gw = document.getElementById("gameWrap");
-      if (gw) gw.style.display = (id === "gameWrap") ? "block" : "none";
-    }
-    var btnSingle = document.getElementById("btnSingle");
-    var btnMulti = document.getElementById("btnMulti");
-    var nicknameBack = document.getElementById("nicknameBack");
-    var nicknameOk = document.getElementById("nicknameOk");
-    var nicknameInput = document.getElementById("nicknameInput");
-    if (btnMulti) btnMulti.addEventListener("click", function() { window._menuMode = "multi"; showScreen("nicknameScreen"); });
-    if (btnSingle) btnSingle.addEventListener("click", function() { window._menuMode = "single"; showScreen("nicknameScreen"); });
-    if (nicknameBack) nicknameBack.addEventListener("click", function() { showScreen("mainMenu"); });
-    if (nicknameOk) nicknameOk.addEventListener("click", function() {
-      var nick = (nicknameInput && nicknameInput.value ? nicknameInput.value.trim() : "") || "Игрок";
-      if (nick.length > 24) nick = nick.slice(0, 24);
-      window._myNickname = nick;
-      if (window._menuMode === "multi") {
-        showScreen("multiConnectScreen");
-      } else if (window._menuMode === "single") {
-        showScreen("soloLobbyScreen");
-      }
-    });
-    var multiConnectBack = document.getElementById("multiConnectBack");
-    if (multiConnectBack) multiConnectBack.addEventListener("click", function() { showScreen("nicknameScreen"); });
-  })();
-  </script>
   <!-- Pixi + filters -->
-  <script src="https://cdn.jsdelivr.net/npm/pixi.js@8.6.6/dist/pixi.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/pixi-filters@6.1.1/dist/pixi-filters.min.js"></script>
-  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <script src="vendor/pixi.min.js"></script>
+  <script src="vendor/pixi-filters.min.js"></script>
   <script src="card-system.js?v=4"></script>
   <script src="utils.js?v=17"></script>
   <script src="noise.js?v=17"></script>
-  <script src="net.js?v=21"></script>
+  <script src="single-net-shim.js?v=1"></script>
+  <script src="bot-profiles.js?v=1"></script>
+  <script src="core-match-state.js?v=1"></script>
+  <script src="single-profile.js?v=1"></script>
+  <script src="single-menu-ui.js?v=1"></script>
   <script src="formations.js?v=17"></script>
   <script src="combat.js?v=17"></script>
   <script src="squad-logic.js?v=24"></script>
@@ -622,21 +568,10 @@
   <script src="nano-swarm-renderer.js?v=1"></script>
   <script src="time-rewind-renderer.js?v=17"></script>
   <script src="selection-and-orders.js?v=17"></script>
-  <script src="snapshot-sync.js?v=21"></script>
-  <script src="socket-action-dispatch.js?v=17"></script>
   <script src="front-planner.js?v=6"></script>
   <script src="runtime-config.js?v=1"></script>
   <script src="platform-adapter.js?v=1"></script>
   <script src="app-bootstrap.js?v=1"></script>
-  <script src="match-session.js?v=2"></script>
-  <script src="socket-session.js?v=1"></script>
-  <script src="action-gateway.js?v=1"></script>
-  <script src="authority-adapter.js?v=1"></script>
-  <script src="game-mode-controller.js?v=2"></script>
-  <script src="runtime-observability.js?v=2"></script>
-  <script src="lobby-ui.js?v=17"></script>
-  <script src="remote-client-runtime.js?v=18"></script>
-  <script src="host-network-runtime.js?v=17"></script>
   <script src="host-sim-runtime.js?v=19"></script>
   <script src="shared-sim-state.js?v=1"></script>
   <script src="shared-city-sim.js?v=1"></script>
@@ -645,21 +580,5 @@
   <script src="off-map-ambience-renderer.js?v=1"></script>
   <script src="music-player.js?v=1"></script>
   <script src="client.js?v=45"></script>
-  <script>
-  (function(){
-    var runtimeConfig = window.__VOIDFRONT_RUNTIME_CONFIG || {};
-    if (runtimeConfig.enableDebugTools !== false && runtimeConfig.enableTestUi !== false) {
-      var debugScript = document.createElement("script");
-      debugScript.src = "test-mechanics.js?v=16";
-      document.body.appendChild(debugScript);
-    }
-    var b = document.getElementById("btnCreateRoom");
-    var j = document.getElementById("btnJoinRoom");
-    var r = document.getElementById("btnRefreshLobbies");
-    if(b) b.onclick = function(){ if(window.__createRoom) window.__createRoom(); else alert("Игра ещё загружается. Подождите 2–3 сек."); };
-    if(j) j.onclick = function(){ if(window.__joinRoom) window.__joinRoom(); else alert("Игра ещё загружается. Подождите 2–3 сек."); };
-    if(r) r.onclick = function(){ if(window.__refreshLobbyList) window.__refreshLobbyList(); };
-  })();
-  </script>
 </body>
 </html>

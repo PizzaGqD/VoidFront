@@ -428,10 +428,83 @@
 
     app.canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 
+    function handlePrimaryPointerAction(e, pt, allowBoxSelect) {
+      if (state._abilityTargeting) return;
+      if (state.rallyPointMode) {
+        state.rallyPoint = { x: pt.x, y: pt.y };
+        state.rallyPointMode = false;
+        if (rallyPointHintEl) rallyPointHintEl.textContent = "Точка сбора: " + Math.round(pt.x) + ", " + Math.round(pt.y);
+        return;
+      }
+      if (state.selectedUnitIds.size > 0 && !isIndirectControlEnabled()) {
+        const clickedMine = mineAtWorld(pt.x, pt.y);
+        if (clickedMine && clickedMine.ownerId !== state.myPlayerId) {
+          const squads = getSelectedSquads();
+          for (const squad of squads) {
+            const leader = squad.find((v) => (v.leaderId || v.id) === (squad[0].leaderId || squad[0].id)) || squad[0];
+            leader.chaseTargetUnitId = undefined;
+            leader.chaseTargetCityId = undefined;
+            leader.waypoints = [{ x: clickedMine.x, y: clickedMine.y }];
+            leader.waypointIndex = 0;
+            leader.straightMode = false;
+            for (const u of squad) {
+              if (u !== leader) {
+                u.waypoints = [{ x: clickedMine.x, y: clickedMine.y }];
+                u.waypointIndex = 0;
+              }
+            }
+          }
+          return;
+        }
+      }
+      if (state.selectedUnitIds.size === 0) {
+        const city = cityAtWorld(pt.x, pt.y);
+        if (city && city.id !== state.myPlayerId) {
+          showEnemyCompare(city.id);
+          return;
+        }
+      }
+      const u = unitAtWorld(pt.x, pt.y);
+      if (u) {
+        if (e.ctrlKey || e.metaKey) {
+          if (state.selectedUnitIds.has(u.id)) state.selectedUnitIds.delete(u.id);
+          else state.selectedUnitIds.add(u.id);
+        } else {
+          const lid = u.leaderId || u.id;
+          state.selectedUnitIds.clear();
+          for (const v of state.units.values()) {
+            if ((v.leaderId || v.id) === lid && v.owner === state.myPlayerId) state.selectedUnitIds.add(v.id);
+          }
+        }
+        state.boxStart = null;
+        state.boxEnd = null;
+        return;
+      }
+      if (!allowBoxSelect) {
+        closeEnemyCityPanel();
+        return;
+      }
+      state.boxStart = { x: pt.x, y: pt.y };
+      state.boxEnd = { x: pt.x, y: pt.y };
+      if (!e.ctrlKey && !e.metaKey) state.selectedUnitIds.clear();
+      closeEnemyCityPanel();
+    }
+
     app.canvas.addEventListener("pointerdown", (e) => {
       ensureAudio();
       const btn = e.button;
       const pt = screenToWorld(e.clientX, e.clientY);
+
+      if (e.pointerType === "touch" && btn === 0) {
+        if (state._abilityTargeting) return;
+        panState.isPanning = true;
+        panState.panBtn = 0;
+        panState.lastX = e.clientX;
+        panState.lastY = e.clientY;
+        panState.activePointerId = e.pointerId;
+        panState.touchMoved = false;
+        return;
+      }
 
       if (btn === 2 || btn === 1) {
         if (btn === 2 && state.selectedUnitIds.size > 0 && !isIndirectControlEnabled()) {
@@ -495,65 +568,23 @@
       }
 
       if (btn === 0) {
-        if (state._abilityTargeting) return;
-        if (state.rallyPointMode) {
-          state.rallyPoint = { x: pt.x, y: pt.y };
-          state.rallyPointMode = false;
-          if (rallyPointHintEl) rallyPointHintEl.textContent = "Точка сбора: " + Math.round(pt.x) + ", " + Math.round(pt.y);
-          return;
-        }
-        if (state.selectedUnitIds.size > 0 && !isIndirectControlEnabled()) {
-          const clickedMine = mineAtWorld(pt.x, pt.y);
-          if (clickedMine && clickedMine.ownerId !== state.myPlayerId) {
-            const squads = getSelectedSquads();
-            for (const squad of squads) {
-              const leader = squad.find((v) => (v.leaderId || v.id) === (squad[0].leaderId || squad[0].id)) || squad[0];
-              leader.chaseTargetUnitId = undefined;
-              leader.chaseTargetCityId = undefined;
-              leader.waypoints = [{ x: clickedMine.x, y: clickedMine.y }];
-              leader.waypointIndex = 0;
-              leader.straightMode = false;
-              for (const u of squad) {
-                if (u !== leader) {
-                  u.waypoints = [{ x: clickedMine.x, y: clickedMine.y }];
-                  u.waypointIndex = 0;
-                }
-              }
-            }
-            return;
-          }
-        }
-        if (state.selectedUnitIds.size === 0) {
-          const city = cityAtWorld(pt.x, pt.y);
-          if (city && city.id !== state.myPlayerId) {
-            showEnemyCompare(city.id);
-            return;
-          }
-        }
-        const u = unitAtWorld(pt.x, pt.y);
-        if (u) {
-          if (e.ctrlKey || e.metaKey) {
-            if (state.selectedUnitIds.has(u.id)) state.selectedUnitIds.delete(u.id);
-            else state.selectedUnitIds.add(u.id);
-          } else {
-            const lid = u.leaderId || u.id;
-            state.selectedUnitIds.clear();
-            for (const v of state.units.values()) {
-              if ((v.leaderId || v.id) === lid && v.owner === state.myPlayerId) state.selectedUnitIds.add(v.id);
-            }
-          }
-          state.boxStart = null;
-          state.boxEnd = null;
-          return;
-        }
-        state.boxStart = { x: pt.x, y: pt.y };
-        state.boxEnd = { x: pt.x, y: pt.y };
-        if (!e.ctrlKey && !e.metaKey) state.selectedUnitIds.clear();
-        closeEnemyCityPanel();
+        handlePrimaryPointerAction(e, pt, true);
       }
     });
 
     window.addEventListener("pointerup", (e) => {
+      if (panState.activePointerId != null && e.pointerId === panState.activePointerId) {
+        const wasTap = !panState.touchMoved;
+        panState.isPanning = false;
+        panState.panBtn = 0;
+        panState.activePointerId = null;
+        panState.touchMoved = false;
+        if (wasTap) {
+          const pt = screenToWorld(e.clientX, e.clientY);
+          handlePrimaryPointerAction(e, pt, false);
+        }
+        return;
+      }
       if (e.button === 0 && state.boxStart && state.boxEnd) {
         const dx = Math.abs(state.boxEnd.x - state.boxStart.x);
         const dy = Math.abs(state.boxEnd.y - state.boxStart.y);
@@ -919,10 +950,12 @@
         }
       }
       if (panState.isPanning) {
+        if (panState.activePointerId != null && e.pointerId !== panState.activePointerId) return;
         const dx = e.clientX - panState.lastX;
         const dy = e.clientY - panState.lastY;
         panState.lastX = e.clientX;
         panState.lastY = e.clientY;
+        if (panState.activePointerId != null && Math.hypot(dx, dy) > 2) panState.touchMoved = true;
         cam.x += dx;
         cam.y += dy;
         applyCamera();
@@ -961,6 +994,10 @@
       state._rmbHoldPt = null;
       if (state.formationPreview) state.formationPreview = null;
       if (state.orderPreview) state.orderPreview = null;
+      panState.isPanning = false;
+      panState.panBtn = 0;
+      panState.activePointerId = null;
+      panState.touchMoved = false;
       const attackCursorEl = document.getElementById("attackCursorEmoji");
       if (attackCursorEl) attackCursorEl.style.display = "none";
     });

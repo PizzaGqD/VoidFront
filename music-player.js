@@ -2,7 +2,7 @@
   const audio = document.getElementById("bgMusic");
   if (!audio) return;
 
-  const TRACK_FILES = [
+  const DEFAULT_TRACK_FILES = [
     "Cold Orbit Command (2).mp3",
     "Cold star.mp3",
     "Door to stars.mp3",
@@ -23,10 +23,15 @@
     "UFO context.mp3",
     "VOID.mp3"
   ];
+  const runtimeConfig = typeof window !== "undefined" ? (window.__VOIDFRONT_RUNTIME_CONFIG || {}) : {};
+  const TRACK_FILES = Array.isArray(runtimeConfig.musicPlaylist) && runtimeConfig.musicPlaylist.length
+    ? runtimeConfig.musicPlaylist.filter((fileName) => typeof fileName === "string" && fileName.trim())
+    : DEFAULT_TRACK_FILES;
 
   const STORAGE_KEY_VOLUME = "voidfront.music.volume";
   const STORAGE_KEY_SHUFFLE = "voidfront.music.shuffle";
   const STORAGE_KEY_REPEAT = "voidfront.music.repeat";
+  const STORAGE_KEY_ENABLED = "voidfront.music.enabled";
   const DEFAULT_VOLUME = 0.35;
 
   const tracks = TRACK_FILES.map((fileName) => ({
@@ -47,6 +52,7 @@
   const timeNow = document.getElementById("mpTimeNow");
   const timeDur = document.getElementById("mpTimeDur");
   const volumeSlider = document.getElementById("mpVolume");
+  const menuMusicToggleBtn = document.getElementById("menuMusicToggle");
 
   if (
     !tracks.length ||
@@ -64,7 +70,8 @@
   }
 
   let currentIndex = Math.floor(Math.random() * tracks.length);
-  let wantsPlayback = true;
+  let musicEnabled = readSavedBoolean(STORAGE_KEY_ENABLED, true);
+  let wantsPlayback = musicEnabled;
   let autoplayBlocked = false;
   let recoverAttempts = 0;
   let isSeeking = false;
@@ -156,6 +163,12 @@
     updateToggleButton(shuffleBtn, shuffleEnabled, "Mix", "Mix");
     updateToggleButton(repeatBtn, repeatEnabled, "Loop", "Loop");
     audio.loop = repeatEnabled;
+  }
+
+  function updateMusicToggleButton() {
+    if (!menuMusicToggleBtn) return;
+    menuMusicToggleBtn.textContent = musicEnabled ? "Выкл музыку" : "Вкл музыку";
+    menuMusicToggleBtn.setAttribute("aria-pressed", musicEnabled ? "true" : "false");
   }
 
   function setProgressVisual(progress01) {
@@ -277,6 +290,10 @@
   }
 
   function play() {
+    if (!musicEnabled) {
+      updateMusicToggleButton();
+      return;
+    }
     wantsPlayback = true;
     attemptPlay();
   }
@@ -293,6 +310,22 @@
   function toggle() {
     if (!audio.paused && !audio.ended) pause();
     else play();
+  }
+
+  function setMusicEnabled(enabled) {
+    musicEnabled = !!enabled;
+    saveValue(STORAGE_KEY_ENABLED, musicEnabled ? "1" : "0");
+    if (!musicEnabled) {
+      pause();
+    } else {
+      wantsPlayback = true;
+      attemptPlay();
+    }
+    updateMusicToggleButton();
+  }
+
+  function toggleMusicEnabled() {
+    setMusicEnabled(!musicEnabled);
   }
 
   function pauseForExternal() {
@@ -403,6 +436,7 @@
   prevBtn.addEventListener("click", prev);
   shuffleBtn.addEventListener("click", toggleShuffle);
   repeatBtn.addEventListener("click", toggleRepeat);
+  if (menuMusicToggleBtn) menuMusicToggleBtn.addEventListener("click", toggleMusicEnabled);
 
   volumeSlider.addEventListener("input", () => {
     audio.volume = Math.max(0, Math.min(1, Number(volumeSlider.value) / 100));
@@ -479,18 +513,24 @@
   }
 
   updateModeButtons();
+  updateMusicToggleButton();
   loadTrack(currentIndex, { recordHistory: false });
-  setTimeout(() => attemptPlay(), 0);
-  setTimeout(() => attemptPlay(), 300);
+  if (musicEnabled) {
+    setTimeout(() => attemptPlay(), 0);
+    setTimeout(() => attemptPlay(), 300);
+  }
 
   window.MusicPlayer = {
     getTracks: () => tracks.slice(),
     getCurrentIndex: () => currentIndex,
+    isMusicEnabled: () => musicEnabled,
     isShuffleEnabled: () => shuffleEnabled,
     isRepeatEnabled: () => repeatEnabled,
     play,
     pause,
     toggle,
+    setMusicEnabled,
+    toggleMusicEnabled,
     next,
     prev,
     toggleShuffle,

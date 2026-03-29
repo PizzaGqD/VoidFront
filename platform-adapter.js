@@ -78,10 +78,94 @@
     let lastSessionAuth = null;
     let ysdk = null;
     let ysdkInitPromise = null;
+    let detectedLanguage = "ru";
+    let gameplayActive = false;
+    let sdkLifecycleBound = false;
+    let sdkPauseHandler = null;
+    let sdkResumeHandler = null;
+    let fullscreenPrimed = false;
     let lifecycleHandlers = {
       pause: function () {},
       resume: function () {}
     };
+
+    function detectFallbackLanguage() {
+      if (typeof navigator === "undefined") return "ru";
+      const raw = String((navigator.language || navigator.userLanguage || "ru")).toLowerCase();
+      return (raw.split("-")[0] || "ru");
+    }
+
+    function getLanguage() {
+      return detectedLanguage || detectFallbackLanguage();
+    }
+
+    function applyLanguageToDocument() {
+      if (typeof document === "undefined") return;
+      try {
+        document.documentElement.lang = getLanguage();
+      } catch (_) {
+        // Ignore DOM update failures.
+      }
+      if (typeof window !== "undefined") window.__VOIDFRONT_LOCALE = getLanguage();
+    }
+
+    function isMobileLike() {
+      if (typeof window === "undefined") return false;
+      const touch = ("ontouchstart" in window) || (typeof navigator !== "undefined" && navigator.maxTouchPoints > 0);
+      const ua = typeof navigator !== "undefined" ? String(navigator.userAgent || "") : "";
+      return touch || /android|iphone|ipad|ipod|mobile/i.test(ua);
+    }
+
+    async function requestFullscreen() {
+      if (!isMobileLike()) return false;
+      try {
+        if (ysdk && ysdk.screen && ysdk.screen.fullscreen && typeof ysdk.screen.fullscreen.request === "function") {
+          await ysdk.screen.fullscreen.request();
+          return true;
+        }
+      } catch (_) {
+        // Fall back to browser API.
+      }
+      try {
+        if (typeof document !== "undefined" && document.documentElement && typeof document.documentElement.requestFullscreen === "function" && !document.fullscreenElement) {
+          await document.documentElement.requestFullscreen();
+          return true;
+        }
+      } catch (_) {
+        // Fullscreen may require a direct user gesture.
+      }
+      return false;
+    }
+
+    function primeFullscreenOnNextInteraction() {
+      if (fullscreenPrimed || typeof window === "undefined" || typeof document === "undefined" || !isMobileLike()) return;
+      fullscreenPrimed = true;
+      const tryEnter = async function () {
+        cleanup();
+        await requestFullscreen();
+      };
+      const cleanup = function () {
+        window.removeEventListener("pointerup", tryEnter, true);
+        window.removeEventListener("touchend", tryEnter, true);
+        window.removeEventListener("keydown", tryEnter, true);
+      };
+      window.addEventListener("pointerup", tryEnter, true);
+      window.addEventListener("touchend", tryEnter, true);
+      window.addEventListener("keydown", tryEnter, true);
+    }
+
+    function bindSdkLifecycleEvents() {
+      if (sdkLifecycleBound || !ysdk || typeof ysdk.on !== "function") return;
+      sdkPauseHandler = function () {
+        pauseGameplay("yandex-sdk-pause");
+      };
+      sdkResumeHandler = function () {
+        resumeGameplay("yandex-sdk-pause");
+      };
+      ysdk.on("game_api_pause", sdkPauseHandler);
+      ysdk.on("game_api_resume", sdkResumeHandler);
+      sdkLifecycleBound = true;
+    }
 
     async function init() {
       if (shouldUseYandexSdk()) {
@@ -98,6 +182,12 @@
           ysdkInitPromise = window.YaGames.init()
             .then(function (instance) {
               ysdk = instance || null;
+              detectedLanguage = (ysdk && ysdk.environment && ysdk.environment.i18n && ysdk.environment.i18n.lang)
+                ? String(ysdk.environment.i18n.lang).toLowerCase()
+                : detectFallbackLanguage();
+              applyLanguageToDocument();
+              bindSdkLifecycleEvents();
+              primeFullscreenOnNextInteraction();
               return { platformId, ysdk };
             })
             .catch(function (err) {
@@ -108,6 +198,8 @@
         }
         return ysdkInitPromise;
       }
+      detectedLanguage = detectFallbackLanguage();
+      applyLanguageToDocument();
       return { platformId, ysdk: null };
     }
 
@@ -119,7 +211,7 @@
 
     function getAuthorityMode() {
       const runtimeConfig = getRuntimeConfig();
-      return runtimeConfig.authorityMode || "host-client";
+      return runtimeConfig.authorityMode || "local";
     }
 
     function setLifecycleHandlers(handlers) {
@@ -152,6 +244,32 @@
         console.warn("[Platform] LoadingAPI.ready failed:", err && err.message ? err.message : err);
       }
       return false;
+    }
+
+    async function startGameplay() {
+      if (gameplayActive) return false;
+      gameplayActive = true;
+      try {
+        if (ysdk && ysdk.features && ysdk.features.GameplayAPI && typeof ysdk.features.GameplayAPI.start === "function") {
+          await ysdk.features.GameplayAPI.start();
+        }
+      } catch (err) {
+        console.warn("[Platform] GameplayAPI.start failed:", err && err.message ? err.message : err);
+      }
+      return true;
+    }
+
+    async function stopGameplay() {
+      if (!gameplayActive) return false;
+      gameplayActive = false;
+      try {
+        if (ysdk && ysdk.features && ysdk.features.GameplayAPI && typeof ysdk.features.GameplayAPI.stop === "function") {
+          await ysdk.features.GameplayAPI.stop();
+        }
+      } catch (err) {
+        console.warn("[Platform] GameplayAPI.stop failed:", err && err.message ? err.message : err);
+      }
+      return true;
     }
 
     function showFullscreenAd(callbacks) {
@@ -247,9 +365,13 @@
       setLifecycleHandlers,
       pauseGameplay,
       resumeGameplay,
+      requestFullscreen,
+      startGameplay,
+      stopGameplay,
       markGameReady,
       showFullscreenAd,
       showRewardedAd,
+      getLanguage,
       getSessionAuth,
       saveSessionAuth,
       clearSessionAuth

@@ -9,8 +9,11 @@
     "tunnel": "node server.js --tunnel",
     "stop": "node stop-server.js",
     "restart": "node stop-server.js && node server.js",
+    "build:single": "node scripts/build-release.js",
     "build:release": "node scripts/build-release.js",
-    "test": "node tests/card-system.test.js && node tests/network-protocol.test.js && node tests/front-graph.test.js && node tests/front-merge.test.js && node tests/center-planner.test.js && node tests/multiplayer-front-actions.test.js && node tests/squad-combat-state.test.js && node tests/match-session.test.js && node tests/action-gateway.test.js && node tests/queue-manager.test.js && node tests/authoritative-match-runtime.test.js"
+    "build:yandex:folder": "node scripts/build-release.js --yandex",
+    "build:yandex": "node scripts/build-release.js --yandex --zip",
+    "test": "node tests/card-system.test.js && node tests/network-protocol.test.js && node tests/front-graph.test.js && node tests/front-merge.test.js && node tests/center-planner.test.js && node tests/multiplayer-front-actions.test.js && node tests/squad-combat-state.test.js && node tests/match-session.test.js && node tests/action-gateway.test.js && node tests/queue-manager.test.js && node tests/bot-difficulty.test.js && node tests/opening-economy.test.js && node tests/ability-power.test.js && node tests/single-match-flow.test.js && node tests/performance-smoke.test.js && node tests/authoritative-match-runtime.test.js && node tests/server-parity.test.js"
   },
   "dependencies": {
     "localtunnel": "^2.0.2",

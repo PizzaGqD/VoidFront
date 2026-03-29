@@ -1639,6 +1639,12 @@
     }
     const clampedTarget = keepTargetInsideLane(target, targetSample, 10);
     if (!unitSample) return clampedTarget;
+    if (moveMode === "free_chase") {
+      // In live combat we still keep the squad inside the lane, but we no longer
+      // cap forward progress. The old cap could deadlock border fights where the
+      // target stayed just beyond the short chase window.
+      return clampedTarget;
+    }
     const desiredProgress = Math.max(unitSample.progress || 0, targetSample.progress || 0);
     const lookAhead = strict ? 68 : 54;
     const cappedProgress = Math.min(desiredProgress, (unitSample.progress || 0) + lookAhead);

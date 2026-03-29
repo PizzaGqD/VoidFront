@@ -22,9 +22,17 @@
   const runtimeConfig = (typeof window !== "undefined" && window.__VOIDFRONT_RUNTIME_CONFIG)
     ? window.__VOIDFRONT_RUNTIME_CONFIG
     : {};
+  const singleReleaseOnly = runtimeConfig.singleOnly === true || runtimeConfig.authorityMode === "local";
+  state._singleReleaseOnly = singleReleaseOnly;
   const debugToolsEnabled = runtimeConfig.enableDebugTools !== false;
   const testUiEnabled = debugToolsEnabled && runtimeConfig.enableTestUi !== false;
   const perfHudEnabled = debugToolsEnabled && runtimeConfig.enablePerfHud !== false;
+  const coreMatchStateApi = (typeof window !== "undefined" && window.CoreMatchState && window.CoreMatchState.install)
+    ? window.CoreMatchState.install({ state })
+    : null;
+  const singleProfileApi = (typeof window !== "undefined" && window.SingleProfile && window.SingleProfile.install)
+    ? window.SingleProfile.install({ storageKeyPrefix: "voidfront" })
+    : null;
   if (platformApi && typeof platformApi.init === "function") {
     try {
       await platformApi.init();
@@ -32,21 +40,24 @@
       console.warn("[Platform]", err && err.message ? err.message : err);
     }
   }
-  const socketUrlEarly = platformApi && typeof platformApi.getServerUrl === "function"
+  const socketUrlEarly = !singleReleaseOnly && platformApi && typeof platformApi.getServerUrl === "function"
     ? platformApi.getServerUrl()
-    : (window.GAME_SERVER_URL || location.origin);
-  let matchSessionApi = (typeof window !== "undefined" && window.MatchSession && window.MatchSession.install)
+    : (!singleReleaseOnly ? (window.GAME_SERVER_URL || location.origin) : "");
+  let matchSessionApi = !singleReleaseOnly && (typeof window !== "undefined" && window.MatchSession && window.MatchSession.install)
     ? window.MatchSession.install({ state })
     : null;
-  const socketSessionApi = (typeof window !== "undefined" && window.SocketSession && window.SocketSession.install)
+  const socketSessionApi = !singleReleaseOnly && (typeof window !== "undefined" && window.SocketSession && window.SocketSession.install)
     ? window.SocketSession.install({ state, socketUrl: socketUrlEarly, platformAdapter: platformApi })
     : null;
-  const socket = socketSessionApi && socketSessionApi.getSocket ? socketSessionApi.getSocket() : (typeof io !== "undefined" ? io(socketUrlEarly, { transports: ["websocket", "polling"] }) : null);
+  const socket = singleReleaseOnly
+    ? null
+    : (socketSessionApi && socketSessionApi.getSocket ? socketSessionApi.getSocket() : (typeof io !== "undefined" ? io(socketUrlEarly, { transports: ["websocket", "polling"] }) : null));
   state._socket = socket;
-  const actionGatewayApi = (typeof window !== "undefined" && window.ActionGateway && window.ActionGateway.install)
+  const actionGatewayApi = !singleReleaseOnly && (typeof window !== "undefined" && window.ActionGateway && window.ActionGateway.install)
     ? window.ActionGateway.install({ state, getSocket: () => (socketSessionApi && socketSessionApi.getSocket ? socketSessionApi.getSocket() : state._socket) })
     : null;
   let gameModeControllerApi = null;
+  let singleMenuUiApi = null;
   const CardSystemApi = (typeof window !== "undefined" && window.CardSystem) ? window.CardSystem : null;
   function showLoadingAlert() {
     alert("Игра ещё загружается. Подождите 2–3 сек.");
@@ -2900,6 +2911,16 @@
   } else {
     throw new Error("SharedSimState runtime is not available");
   }
+  state._deathBursts = Array.isArray(state._deathBursts) ? state._deathBursts : [];
+  if (coreMatchStateApi && typeof coreMatchStateApi.ensureNamespaces === "function") {
+    coreMatchStateApi.ensureNamespaces();
+  }
+  if (!state._soloDifficulty) state._soloDifficulty = "easy";
+  if (singleProfileApi && typeof singleProfileApi.ensureProfile === "function") {
+    const loadedProfile = singleProfileApi.ensureProfile();
+    state._myNickname = state._myNickname || loadedProfile.nickname || "Игрок";
+    if (typeof window !== "undefined") window._myNickname = state._myNickname;
+  }
 
   // ------------------------------------------------------------
   // Perf log (to find crash / FPS cause)
@@ -3355,7 +3376,7 @@
     for (const key of LEGACY_CARD_MULTIPLIER_FIELDS) {
       p[key] = key === "unitCostMul" ? 1 : 1;
     }
-    p.mineYieldBonus = 0;
+    p.mineYieldBonus = p._botMineYieldBonusPct || 0;
     p.turretTargetBonus = 0;
     p.shieldRegenBonus = 0;
     p.attackEffects = {};
@@ -3567,24 +3588,137 @@
     return sample ? { x: sample.x, y: sample.y } : null;
   }
 
+  function getEnemyUnitsForBot(pid) {
+    const units = [];
+    for (const unit of state.units.values()) {
+      if (!unit || unit.hp <= 0 || unit.owner === pid) continue;
+      units.push(unit);
+    }
+    return units;
+  }
+
+  function getRichestEnemyPlayer(pid) {
+    let best = null;
+    let bestScore = -Infinity;
+    for (const other of state.players.values()) {
+      if (!other || other.id === pid || other.eliminated) continue;
+      const score = (other.eCredits || 0) * 2 + (other.pop || 0) * 5 + ([...state.mines.values()].filter((mine) => mine.ownerId === other.id).length * 120);
+      if (score > bestScore) {
+        bestScore = score;
+        best = other;
+      }
+    }
+    return best;
+  }
+
+  function getBotBestClusterPoint(pid, radius, includeCities) {
+    const enemyUnits = getEnemyUnitsForBot(pid);
+    const candidates = [];
+    for (const unit of enemyUnits) candidates.push({ x: unit.x, y: unit.y, cityId: null });
+    if (includeCities) {
+      for (const other of state.players.values()) {
+        if (!other || other.id === pid || other.eliminated) continue;
+        candidates.push({ x: other.x, y: other.y, cityId: other.id });
+      }
+    }
+    if (!candidates.length) {
+      const enemy = getNearestEnemyPlayer(pid);
+      return enemy ? { x: enemy.x, y: enemy.y, score: 1, targetCityId: enemy.id } : null;
+    }
+    const r2 = radius * radius;
+    let best = null;
+    let bestScore = -Infinity;
+    for (const candidate of candidates) {
+      let score = candidate.cityId != null ? 4 : 0;
+      for (const unit of enemyUnits) {
+        const dx = unit.x - candidate.x;
+        const dy = unit.y - candidate.y;
+        if (dx * dx + dy * dy > r2) continue;
+        const type = UNIT_TYPES[unit.unitType || "fighter"] || UNIT_TYPES.destroyer;
+        score += 1 + ((type.sizeMultiplier || 1) * 0.45) + ((type.cost || 0) / 250);
+      }
+      if (score > bestScore) {
+        bestScore = score;
+        best = { x: candidate.x, y: candidate.y, score, targetCityId: candidate.cityId };
+      }
+    }
+    return best;
+  }
+
+  function getBotBestLineCast(pid, source, meteorRadius) {
+    if (!source) return null;
+    const candidates = [];
+    for (const unit of getEnemyUnitsForBot(pid)) candidates.push({ x: unit.x, y: unit.y });
+    for (const other of state.players.values()) {
+      if (!other || other.id === pid || other.eliminated) continue;
+      candidates.push({ x: other.x, y: other.y });
+    }
+    if (!candidates.length) return null;
+    let best = null;
+    let bestScore = -Infinity;
+    for (const candidate of candidates) {
+      const hitUnits = collectMeteorPreviewUnitsOnSegment(source.x, source.y, candidate.x, candidate.y, meteorRadius, pid) || [];
+      const score = hitUnits.reduce((sum, unit) => {
+        const type = UNIT_TYPES[unit.unitType || "fighter"] || UNIT_TYPES.destroyer;
+        return sum + 1 + ((type.sizeMultiplier || 1) * 0.5) + ((type.cost || 0) / 220);
+      }, 0);
+      if (score > bestScore) {
+        bestScore = score;
+        best = {
+          x: candidate.x,
+          y: candidate.y,
+          angle: Math.atan2(candidate.y - source.y, candidate.x - source.x),
+          score
+        };
+      }
+    }
+    return best;
+  }
+
+  function getBotAbilityPriority(pid, cardDef) {
+    if (!cardDef || cardDef.kind !== "ability") return 0;
+    const id = cardDef.abilityId;
+    if (id === "resourceSurge" || id === "loan") return 100;
+    if (id === "raiderCapture") return 96;
+    if (id === "thermoNuke") return 95;
+    if (id === "orbitalBarrage" || id === "meteorSwarm") return 92;
+    if (id === "orbitalStrike" || id === "blackHole" || id === "gravAnchor") return 88;
+    if (id === "microBlackHole" || id === "microAnchor" || id === "ionNebula" || id === "ionField") return 82;
+    if (id === "minefield" || id === "minefieldLarge") return 76;
+    return 70;
+  }
+
   function buildBotAbilityAction(pid, cardDef) {
     const source = state.players.get(pid);
+    const profile = getBotProfile(source);
     const target = getNearestEnemyPlayer(pid);
     const abilityDef = getAbilityDefById(cardDef.abilityId);
     if (!abilityDef) return null;
     const action = { pid, abilityId: abilityDef.id };
+    if (shouldBotSkipAction(source, (profile.misplayChance || 0) * 0.45)) return null;
+    if (abilityDef.id === "resourceSurge" || abilityDef.id === "loan" || abilityDef.targeting === "instant") {
+      return action;
+    }
     if (abilityDef.id === "resourceRaid") {
       const mine = getNearestEnemyMine(pid);
       if (!mine) return null;
-      action.x = mine.x;
-      action.y = mine.y;
+      const jitter = shouldBotSkipAction(source, profile.misplayChance || 0) ? 90 : 16;
+      action.x = mine.x + rand(-jitter, jitter);
+      action.y = mine.y + rand(-jitter, jitter);
       return action;
     }
     if (abilityDef.id === "pirateRaid") {
       const raidPoint = getLaneRaidPointAgainstEnemy(pid, target);
       if (!raidPoint) return null;
-      action.x = raidPoint.x;
-      action.y = raidPoint.y;
+      const jitter = shouldBotSkipAction(source, profile.misplayChance || 0) ? 140 : 24;
+      action.x = raidPoint.x + rand(-jitter, jitter);
+      action.y = raidPoint.y + rand(-jitter, jitter);
+      return action;
+    }
+    if (abilityDef.id === "raiderCapture") {
+      const richest = getRichestEnemyPlayer(pid) || target;
+      if (!richest) return null;
+      action.targetCityId = richest.id;
       return action;
     }
     if (abilityDef.targeting === "city") {
@@ -3593,16 +3727,32 @@
       return action;
     }
     if (abilityDef.targeting === "point") {
-      action.x = target ? target.x : (source?.x || 0);
-      action.y = target ? target.y : (source?.y || 0);
+      const radiusByAbility = {
+        ionField: 170,
+        ionNebula: 190,
+        microBlackHole: 140,
+        blackHole: 240,
+        microAnchor: 160,
+        gravAnchor: 230,
+        orbitalStrike: 210,
+        orbitalBarrage: 250,
+        thermoNuke: 280,
+        minefield: 150,
+        minefieldLarge: 210
+      };
+      const cluster = getBotBestClusterPoint(pid, radiusByAbility[abilityDef.id] || 180, true);
+      const jitter = shouldBotSkipAction(source, profile.misplayChance || 0) ? 150 : 18;
+      action.x = ((cluster && cluster.x) || (target ? target.x : (source?.x || 0))) + rand(-jitter, jitter);
+      action.y = ((cluster && cluster.y) || (target ? target.y : (source?.y || 0))) + rand(-jitter, jitter);
       return action;
     }
     if (abilityDef.targeting === "angle") {
-      const tx = target ? target.x : (source?.x || 0) + 100;
-      const ty = target ? target.y : (source?.y || 0);
+      const line = getBotBestLineCast(pid, source, abilityDef.id === "meteorSwarm" ? 92 : 76);
+      const tx = line ? line.x : (target ? target.x : (source?.x || 0) + 100);
+      const ty = line ? line.y : (target ? target.y : (source?.y || 0));
       action.x = tx;
       action.y = ty;
-      action.angle = source ? Math.atan2(ty - source.y, tx - source.x) : 0;
+      action.angle = line ? line.angle : (source ? Math.atan2(ty - source.y, tx - source.x) : 0);
       return action;
     }
     return action;
@@ -3633,17 +3783,24 @@
 
   function autoPlayBotCardHands(p) {
     if (!p || !state.botPlayerIds || !state.botPlayerIds.has(p.id)) return;
+    const profile = getBotProfile(p);
     ensurePlayerCardState(p);
-    while (p.buffHand.length > 0) {
+    while (p.buffHand.length > 0 && Math.random() <= (profile.buffAutoPlayChance || 1)) {
       const nextBuff = p.buffHand[0];
       if (!nextBuff) break;
       const activated = activateBuffCardForPlayer(p.id, nextBuff.instanceId);
       if (!activated || !activated.ok) break;
     }
     let castAttempts = 0;
-    while (p.abilityHand.length > 0 && castAttempts < 24) {
+    const castLimit = Math.max(1, profile.maxAbilityCastsPerTick || 2);
+    while (p.abilityHand.length > 0 && castAttempts < castLimit) {
+      if (Math.random() > (profile.abilityCastChance || 1)) break;
       let castedAny = false;
-      const handSnapshot = [...p.abilityHand];
+      const handSnapshot = [...p.abilityHand].sort((a, b) => {
+        const defA = a ? getCardDefById(a.cardId) : null;
+        const defB = b ? getCardDefById(b.cardId) : null;
+        return getBotAbilityPriority(p.id, defB) - getBotAbilityPriority(p.id, defA);
+      });
       for (const nextAbility of handSnapshot) {
         const cardDef = nextAbility ? getCardDefById(nextAbility.cardId) : null;
         const action = cardDef ? buildBotAbilityAction(p.id, cardDef) : null;
@@ -4265,6 +4422,7 @@
 
   function drawTurrets() {
     const turretSpriteReady = !!(window.DefenseRenderer && DefenseRenderer.isSpriteReady && DefenseRenderer.isSpriteReady("turret"));
+    const useSimpleFarTurret = LOD.getLevel(cam.zoom || 0.22) === LOD.LEVELS.FAR;
     for (const t of state.turrets.values()) {
       const p = state.players.get(t.owner);
       if (!p) continue;
@@ -4300,7 +4458,7 @@
       if (alive) {
         const hpScale = Math.max(1, Math.sqrt(Math.max(1, p.turretHpMul != null ? p.turretHpMul : 1)));
         const barrelMul = Math.max(1, p.turretDmgMul != null ? p.turretDmgMul : 1);
-        if (turretSpriteReady) {
+        if (turretSpriteReady && !useSimpleFarTurret) {
           if (!t.gfx || t.gfx._defenseSpriteKind !== "turret") {
             try {
               if (t.gfx && t.gfx.parent) t.gfx.parent.removeChild(t.gfx);
@@ -8532,19 +8690,20 @@
     const severeLoad = unitCount >= 110 || squadCount >= 70 || packetCount >= 40;
     if (level === LOD.LEVELS.FAR) {
       return {
-        routeSamples: severeLoad ? 3 : (heavyLoad ? 4 : 6),
-        maxPacketsPerMine: 0,
-        maxTotalPackets: 0,
-        beamAlpha: severeLoad ? 0.12 : (heavyLoad ? 0.20 : 0.35),
+        routeSamples: severeLoad ? 4 : (heavyLoad ? 5 : 7),
+        maxPacketsPerMine: severeLoad ? 0 : 1,
+        maxTotalPackets: severeLoad ? 0 : (heavyLoad ? 10 : 20),
+        beamAlpha: severeLoad ? 0.22 : (heavyLoad ? 0.34 : 0.52),
         shimmer: false,
         bridges: false,
-        packetScale: 0,
+        packetScale: severeLoad ? 0 : (heavyLoad ? 0.28 : 0.38),
         updateEveryFrames: severeLoad ? 8 : (heavyLoad ? 6 : 4),
-        roughCullPad: heavyLoad ? 100 : 140,
+        roughCullPad: heavyLoad ? 180 : 260,
         allowDashes: false,
         simplePackets: true,
         singleLane: true,
-        maxRoutes: severeLoad ? 6 : (heavyLoad ? 10 : 16)
+        maxRoutes: severeLoad ? 12 : (heavyLoad ? 24 : 48),
+        forceGlobalVisible: !severeLoad
       };
     }
     if (level === LOD.LEVELS.MID) {
@@ -8602,6 +8761,7 @@
   }
 
   function isMineFlowLikelyVisible(mine, owner, detail) {
+    if (detail && detail.forceGlobalVisible) return true;
     const pad = detail.roughCullPad || 220;
     if (pointInViewPad(mine.x, mine.y, pad)) return true;
     if (pointInViewPad(owner.x, owner.y, pad)) return true;
@@ -9572,6 +9732,7 @@
     state._nextStormAt = STORM_STARTUP_DELAY;
     state._ruinSpawns = [];
     state.floatingDamage = [];
+    state._deathBursts = [];
     state.selectedUnitIds.clear();
     state.prevInCombatIds.clear();
     state.squads = new Map();
@@ -9832,6 +9993,7 @@
     state._nextStormAt = STORM_STARTUP_DELAY;
     state._ruinSpawns = [];
     state.floatingDamage = [];
+    state._deathBursts = [];
     state.selectedUnitIds.clear();
     state.prevInCombatIds.clear();
     state.squads = new Map();
@@ -10494,6 +10656,19 @@
 
   function killUnit(u, reason = "dead", killerOwner) {
     if (typeof playExplosionSound === "function") playExplosionSound(u.x, u.y);
+    state._deathBursts = Array.isArray(state._deathBursts) ? state._deathBursts : [];
+    const unitColor = u.color != null
+      ? u.color
+      : (state.players.get(u.owner)?.color ?? colorForId(u.owner || 0));
+    state._deathBursts.push({
+      x: u.x,
+      y: u.y,
+      t0: state.t,
+      duration: 0.42 + (UNIT_TYPES[u.unitType]?.sizeMultiplier || 1) * 0.06,
+      maxRadius: 16 + (UNIT_TYPES[u.unitType]?.sizeMultiplier || 1) * 18,
+      color: unitColor
+    });
+    if (state._deathBursts.length > 40) state._deathBursts.splice(0, state._deathBursts.length - 40);
     const baseXP = UNIT_XP_DROPS[u.unitType] || 1;
     const xpDrop = Math.max(1, Math.round(baseXP * (0.8 + Math.random() * 0.4)));
     const isPirateKill = killerOwner === PIRATE_OWNER_ID || (killerOwner != null && !state.players.has(killerOwner));
@@ -11289,6 +11464,15 @@
       _deathBurstGfx.endFill();
       _deathBurstGfx.lineStyle(1, 0xffffff, alpha * 0.6);
       _deathBurstGfx.drawCircle(burst.x, burst.y, radius * 0.5);
+      const rayCount = 5;
+      for (let ray = 0; ray < rayCount; ray++) {
+        const angle = (Math.PI * 2 * ray) / rayCount + t * 4.2;
+        const inner = radius * 0.28;
+        const outer = radius * (0.95 + 0.18 * Math.sin(t * 8 + ray));
+        _deathBurstGfx.lineStyle(1.35, bright, alpha * 0.55);
+        _deathBurstGfx.moveTo(burst.x + Math.cos(angle) * inner, burst.y + Math.sin(angle) * inner);
+        _deathBurstGfx.lineTo(burst.x + Math.cos(angle) * outer, burst.y + Math.sin(angle) * outer);
+      }
     }
   }
 
@@ -12254,9 +12438,71 @@
   // Bots (squad-based AI: farm, attack, expand)
   // ------------------------------------------------------------
   const BOT_TICK = 1.5;
+  const BOT_PROFILE_API = (typeof window !== "undefined" && window.BotProfiles) ? window.BotProfiles : null;
   const BOT_SPAWN_INTERVAL = (CFG.BOT_SEND_DELAY ?? 0.6) * 0.5;
   const PIRATE_FULL_SQUAD = ["destroyer", "destroyer", "destroyer", "destroyer", "cruiser", "cruiser", "cruiser", "battleship"];
+  function getSelectedBotDifficultyId() {
+    return state._soloDifficulty || coreMatchStateApi?.getCurrentMatch?.()?.difficulty || "easy";
+  }
+  function getBotDifficultyLabel(id) {
+    if (id === "superhard") return "супержестко";
+    if (id === "hard") return "сложно";
+    if (id === "normal") return "нормально";
+    return "просто";
+  }
+  function getBotProfile(player) {
+    const fallback = {
+      id: "normal",
+      thinkIntervalSec: BOT_TICK,
+      hiddenStartCreditsBonus: 0,
+      decisionQuality: 1,
+      misplayChance: 0.12,
+      abilityCastChance: 1,
+      maxAbilityCastsPerTick: 2,
+      buffAutoPlayChance: 1,
+      mergeRadius: 500,
+      squadDangerTolerance: 1.2,
+      buyBurstBonus: 0,
+      saveMultiplierMul: 1,
+      mineYieldBonusPct: 0,
+      xpGainMultiplier: 1,
+      archetypeWeights: { aggressor: 1, expander: 1, economist: 1, defensive: 1 }
+    };
+    const profileId = player && player._botProfileId ? player._botProfileId : getSelectedBotDifficultyId();
+    return BOT_PROFILE_API && typeof BOT_PROFILE_API.getProfile === "function"
+      ? BOT_PROFILE_API.getProfile(profileId)
+      : fallback;
+  }
+  function getBotWeightedRandom(player, salt) {
+    const seed = ((player?.id || 0) * 2654435761 + ((salt || 0) * 1013904223)) >>> 0;
+    return ((seed % 10000) / 10000);
+  }
+  function shouldBotSkipAction(player, baseChance) {
+    const profile = getBotProfile(player);
+    const chance = Math.max(0, Math.min(1, (baseChance ?? profile.misplayChance ?? 0)));
+    return Math.random() < chance;
+  }
+  function applyCurrentBotDifficulty() {
+    if (!state.players || !state.botPlayerIds) return;
+    const difficultyId = getSelectedBotDifficultyId();
+    for (const pid of state.botPlayerIds) {
+      const bot = state.players.get(pid);
+      if (!bot) continue;
+      const profile = getBotProfile({ _botProfileId: difficultyId });
+      bot._botProfileId = difficultyId;
+      bot._botDifficultyLabel = profile.label || difficultyId;
+      bot._botMineYieldBonusPct = profile.mineYieldBonusPct || 0;
+      bot.xpGainMul = profile.xpGainMultiplier || 1;
+      if (!bot._botDifficultyApplied) {
+        bot.eCredits = Math.max(0, (bot.eCredits || 0) + (profile.hiddenStartCreditsBonus || 0));
+        bot._botDifficultyApplied = true;
+      }
+      recomputePlayerCardDerivedStats(bot);
+    }
+  }
   function botMergeSmallSquads(pid) {
+    const owner = state.players.get(pid);
+    const mergeRadius = getBotProfile(owner).mergeRadius || 500;
     if (typeof SQUADLOGIC !== "undefined") {
       const squads = getSquads().filter(s => s.length > 0 && s[0].owner === pid);
       const mergeable = squads
@@ -12273,7 +12519,7 @@
       const toMerge = [main.squadId];
       for (let i = 1; i < mergeable.length; i++) {
         const other = mergeable[i];
-        if (Math.hypot(other.center.x - main.center.x, other.center.y - main.center.y) <= 500) {
+        if (Math.hypot(other.center.x - main.center.x, other.center.y - main.center.y) <= mergeRadius) {
           toMerge.push(other.squadId);
         }
       }
@@ -12311,7 +12557,17 @@
 
   function botGetArchetype(p) {
     if (!p._botArchetype) {
-      p._botArchetype = BOT_ARCHETYPE_KEYS[Math.abs(p.id * 7919) % BOT_ARCHETYPE_KEYS.length];
+      const weights = getBotProfile(p).archetypeWeights || {};
+      const total = BOT_ARCHETYPE_KEYS.reduce((sum, key) => sum + Math.max(0.01, weights[key] || 1), 0);
+      let target = getBotWeightedRandom(p, 17) * total;
+      for (const key of BOT_ARCHETYPE_KEYS) {
+        target -= Math.max(0.01, weights[key] || 1);
+        if (target <= 0) {
+          p._botArchetype = key;
+          break;
+        }
+      }
+      if (!p._botArchetype) p._botArchetype = BOT_ARCHETYPE_KEYS[Math.abs(p.id * 7919) % BOT_ARCHETYPE_KEYS.length];
     }
     return BOT_ARCHETYPES[p._botArchetype];
   }
@@ -12356,8 +12612,9 @@
       if (p.id === state.myPlayerId) continue;
       if (state.botPlayerIds && !state.botPlayerIds.has(p.id)) continue;
       if (p.eliminated || p.pop <= 0) continue;
+      const profile = getBotProfile(p);
       p._botAcc = (p._botAcc ?? 0) + dt;
-      const tick = p._botAcc >= BOT_TICK;
+      const tick = p._botAcc >= Math.max(0.45, profile.thinkIntervalSec || BOT_TICK);
       if (tick) p._botAcc = 0;
 
       if (tick && !isIndirectControlEnabled()) botMergeSmallSquads(p.id);
@@ -12371,7 +12628,7 @@
 
       const squads = getSquads().filter(s => s.length > 0 && s[0].owner === p.id);
       const myUnitCount = myUnits.length;
-      const stagingMinSize = 4;
+      const stagingMinSize = profile.id === "easy" ? 5 : 4;
       const indirectLanes = isIndirectControlEnabled();
 
       function estimatePower(units) {
@@ -12409,7 +12666,7 @@
       function isDangerousForSquad(squad, x, y) {
         const squadPower = estimatePower(squad);
         const enemyPower = getEnemyPowerNear(x, y, squad[0]?.owner ?? p.id);
-        return enemyPower > squadPower * 1.2;
+        return enemyPower > squadPower * (profile.squadDangerTolerance || 1.2);
       }
 
       function setSquadWaypoint(squad, x, y) {
@@ -12471,7 +12728,7 @@
           }
           const wp = leader.waypoints;
           const idle = !wp || (leader.waypointIndex ?? 0) >= wp.length;
-          if (!idle && Math.random() > 0.3) continue;
+          if (!idle && Math.random() > (profile.id === "hard" ? 0.12 : 0.3)) continue;
 
           if (bestAction === defendScore && threatNearBase) {
             setSquadWaypoint(squad, p.x + rand(-80, 80), p.y + rand(-80, 80));
@@ -12512,7 +12769,7 @@
       const type = UNIT_TYPES[unitToBuy];
       const quote = indirectLanes ? getUnitPurchaseQuote(p.id, unitToBuy, 1, 3) : getUnitPurchaseQuote(p.id, unitToBuy, 1, 1);
       const cost = quote.ok ? quote.totalCost : getPurchaseCostWithModifiers(p.id, unitToBuy, 1, indirectLanes ? 3 : 1).totalCost;
-      const saveMultiplier = isEconomist ? 3.0 : (p._botArchetype === "aggressor" ? 1.2 : 1.8);
+      const saveMultiplier = (isEconomist ? 3.0 : (p._botArchetype === "aggressor" ? 1.2 : 1.8)) * (profile.saveMultiplierMul || 1);
       const savingThreshold = gameTime > 180 ? cost * saveMultiplier : cost;
       if (credits >= cost && (credits >= savingThreshold || myUnitCount < 4)) {
         const mine = nearestUnownedMine();
@@ -12522,17 +12779,17 @@
         if (indirectLanes) {
           const affordableCount = Math.max(1, Math.floor(credits / Math.max(1, cost)));
           let burstCount = 1;
-          if (unitToBuy === "destroyer") burstCount = Math.min(3, affordableCount);
-          else if (unitToBuy === "cruiser") burstCount = Math.min(2, affordableCount);
-          else if (unitToBuy === "battleship" && affordableCount >= 2 && credits >= savingThreshold * 1.35) burstCount = 2;
+          if (unitToBuy === "destroyer") burstCount = Math.min(3 + (profile.buyBurstBonus || 0), affordableCount);
+          else if (unitToBuy === "cruiser") burstCount = Math.min(2 + Math.min(1, profile.buyBurstBonus || 0), affordableCount);
+          else if (unitToBuy === "battleship" && affordableCount >= 2 && credits >= savingThreshold * 1.35) burstCount = Math.min(2 + Math.min(1, profile.buyBurstBonus || 0), affordableCount);
           for (let i = 0; i < burstCount; i++) {
             if (!purchaseFrontTriplet(p.id, unitToBuy).ok) break;
           }
         } else {
           const affordableCount = Math.max(1, Math.floor(credits / cost));
           let burstCount = 1;
-          if (unitToBuy === "destroyer") burstCount = Math.min(2, affordableCount);
-          else if (unitToBuy === "cruiser" && affordableCount >= 2 && Math.random() < 0.35) burstCount = 2;
+          if (unitToBuy === "destroyer") burstCount = Math.min(2 + (profile.buyBurstBonus || 0), affordableCount);
+          else if (unitToBuy === "cruiser" && affordableCount >= 2 && Math.random() < 0.35 + (profile.id === "hard" ? 0.15 : 0)) burstCount = Math.min(2 + Math.min(1, profile.buyBurstBonus || 0), affordableCount);
           for (let i = 0; i < burstCount; i++) {
             purchaseUnit(p.id, unitToBuy, [{ x: tx, y: ty }], { sourceTag: "spawn" });
           }
@@ -13273,6 +13530,7 @@
       consumeAbilityCardForPlayerLocal(state.myPlayerId, instanceId, false);
       sendPlayerAction(payload);
     } else castAbilityCardForPlayer(payload);
+    hideHudTooltip();
     state._pendingAbilityCardInstanceId = null;
     if (me) me.pendingAbilityCardId = null;
     cancelAbilityTargeting();
@@ -13282,7 +13540,7 @@
   function isGameplayDropTarget(clientX, clientY) {
     const target = document.elementFromPoint(clientX, clientY);
     if (!target) return false;
-    if (target.closest("#hud, #topRightPanel, #bottomRightPanel, #cardHud, #gameChatWrap, #enemyComparePanel, #victoryOverlay, #abilityOverlay, #cardModal, #mainMenu, #nicknameScreen, #lobbyScreen, #multiConnectScreen")) {
+    if (target.closest("#hud, #topRightPanel, #bottomRightPanel, #cardHud, #gameChatWrap, #enemyComparePanel, #victoryOverlay, #abilityOverlay, #cardModal, #mainMenu, #nicknameScreen, #lobbyScreen, #multiConnectScreen, #mobileGameHudBar")) {
       return false;
     }
     return !!target.closest("canvas, #gameWrap");
@@ -13300,6 +13558,20 @@
     return !!(state._cardHudFreezeUntilMs && getNowMs() < state._cardHudFreezeUntilMs);
   }
 
+  function beginCardHudHoverSuppress(ms) {
+    state._cardHudHoverSuppressUntilMs = getNowMs() + Math.max(0, ms || 0);
+    clearHoveredHandCard();
+  }
+
+  function isCardHudHoverSuppressed() {
+    return !!(state._cardHudHoverSuppressUntilMs && getNowMs() < state._cardHudHoverSuppressUntilMs);
+  }
+
+  function hideHudTooltip() {
+    const tooltipEl = typeof document !== "undefined" ? document.getElementById("hudTooltip") : null;
+    if (tooltipEl) tooltipEl.style.display = "none";
+  }
+
   function clearHoveredHandCard(targetCard) {
     if (targetCard) targetCard.classList.remove("is-hovered");
     const card = state._hoveredHandCardEl;
@@ -13309,6 +13581,7 @@
     if (state._hoveredHandCardCleanup) state._hoveredHandCardCleanup();
     state._hoveredHandCardEl = null;
     state._hoveredHandCardCleanup = null;
+    hideHudTooltip();
   }
 
   function getStableHandCardHoverRect(cardEl) {
@@ -13328,6 +13601,7 @@
 
   function setHoveredHandCard(cardEl) {
     if (!cardEl) return;
+    if (isCardHudHoverSuppressed()) return;
     if (state._hoveredHandCardEl === cardEl) return;
     clearHoveredHandCard();
     state._hoveredHandCardEl = cardEl;
@@ -13357,6 +13631,7 @@
     cardEl._hoverStateBound = true;
     cardEl.addEventListener("pointerenter", () => {
       if (state._draggingCardInstanceId) return;
+      if (isCardHudHoverSuppressed()) return;
       setHoveredHandCard(cardEl);
     });
     cardEl.addEventListener("pointerleave", (event) => {
@@ -13395,7 +13670,25 @@
   function animateCardGhostCommit(ghost, done) {
     const currentLeft = parseFloat(ghost.style.left || "0") || 0;
     const currentTop = parseFloat(ghost.style.top || "0") || 0;
-    animateFloatingCardGhost(ghost, currentLeft, currentTop - 30, "rotate(-8deg) scale(0.92)", 0, done);
+    ghost.classList.add("play-commit");
+    animateFloatingCardGhost(ghost, currentLeft, currentTop - 42, "rotate(-10deg) scale(0.82)", 0, done);
+  }
+
+  function spawnCardActivationBurst(target, rarityKey) {
+    if (typeof document === "undefined" || !target || !target.getBoundingClientRect) return;
+    const rect = target.getBoundingClientRect();
+    const burst = document.createElement("div");
+    const rarity = rarityKey || "rare";
+    const size = Math.max(72, Math.min(186, Math.max(rect.width, rect.height) * 0.78));
+    burst.className = "card-activation-burst rarity-" + rarity;
+    burst.style.width = Math.round(size) + "px";
+    burst.style.height = Math.round(size) + "px";
+    burst.style.left = Math.round(rect.left + rect.width * 0.5) + "px";
+    burst.style.top = Math.round(rect.top + rect.height * 0.42) + "px";
+    document.body.appendChild(burst);
+    window.setTimeout(() => {
+      if (burst.parentNode) burst.parentNode.removeChild(burst);
+    }, 300);
   }
 
   function syncHandZoneCountLabel(container) {
@@ -13418,6 +13711,7 @@
     }
     const prevSnapshot = captureHandCardSnapshot(container);
     if (cardEl.parentNode === container) container.removeChild(cardEl);
+    beginCardHudHoverSuppress(220);
     container.dataset.stackLayoutKey = "";
     container.dataset.textFitKey = "";
     layoutHandCards(container);
@@ -13433,7 +13727,9 @@
     }
     clearHoveredHandCard(cardEl);
     beginCardHudFreeze(140);
+    beginCardHudHoverSuppress(240);
     const rect = cardEl.getBoundingClientRect();
+    spawnCardActivationBurst(cardEl, cardEl.dataset.rarity || "rare");
     const ghost = cardEl.cloneNode(true);
     ghost.classList.remove("is-hovered", "pending-target", "drag-source", "activating-card");
     ghost.classList.add("drag-card-ghost");
@@ -13868,17 +14164,76 @@
     }
   }
 
+  function renderHudBuffSummary(host, activeEntries) {
+    if (!host) return;
+    host.innerHTML = "";
+    if (!activeEntries.length) {
+      host.innerHTML = "<div class='muted'>Активных баффов нет.</div>";
+      return;
+    }
+    for (const entry of activeEntries) {
+      const el = createStatusChip(entry);
+      if (el) host.appendChild(el);
+    }
+  }
+
+  function activateAllBuffCardsForPlayer(pid) {
+    const player = state.players.get(pid);
+    if (!player) return 0;
+    ensurePlayerCardState(player);
+    const handSnapshot = Array.isArray(player.buffHand) ? [...player.buffHand] : [];
+    if (!handSnapshot.length) return 0;
+    beginCardHudFreeze(180);
+    beginCardHudHoverSuppress(260);
+    triggerCardPlayFlashByRarity("rare");
+    const zone = document.getElementById("buffHandZone");
+    if (zone) spawnCardActivationBurst(zone, "rare");
+    let activated = 0;
+    for (const entry of handSnapshot) {
+      if (!entry || !entry.instanceId) continue;
+      const result = isRemoteGameplayClient()
+        ? activateBuffCardForPlayer(pid, entry.instanceId, false)
+        : activateBuffCardForPlayer(pid, entry.instanceId);
+      if (!result || !result.ok) continue;
+      activated++;
+      if (isRemoteGameplayClient()) {
+        sendPlayerAction({ type: "activateBuffCard", pid, instanceId: entry.instanceId });
+      }
+    }
+    return activated;
+  }
+
+  function ensureCardHudControlsBound() {
+    if (state._cardHudControlsBound) return;
+    state._cardHudControlsBound = true;
+    const activateAllBtn = document.getElementById("buffActivateAllBtn");
+    if (activateAllBtn) {
+      activateAllBtn.addEventListener("click", () => {
+        activateAllBuffCardsForPlayer(state.myPlayerId);
+      });
+    }
+  }
+
   function renderCardHud() {
     const hud = document.getElementById("cardHud");
     const buffHandCards = document.getElementById("buffHandCards");
     const abilityHandCards = document.getElementById("abilityHandCards");
     const topActiveBuffBar = document.getElementById("topActiveBuffBar");
+    const hudBuffSummary = document.getElementById("hudBuffSummary");
     const buffHandCount = document.getElementById("buffHandCount");
     const abilityHandCount = document.getElementById("abilityHandCount");
+    const buffActivateAllBtn = document.getElementById("buffActivateAllBtn");
     const me = state.players.get(state.myPlayerId);
-    if (!hud || !buffHandCards || !abilityHandCards || !topActiveBuffBar || !me) return;
+    if (!hud || !buffHandCards || !abilityHandCards || !me) return;
+    ensureCardHudControlsBound();
     ensurePlayerCardState(me);
     hud.style.display = "flex";
+    if (buffActivateAllBtn) {
+      buffActivateAllBtn.disabled = isCardHudFrozen() || !me.buffHand || me.buffHand.length === 0;
+      buffActivateAllBtn.textContent = me.buffHand && me.buffHand.length > 0
+        ? "Активировать всё"
+        : "Нет баффов";
+    }
     if (state._draggingCardInstanceId) return;
     if (isCardHudFrozen()) return;
 
@@ -13892,7 +14247,7 @@
       fitHandCardDescriptions(abilityHandCards);
       if (state._cardHudActiveKey !== activeKey) {
         state._cardHudActiveKey = activeKey;
-        renderTopActiveBuffBar(topActiveBuffBar, activeEntries);
+        renderHudBuffSummary(hudBuffSummary, activeEntries);
       }
       return;
     }
@@ -13934,7 +14289,7 @@
     animateHandCardLayoutTransition(abilityHandCards, prevAbilitySnapshot);
 
     state._cardHudActiveKey = activeKey;
-    renderTopActiveBuffBar(topActiveBuffBar, activeEntries);
+    renderHudBuffSummary(hudBuffSummary, activeEntries);
   }
 
   function getCardEmoji(card) {
@@ -14317,10 +14672,16 @@
       tooltipEl.style.display = "block";
     });
     document.addEventListener("pointermove", (e) => {
-      if (tooltipEl && tooltipEl.style.display === "block") {
-        tooltipEl.style.left = Math.min(e.clientX + 12, window.innerWidth - 280) + "px";
-        tooltipEl.style.top = (e.clientY + 14) + "px";
+      if (!tooltipEl) return;
+      const row = e.target.closest("[data-tooltip]");
+      if (!row) {
+        tooltipEl.style.display = "none";
+        return;
       }
+      tooltipEl.textContent = row.dataset.tooltip;
+      tooltipEl.style.display = "block";
+      tooltipEl.style.left = Math.min(e.clientX + 12, window.innerWidth - 280) + "px";
+      tooltipEl.style.top = (e.clientY + 14) + "px";
     });
     document.addEventListener("pointerout", (e) => {
       const row = e.target.closest("[data-tooltip]");
@@ -14800,6 +15161,8 @@
   state._abilityUsedByPlayer = state._abilityUsedByPlayer || {};
   state._abilityAnnouncements = state._abilityAnnouncements || [];
   state._abilityTargeting = null;
+  state._mobileAbilityConfirm = null;
+  state._mobileAbilityLockedPreview = null;
   state._abilityStorms = [];
   state._meteorTargeting = null; // {phase:'point'|'angle', x, y, angle}
   state._activeMeteors = [];
@@ -14906,6 +15269,78 @@
   const abilityCards = document.getElementById("abilityCards");
   const abilityClose = document.getElementById("abilityClose");
   const abilitiesBtn = document.getElementById("abilitiesBtn");
+  const abilityTargetHintEl = document.getElementById("abilityTargetHint");
+  const abilityConfirmPopupEl = document.getElementById("abilityConfirmPopup");
+  const abilityConfirmTitleEl = document.getElementById("abilityConfirmTitle");
+  const abilityConfirmTextEl = document.getElementById("abilityConfirmText");
+  const abilityConfirmYesEl = document.getElementById("abilityConfirmYes");
+  const abilityConfirmNoEl = document.getElementById("abilityConfirmNo");
+
+  function isMobileAbilityConfirmationMode() {
+    return typeof window !== "undefined" && isCompactMobileUi() && isMobileViewportLike();
+  }
+
+  function setAbilityTargetHint(text) {
+    if (!abilityTargetHintEl) return;
+    const shouldShow = !!text && !!state._abilityTargeting && isMobileAbilityConfirmationMode();
+    abilityTargetHintEl.textContent = shouldShow ? text : "";
+    abilityTargetHintEl.style.display = shouldShow ? "block" : "none";
+  }
+
+  function getAbilityTargetHintText() {
+    if (!state._abilityTargeting || !isMobileAbilityConfirmationMode()) return "";
+    if (state._mobileAbilityConfirm) return "Проверь превью и нажми «Да», если все верно.";
+    if (state._abilityTargeting === "meteor" || state._abilityTargeting === "spatialRift" || state._abilityTargeting === METEOR_SWARM_ABILITY_ID) {
+      if (state._meteorTargeting && state._meteorTargeting.phase === "angle") {
+        return "Проведи пальцем, чтобы задать угол, затем тапни еще раз для подтверждения.";
+      }
+      return "Тапни по карте, чтобы выбрать точку.";
+    }
+    return "Тапни по карте, чтобы выбрать область, затем подтверди активацию.";
+  }
+
+  function syncAbilityTargetHint() {
+    setAbilityTargetHint(getAbilityTargetHintText());
+  }
+
+  function clearMobileAbilityConfirmation(keepPreview) {
+    state._mobileAbilityConfirm = null;
+    if (!keepPreview) state._mobileAbilityLockedPreview = null;
+    if (abilityConfirmPopupEl) abilityConfirmPopupEl.style.display = "none";
+    syncAbilityTargetHint();
+  }
+
+  function openMobileAbilityConfirmation(confirmOptions) {
+    state._mobileAbilityConfirm = confirmOptions || null;
+    if (abilityConfirmTitleEl) abilityConfirmTitleEl.textContent = (confirmOptions && confirmOptions.title) || "Активировать?";
+    if (abilityConfirmTextEl) abilityConfirmTextEl.textContent = (confirmOptions && confirmOptions.text) || "Проверь цель и подтверди применение способности.";
+    if (abilityConfirmPopupEl) abilityConfirmPopupEl.style.display = confirmOptions ? "flex" : "none";
+    syncAbilityTargetHint();
+  }
+
+  if (abilityConfirmYesEl) {
+    abilityConfirmYesEl.addEventListener("click", () => {
+      const confirmState = state._mobileAbilityConfirm;
+      if (!confirmState || typeof confirmState.onConfirm !== "function") return;
+      clearMobileAbilityConfirmation(false);
+      confirmState.onConfirm();
+    });
+  }
+  if (abilityConfirmNoEl) {
+    abilityConfirmNoEl.addEventListener("click", () => {
+      const confirmState = state._mobileAbilityConfirm;
+      clearMobileAbilityConfirmation(false);
+      if (confirmState && typeof confirmState.onCancel === "function") confirmState.onCancel();
+    });
+  }
+  if (abilityConfirmPopupEl) {
+    abilityConfirmPopupEl.addEventListener("click", (event) => {
+      if (event.target !== abilityConfirmPopupEl) return;
+      const confirmState = state._mobileAbilityConfirm;
+      clearMobileAbilityConfirmation(false);
+      if (confirmState && typeof confirmState.onCancel === "function") confirmState.onCancel();
+    });
+  }
 
   if (abilitiesBtn) {
     abilitiesBtn.disabled = false;
@@ -14976,8 +15411,10 @@
 
   function startAbilityTargeting(abilityId) {
     hideAbilityPicker();
+    clearMobileAbilityConfirmation(false);
     state._abilityTargeting = abilityId;
     state._meteorTargeting = null;
+    state._mobileAbilityLockedPreview = null;
     if (abilityId === "meteor") {
       state._meteorTargeting = { phase: "point", x: 0, y: 0, angle: 0 };
     }
@@ -14988,16 +15425,21 @@
       state._meteorTargeting = { phase: "point", x: 0, y: 0, angle: 0 };
     }
     app.canvas.style.cursor = "crosshair";
+    syncAbilityTargetHint();
   }
 
   function cancelAbilityTargeting() {
+    clearMobileAbilityConfirmation(false);
     clearAbilityPreview();
     state._abilityTargeting = null;
     state._meteorTargeting = null;
+    state._mobileAbilityLockedPreview = null;
     state._pendingAbilityCardInstanceId = null;
     const me = state.players.get(state.myPlayerId);
     if (me) me.pendingAbilityCardId = null;
     app.canvas.style.cursor = "";
+    hideHudTooltip();
+    setAbilityTargetHint("");
   }
 
   function _spawnIonNebulaLocal(wx, wy, ownerId, opts) {
@@ -18233,11 +18675,19 @@
       panel.style.display = "none";
       return;
     }
-    function showIfSolo() {
-      if (!state._multiSlots) panel.style.display = "flex";
-      else panel.style.display = "none";
+    function isAllowedTestNickname() {
+      const nicknameInput = typeof document !== "undefined" ? document.getElementById("nicknameInput") : null;
+      const nickname =
+        (state._myNickname
+          || (typeof window !== "undefined" ? window._myNickname : "")
+          || (nicknameInput && nicknameInput.value)
+          || "")
+          .trim();
+      return nickname === "qD319";
     }
-    const _origResetWorld = typeof resetWorld === "function" ? resetWorld : null;
+    function showIfSolo() {
+      panel.style.display = (!state._multiSlots && isAllowedTestNickname()) ? "flex" : "none";
+    }
     setInterval(showIfSolo, 1000);
     showIfSolo();
 
@@ -18437,10 +18887,11 @@
       previewText.visible = false;
       previewText.text = "";
     }
-    const msx = state._mouseScreenX ?? selectionPointerState.lastX;
-    const msy = state._mouseScreenY ?? selectionPointerState.lastY;
-    const mx = (msx - cam.x) / cam.zoom;
-    const my = (msy - cam.y) / cam.zoom;
+    const lockedPreview = state._mobileAbilityLockedPreview;
+    const msx = lockedPreview && lockedPreview.screenX != null ? lockedPreview.screenX : (state._mouseScreenX ?? selectionPointerState.lastX);
+    const msy = lockedPreview && lockedPreview.screenY != null ? lockedPreview.screenY : (state._mouseScreenY ?? selectionPointerState.lastY);
+    const mx = lockedPreview && lockedPreview.x != null ? lockedPreview.x : (msx - cam.x) / cam.zoom;
+    const my = lockedPreview && lockedPreview.y != null ? lockedPreview.y : (msy - cam.y) / cam.zoom;
     const spatialRiftRenderer = getSpatialRiftRendererApi();
     if (state._abilityTargeting !== "spatialRift" && spatialRiftRenderer && typeof spatialRiftRenderer.destroyPreview === "function") {
       spatialRiftRenderer.destroyPreview(state);
@@ -18930,6 +19381,286 @@
     if (renderer && typeof renderer.destroyPreview === "function") renderer.destroyPreview(state);
   }
 
+  function getAbilityDisplayName(abilityId) {
+    const def = ABILITY_DEFS.find((entry) => entry.id === abilityId);
+    return def ? def.name : "способность";
+  }
+
+  function updateMeteorTouchAngle(clientX, clientY) {
+    if (!state._meteorTargeting || state._meteorTargeting.phase !== "angle") return;
+    const wx = (clientX - cam.x) / cam.zoom;
+    const wy = (clientY - cam.y) / cam.zoom;
+    state._meteorTargeting.angle = Math.atan2(wy - state._meteorTargeting.y, wx - state._meteorTargeting.x);
+  }
+
+  function handleAbilityTargetingPrimaryClick(wx, wy) {
+    if (!state._abilityTargeting) return false;
+    hideHudTooltip();
+    if (state._abilityTargeting === "ionNebula" || state._abilityTargeting === "ionField") {
+      if (!confirmPendingAbilityCardCast({ x: wx, y: wy })) useIonNebula(wx, wy, state._abilityTargeting);
+      return true;
+    } else if (state._abilityTargeting === "blackHole" || state._abilityTargeting === "microBlackHole") {
+      if (confirmPendingAbilityCardCast({ x: wx, y: wy })) return true;
+      const me = state.players.get(state.myPlayerId);
+      const abilityId = state._abilityTargeting;
+      const cooldownKey = abilityId;
+      const cooldownValue = ABILITY_DEFS.find((d) => d.id === abilityId)?.cooldown || CFG.BLACKHOLE_COOLDOWN;
+      if (state._multiSlots && !state._multiIsHost && state._socket) {
+        sendPlayerAction({ type: "useAbility", abilityId, pid: state.myPlayerId, x: wx, y: wy });
+        if (me) {
+          if (!state._abilityCooldownsByPlayer[me.id]) state._abilityCooldownsByPlayer[me.id] = {};
+          state._abilityCooldownsByPlayer[me.id][cooldownKey] = toSimSeconds(cooldownValue);
+        }
+      } else {
+        if (abilityId === "microBlackHole") {
+          spawnBlackHole(wx, wy, state.myPlayerId, {
+            durationSec: 5,
+            radius: Math.max(60, CFG.BLACKHOLE_RADIUS / 3),
+            styleKey: "blood-meridian",
+            damageScale: 1 / 3,
+            finalBurstPct: 0.10 / 3
+          });
+        } else {
+          spawnBlackHole(wx, wy, state.myPlayerId);
+        }
+        if (me) {
+          if (!state._abilityCooldownsByPlayer[me.id]) state._abilityCooldownsByPlayer[me.id] = {};
+          state._abilityCooldownsByPlayer[me.id][cooldownKey] = toSimSeconds(cooldownValue);
+        }
+        pushAbilityAnnouncement(state.myPlayerId, abilityId);
+      }
+      cancelAbilityTargeting();
+      return true;
+    } else if (state._abilityTargeting === "activeShield") {
+      if (confirmPendingAbilityCardCast()) return true;
+      const def = ABILITY_DEFS.find(d => d.id === "activeShield");
+      if (state._multiSlots && !state._multiIsHost && state._socket) {
+        sendPlayerAction({ type: "useAbility", abilityId: "activeShield", pid: state.myPlayerId });
+      } else {
+        useActiveShield(state.myPlayerId);
+        if (def) setAbilityCooldown(state.myPlayerId, "activeShield", def.cooldown);
+        pushAbilityAnnouncement(state.myPlayerId, "activeShield");
+      }
+      cancelAbilityTargeting();
+      return true;
+    } else if (state._abilityTargeting === "loan") {
+      if (confirmPendingAbilityCardCast()) return true;
+      const def = ABILITY_DEFS.find(d => d.id === "loan");
+      if (state._multiSlots && !state._multiIsHost && state._socket) {
+        sendPlayerAction({ type: "useAbility", abilityId: "loan", pid: state.myPlayerId });
+      } else {
+        useLoan(state.myPlayerId);
+        if (def) setAbilityCooldown(state.myPlayerId, "loan", def.cooldown);
+        pushAbilityAnnouncement(state.myPlayerId, "loan");
+      }
+      cancelAbilityTargeting();
+      return true;
+    } else if (state._abilityTargeting === "gloriousBattleMarch") {
+      if (confirmPendingAbilityCardCast()) return true;
+      const def = ABILITY_DEFS.find(d => d.id === "gloriousBattleMarch");
+      if (state._multiSlots && !state._multiIsHost && state._socket) {
+        sendPlayerAction({ type: "useAbility", abilityId: "gloriousBattleMarch", pid: state.myPlayerId });
+      } else {
+        useGloriousBattleMarch(state.myPlayerId);
+        if (def) setAbilityCooldown(state.myPlayerId, "gloriousBattleMarch", def.cooldown);
+        pushAbilityAnnouncement(state.myPlayerId, "gloriousBattleMarch");
+      }
+      cancelAbilityTargeting();
+      return true;
+    } else if (state._abilityTargeting === "raiderCapture" || state._abilityTargeting === "cosmicGodHand") {
+      const abilityId = state._abilityTargeting;
+      let targetCityId = null;
+      for (const p of state.players.values()) {
+        if (p.eliminated || p.id === state.myPlayerId) continue;
+        const d2 = (wx - p.x) ** 2 + (wy - p.y) ** 2;
+        if (d2 <= (getPlanetRadius(p) + 40) ** 2) { targetCityId = p.id; break; }
+      }
+      if (targetCityId == null) return false;
+      if (confirmPendingAbilityCardCast({ targetCityId })) return true;
+      const def = ABILITY_DEFS.find(d => d.id === abilityId);
+      if (state._multiSlots && !state._multiIsHost && state._socket) {
+        sendPlayerAction({ type: "useAbility", abilityId, pid: state.myPlayerId, targetCityId });
+      } else {
+        if (abilityId === "cosmicGodHand") useCosmicGodHand(state.myPlayerId, targetCityId);
+        else useRaiderCapture(state.myPlayerId, targetCityId);
+        if (def) setAbilityCooldown(state.myPlayerId, abilityId, def.cooldown);
+        pushAbilityAnnouncement(state.myPlayerId, abilityId);
+      }
+      cancelAbilityTargeting();
+      return true;
+    } else if (state._abilityTargeting === "pirateRaid") {
+      if (confirmPendingAbilityCardCast({ x: wx, y: wy })) return true;
+      const def = ABILITY_DEFS.find(d => d.id === "pirateRaid");
+      if (state._multiSlots && !state._multiIsHost && state._socket) {
+        if (!isPirateRaidPointOnLane(wx, wy)) return false;
+        sendPlayerAction({ type: "useAbility", abilityId: "pirateRaid", pid: state.myPlayerId, x: wx, y: wy });
+      } else {
+        if (!spawnPirateRaid(wx, wy, state.myPlayerId)) return false;
+        if (def) setAbilityCooldown(state.myPlayerId, "pirateRaid", def.cooldown);
+        pushAbilityAnnouncement(state.myPlayerId, "pirateRaid");
+      }
+      cancelAbilityTargeting();
+      return true;
+    } else if (state._abilityTargeting === "meteor") {
+      const mt = state._meteorTargeting;
+      if (mt.phase === "point") {
+        mt.x = wx; mt.y = wy;
+        mt.phase = "angle";
+        syncAbilityTargetHint();
+        return true;
+      } else if (mt.phase === "angle") {
+        if (!confirmPendingAbilityCardCast({ x: mt.x, y: mt.y, angle: mt.angle })) useMeteor(mt.x, mt.y, mt.angle);
+        return true;
+      }
+    } else if (state._abilityTargeting === "spatialRift") {
+      const mt = state._meteorTargeting;
+      if (mt.phase === "point") {
+        mt.x = wx; mt.y = wy;
+        mt.phase = "angle";
+        syncAbilityTargetHint();
+        return true;
+      } else if (mt.phase === "angle") {
+        if (confirmPendingAbilityCardCast({ x: mt.x, y: mt.y, angle: mt.angle })) return true;
+        const def = ABILITY_DEFS.find(d => d.id === "spatialRift");
+        if (state._multiSlots && !state._multiIsHost && state._socket) {
+          sendPlayerAction({ type: "useAbility", abilityId: "spatialRift", pid: state.myPlayerId, x: mt.x, y: mt.y, angle: mt.angle });
+        } else {
+          spawnSpatialRiftLocal(mt.x, mt.y, mt.angle, state.myPlayerId);
+          if (def) setAbilityCooldown(state.myPlayerId, "spatialRift", def.cooldown);
+          pushAbilityAnnouncement(state.myPlayerId, "spatialRift");
+        }
+        cancelAbilityTargeting();
+        return true;
+      }
+    } else if (state._abilityTargeting === METEOR_SWARM_ABILITY_ID) {
+      const mt = state._meteorTargeting;
+      if (mt.phase === "point") {
+        mt.x = wx; mt.y = wy;
+        mt.phase = "angle";
+        syncAbilityTargetHint();
+        return true;
+      } else if (mt.phase === "angle") {
+        if (confirmPendingAbilityCardCast({ x: mt.x, y: mt.y, angle: mt.angle })) return true;
+        const def = ABILITY_DEFS.find(d => d.id === METEOR_SWARM_ABILITY_ID);
+        if (state._multiSlots && !state._multiIsHost && state._socket) {
+          sendPlayerAction({ type: "useAbility", abilityId: METEOR_SWARM_ABILITY_ID, pid: state.myPlayerId, x: mt.x, y: mt.y, angle: mt.angle });
+        } else {
+          _spawnMeteorSwarmLocal(mt.x, mt.y, mt.angle, state.myPlayerId);
+          if (def) setAbilityCooldown(state.myPlayerId, METEOR_SWARM_ABILITY_ID, def.cooldown);
+          pushAbilityAnnouncement(state.myPlayerId, METEOR_SWARM_ABILITY_ID);
+        }
+        cancelAbilityTargeting();
+        return true;
+      }
+    } else if (state._abilityTargeting === MINEFIELD_SMALL_ID || state._abilityTargeting === MINEFIELD_LARGE_ID) {
+      const abilityId = state._abilityTargeting;
+      const placement = getMinefieldPlacement(state.myPlayerId, wx, wy, abilityId);
+      if (!placement || !placement.valid) return false;
+      if (confirmPendingAbilityCardCast({ x: wx, y: wy })) return true;
+      const def = ABILITY_DEFS.find(d => d.id === abilityId);
+      if (state._multiSlots && !state._multiIsHost && state._socket) {
+        sendPlayerAction({ type: "useAbility", abilityId, pid: state.myPlayerId, x: wx, y: wy });
+      } else {
+        const placed = deployMinefieldLocal(abilityId, wx, wy, state.myPlayerId);
+        if (!placed || !placed.ok) return false;
+        if (def) setAbilityCooldown(state.myPlayerId, abilityId, def.cooldown);
+        pushAbilityAnnouncement(state.myPlayerId, abilityId);
+      }
+      cancelAbilityTargeting();
+      return true;
+    } else if (state._abilityTargeting === "orbitalStrike" || state._abilityTargeting === ORBITAL_BARRAGE_ID) {
+      const abilityId = state._abilityTargeting;
+      if (confirmPendingAbilityCardCast({ x: wx, y: wy })) return true;
+      if (state._multiSlots && !state._multiIsHost && state._socket) {
+        sendPlayerAction({ type: "useAbility", abilityId, pid: state.myPlayerId, x: wx, y: wy });
+        cancelAbilityTargeting();
+      } else {
+        useAbilityAtPoint(abilityId, wx, wy, state.myPlayerId);
+      }
+      return true;
+    } else {
+      const pointAbilities = ["gravAnchor", "microAnchor", "fakeSignature", "timeSingularity", "nanoSwarm", "gravWave", "resourceRaid", "thermoNuke", "hyperJump"];
+      if (pointAbilities.includes(state._abilityTargeting)) {
+        if (confirmPendingAbilityCardCast({ x: wx, y: wy })) return true;
+        if (state._multiSlots && !state._multiIsHost && state._socket) {
+          sendPlayerAction({ type: "useAbility", abilityId: state._abilityTargeting, pid: state.myPlayerId, x: wx, y: wy });
+          cancelAbilityTargeting();
+        } else {
+          useAbilityAtPoint(state._abilityTargeting, wx, wy, state.myPlayerId);
+        }
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function handleMobileAbilityTouchTap(clientX, clientY) {
+    if (!state._abilityTargeting || state._mobileAbilityConfirm) return false;
+    const wx = (clientX - cam.x) / cam.zoom;
+    const wy = (clientY - cam.y) / cam.zoom;
+    const abilityId = state._abilityTargeting;
+    const rememberPreview = (worldX, worldY) => {
+      state._mouseScreenX = clientX;
+      state._mouseScreenY = clientY;
+      state._mobileAbilityLockedPreview = { x: worldX, y: worldY, screenX: clientX, screenY: clientY };
+    };
+    const openConfirm = () => {
+      const abilityName = getAbilityDisplayName(abilityId);
+      openMobileAbilityConfirmation({
+        title: "Активировать «" + abilityName + "»?",
+        text: "Проверь область действия и подтверди применение.",
+        onConfirm: () => handleAbilityTargetingPrimaryClick(wx, wy),
+        onCancel: () => {
+          state._mobileAbilityLockedPreview = null;
+          syncAbilityTargetHint();
+        }
+      });
+    };
+    if (abilityId === "meteor" || abilityId === "spatialRift" || abilityId === METEOR_SWARM_ABILITY_ID) {
+      const mt = state._meteorTargeting;
+      if (!mt) return false;
+      if (mt.phase === "point") {
+        mt.x = wx;
+        mt.y = wy;
+        mt.phase = "angle";
+        rememberPreview(wx, wy);
+        syncAbilityTargetHint();
+        return true;
+      }
+      if (mt.phase === "angle") {
+        rememberPreview(mt.x, mt.y);
+        openMobileAbilityConfirmation({
+          title: "Активировать «" + getAbilityDisplayName(abilityId) + "»?",
+          text: "Проверь точку и траекторию, затем подтверди удар.",
+          onConfirm: () => handleAbilityTargetingPrimaryClick(wx, wy),
+          onCancel: () => {
+            state._mobileAbilityLockedPreview = null;
+            syncAbilityTargetHint();
+          }
+        });
+        return true;
+      }
+    }
+    if ((abilityId === MINEFIELD_SMALL_ID || abilityId === MINEFIELD_LARGE_ID) && !getMinefieldPlacement(state.myPlayerId, wx, wy, abilityId)?.valid) {
+      return false;
+    }
+    if (abilityId === "pirateRaid" && !isPirateRaidPointOnLane(wx, wy)) {
+      return false;
+    }
+    if (abilityId === "raiderCapture" || abilityId === "cosmicGodHand") {
+      let targetCityId = null;
+      for (const p of state.players.values()) {
+        if (p.eliminated || p.id === state.myPlayerId) continue;
+        const d2 = (wx - p.x) ** 2 + (wy - p.y) ** 2;
+        if (d2 <= (getPlanetRadius(p) + 40) ** 2) { targetCityId = p.id; break; }
+      }
+      if (targetCityId == null) return false;
+    }
+    rememberPreview(wx, wy);
+    openConfirm();
+    return true;
+  }
+
   app.canvas.addEventListener("mousedown", (e) => {
     if (!state._abilityTargeting) return;
     if (e.button === 0) {
@@ -18937,193 +19668,35 @@
       e.preventDefault();
       const wx = (e.clientX - cam.x) / cam.zoom;
       const wy = (e.clientY - cam.y) / cam.zoom;
-      if (state._abilityTargeting === "ionNebula" || state._abilityTargeting === "ionField") {
-        if (!confirmPendingAbilityCardCast({ x: wx, y: wy })) useIonNebula(wx, wy, state._abilityTargeting);
-      } else if (state._abilityTargeting === "blackHole" || state._abilityTargeting === "microBlackHole") {
-        if (confirmPendingAbilityCardCast({ x: wx, y: wy })) return;
-        const me = state.players.get(state.myPlayerId);
-        const abilityId = state._abilityTargeting;
-        const cooldownKey = abilityId;
-        const cooldownValue = ABILITY_DEFS.find((d) => d.id === abilityId)?.cooldown || CFG.BLACKHOLE_COOLDOWN;
-        if (state._multiSlots && !state._multiIsHost && state._socket) {
-          sendPlayerAction({ type: "useAbility", abilityId, pid: state.myPlayerId, x: wx, y: wy });
-          if (me) {
-            if (!state._abilityCooldownsByPlayer[me.id]) state._abilityCooldownsByPlayer[me.id] = {};
-            state._abilityCooldownsByPlayer[me.id][cooldownKey] = toSimSeconds(cooldownValue);
-          }
-        } else {
-          if (abilityId === "microBlackHole") {
-            spawnBlackHole(wx, wy, state.myPlayerId, {
-              durationSec: 5,
-              radius: Math.max(60, CFG.BLACKHOLE_RADIUS / 3),
-              styleKey: "blood-meridian",
-              damageScale: 1 / 3,
-              finalBurstPct: 0.10 / 3
-            });
-          } else {
-            spawnBlackHole(wx, wy, state.myPlayerId);
-          }
-          if (me) {
-            if (!state._abilityCooldownsByPlayer[me.id]) state._abilityCooldownsByPlayer[me.id] = {};
-            state._abilityCooldownsByPlayer[me.id][cooldownKey] = toSimSeconds(cooldownValue);
-          }
-          pushAbilityAnnouncement(state.myPlayerId, abilityId);
-        }
-        cancelAbilityTargeting();
-      } else if (state._abilityTargeting === "activeShield") {
-        if (confirmPendingAbilityCardCast()) return;
-        const def = ABILITY_DEFS.find(d => d.id === "activeShield");
-        if (state._multiSlots && !state._multiIsHost && state._socket) {
-          sendPlayerAction({ type: "useAbility", abilityId: "activeShield", pid: state.myPlayerId });
-        } else {
-          useActiveShield(state.myPlayerId);
-          if (def) setAbilityCooldown(state.myPlayerId, "activeShield", def.cooldown);
-          pushAbilityAnnouncement(state.myPlayerId, "activeShield");
-        }
-        cancelAbilityTargeting();
-      } else if (state._abilityTargeting === "loan") {
-        if (confirmPendingAbilityCardCast()) return;
-        const def = ABILITY_DEFS.find(d => d.id === "loan");
-        if (state._multiSlots && !state._multiIsHost && state._socket) {
-          sendPlayerAction({ type: "useAbility", abilityId: "loan", pid: state.myPlayerId });
-        } else {
-          useLoan(state.myPlayerId);
-          if (def) setAbilityCooldown(state.myPlayerId, "loan", def.cooldown);
-          pushAbilityAnnouncement(state.myPlayerId, "loan");
-        }
-        cancelAbilityTargeting();
-      } else if (state._abilityTargeting === "gloriousBattleMarch") {
-        if (confirmPendingAbilityCardCast()) return;
-        const def = ABILITY_DEFS.find(d => d.id === "gloriousBattleMarch");
-        if (state._multiSlots && !state._multiIsHost && state._socket) {
-          sendPlayerAction({ type: "useAbility", abilityId: "gloriousBattleMarch", pid: state.myPlayerId });
-        } else {
-          useGloriousBattleMarch(state.myPlayerId);
-          if (def) setAbilityCooldown(state.myPlayerId, "gloriousBattleMarch", def.cooldown);
-          pushAbilityAnnouncement(state.myPlayerId, "gloriousBattleMarch");
-        }
-        cancelAbilityTargeting();
-      } else if (state._abilityTargeting === "raiderCapture" || state._abilityTargeting === "cosmicGodHand") {
-        const abilityId = state._abilityTargeting;
-        let targetCityId = null;
-        for (const p of state.players.values()) {
-          if (p.eliminated || p.id === state.myPlayerId) continue;
-          const d2 = (wx - p.x) ** 2 + (wy - p.y) ** 2;
-          if (d2 <= (getPlanetRadius(p) + 40) ** 2) { targetCityId = p.id; break; }
-        }
-        if (targetCityId != null) {
-          if (confirmPendingAbilityCardCast({ targetCityId })) return;
-          const def = ABILITY_DEFS.find(d => d.id === abilityId);
-          if (state._multiSlots && !state._multiIsHost && state._socket) {
-            sendPlayerAction({ type: "useAbility", abilityId, pid: state.myPlayerId, targetCityId });
-          } else {
-            if (abilityId === "cosmicGodHand") useCosmicGodHand(state.myPlayerId, targetCityId);
-            else useRaiderCapture(state.myPlayerId, targetCityId);
-            if (def) setAbilityCooldown(state.myPlayerId, abilityId, def.cooldown);
-            pushAbilityAnnouncement(state.myPlayerId, abilityId);
-          }
-          cancelAbilityTargeting();
-        }
-      } else if (state._abilityTargeting === "pirateRaid") {
-        if (confirmPendingAbilityCardCast({ x: wx, y: wy })) return;
-        const def = ABILITY_DEFS.find(d => d.id === "pirateRaid");
-        if (state._multiSlots && !state._multiIsHost && state._socket) {
-          if (!isPirateRaidPointOnLane(wx, wy)) return;
-          sendPlayerAction({ type: "useAbility", abilityId: "pirateRaid", pid: state.myPlayerId, x: wx, y: wy });
-        } else {
-          if (!spawnPirateRaid(wx, wy, state.myPlayerId)) return;
-          if (def) setAbilityCooldown(state.myPlayerId, "pirateRaid", def.cooldown);
-          pushAbilityAnnouncement(state.myPlayerId, "pirateRaid");
-        }
-        cancelAbilityTargeting();
-      } else if (state._abilityTargeting === "meteor") {
-        const mt = state._meteorTargeting;
-        if (mt.phase === "point") {
-          mt.x = wx; mt.y = wy;
-          mt.phase = "angle";
-        } else if (mt.phase === "angle") {
-          if (!confirmPendingAbilityCardCast({ x: mt.x, y: mt.y, angle: mt.angle })) useMeteor(mt.x, mt.y, mt.angle);
-        }
-      } else if (state._abilityTargeting === "spatialRift") {
-        const mt = state._meteorTargeting;
-        if (mt.phase === "point") {
-          mt.x = wx; mt.y = wy;
-          mt.phase = "angle";
-        } else if (mt.phase === "angle") {
-          if (confirmPendingAbilityCardCast({ x: mt.x, y: mt.y, angle: mt.angle })) return;
-          const def = ABILITY_DEFS.find(d => d.id === "spatialRift");
-          if (state._multiSlots && !state._multiIsHost && state._socket) {
-            sendPlayerAction({ type: "useAbility", abilityId: "spatialRift", pid: state.myPlayerId, x: mt.x, y: mt.y, angle: mt.angle });
-          } else {
-            spawnSpatialRiftLocal(mt.x, mt.y, mt.angle, state.myPlayerId);
-            if (def) setAbilityCooldown(state.myPlayerId, "spatialRift", def.cooldown);
-            pushAbilityAnnouncement(state.myPlayerId, "spatialRift");
-          }
-          cancelAbilityTargeting();
-        }
-      } else if (state._abilityTargeting === METEOR_SWARM_ABILITY_ID) {
-        const mt = state._meteorTargeting;
-        if (mt.phase === "point") {
-          mt.x = wx; mt.y = wy;
-          mt.phase = "angle";
-        } else if (mt.phase === "angle") {
-          if (confirmPendingAbilityCardCast({ x: mt.x, y: mt.y, angle: mt.angle })) return;
-          const def = ABILITY_DEFS.find(d => d.id === METEOR_SWARM_ABILITY_ID);
-          if (state._multiSlots && !state._multiIsHost && state._socket) {
-            sendPlayerAction({ type: "useAbility", abilityId: METEOR_SWARM_ABILITY_ID, pid: state.myPlayerId, x: mt.x, y: mt.y, angle: mt.angle });
-          } else {
-            _spawnMeteorSwarmLocal(mt.x, mt.y, mt.angle, state.myPlayerId);
-            if (def) setAbilityCooldown(state.myPlayerId, METEOR_SWARM_ABILITY_ID, def.cooldown);
-            pushAbilityAnnouncement(state.myPlayerId, METEOR_SWARM_ABILITY_ID);
-          }
-          cancelAbilityTargeting();
-        }
-      } else if (state._abilityTargeting === MINEFIELD_SMALL_ID || state._abilityTargeting === MINEFIELD_LARGE_ID) {
-        const abilityId = state._abilityTargeting;
-        const placement = getMinefieldPlacement(state.myPlayerId, wx, wy, abilityId);
-        if (!placement || !placement.valid) return;
-        if (confirmPendingAbilityCardCast({ x: wx, y: wy })) return;
-        const def = ABILITY_DEFS.find(d => d.id === abilityId);
-        if (state._multiSlots && !state._multiIsHost && state._socket) {
-          sendPlayerAction({ type: "useAbility", abilityId, pid: state.myPlayerId, x: wx, y: wy });
-        } else {
-          const placed = deployMinefieldLocal(abilityId, wx, wy, state.myPlayerId);
-          if (!placed || !placed.ok) return;
-          if (def) setAbilityCooldown(state.myPlayerId, abilityId, def.cooldown);
-          pushAbilityAnnouncement(state.myPlayerId, abilityId);
-        }
-        cancelAbilityTargeting();
-      } else if (state._abilityTargeting === "orbitalStrike" || state._abilityTargeting === ORBITAL_BARRAGE_ID) {
-        const abilityId = state._abilityTargeting;
-        if (confirmPendingAbilityCardCast({ x: wx, y: wy })) return;
-        if (state._multiSlots && !state._multiIsHost && state._socket) {
-          sendPlayerAction({ type: "useAbility", abilityId, pid: state.myPlayerId, x: wx, y: wy });
-          cancelAbilityTargeting();
-        } else {
-          useAbilityAtPoint(abilityId, wx, wy, state.myPlayerId);
-        }
-      } else {
-        const pointAbilities = ["gravAnchor", "microAnchor", "fakeSignature", "timeSingularity", "nanoSwarm", "gravWave", "resourceRaid", "thermoNuke", "hyperJump"];
-        if (pointAbilities.includes(state._abilityTargeting)) {
-          if (confirmPendingAbilityCardCast({ x: wx, y: wy })) { /* card handled */ }
-          else if (state._multiSlots && !state._multiIsHost && state._socket) {
-            sendPlayerAction({ type: "useAbility", abilityId: state._abilityTargeting, pid: state.myPlayerId, x: wx, y: wy });
-            cancelAbilityTargeting();
-          } else {
-            useAbilityAtPoint(state._abilityTargeting, wx, wy, state.myPlayerId);
-          }
-        }
-      }
+      handleAbilityTargetingPrimaryClick(wx, wy);
     }
   }, true);
 
   app.canvas.addEventListener("mousemove", (e) => {
+    state._mouseScreenX = e.clientX;
+    state._mouseScreenY = e.clientY;
     if (state._meteorTargeting && state._meteorTargeting.phase === "angle") {
-      const wx = (e.clientX - cam.x) / cam.zoom;
-      const wy = (e.clientY - cam.y) / cam.zoom;
-      state._meteorTargeting.angle = Math.atan2(wy - state._meteorTargeting.y, wx - state._meteorTargeting.x);
+      updateMeteorTouchAngle(e.clientX, e.clientY);
     }
   });
+
+  app.canvas.addEventListener("pointermove", (e) => {
+    if (!state._abilityTargeting) return;
+    state._mouseScreenX = e.clientX;
+    state._mouseScreenY = e.clientY;
+    if (e.pointerType === "touch" && state._meteorTargeting && state._meteorTargeting.phase === "angle") {
+      updateMeteorTouchAngle(e.clientX, e.clientY);
+    }
+  }, true);
+
+  app.canvas.addEventListener("pointerdown", (e) => {
+    if (!state._abilityTargeting) return;
+    if (e.pointerType !== "touch" || !isMobileAbilityConfirmationMode()) return;
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    e.preventDefault();
+    handleMobileAbilityTouchTap(e.clientX, e.clientY);
+  }, true);
 
   app.canvas.addEventListener("contextmenu", (e) => {
     if (state._abilityTargeting) {
@@ -19252,15 +19825,57 @@
   }
 
   function triggerVictory(reason) {
+    if (state._gameOver) return;
+    const me = state.players.get(state.myPlayerId);
+    const economy = {
+      credits: me ? Math.round(me.eCredits || 0) : 0,
+      energy: me ? Math.round(me.pop || 0) : 0,
+      mines: [...state.mines.values()].filter((mine) => mine.ownerId === state.myPlayerId).length
+    };
+    const summary = coreMatchStateApi && typeof coreMatchStateApi.finishMatch === "function"
+      ? coreMatchStateApi.finishMatch("victory", {
+          reason,
+          mode: state._soloGameMode === "quad" ? "quad" : "duel",
+          difficulty: state._soloDifficulty || "easy",
+          durationSec: coreMatchStateApi.getCurrentDurationSec ? coreMatchStateApi.getCurrentDurationSec() : Math.round(state.t || 0),
+          economy
+        })
+      : { reason, mode: state._soloGameMode === "quad" ? "quad" : "duel", difficulty: state._soloDifficulty || "easy", durationSec: Math.round(state.t || 0), economy };
+    const rewards = singleProfileApi && typeof singleProfileApi.recordMatch === "function"
+      ? singleProfileApi.recordMatch(summary)
+      : null;
+    if (summary) summary.rewards = rewards;
     state._gameOver = true;
     const overlay = document.getElementById("victoryOverlay");
     const text = document.getElementById("victoryText");
     if (overlay) overlay.style.display = "flex";
     if (text) text.textContent = reason;
+    if (singleMenuUiApi && singleMenuUiApi.renderVictorySummary) singleMenuUiApi.renderVictorySummary(summary);
     document.getElementById("dominationTimer").style.display = "none";
+    syncPlatformGameplayState();
   }
 
   function triggerDefeat(reason) {
+    if (state._gameOver) return;
+    const me = state.players.get(state.myPlayerId);
+    const economy = {
+      credits: me ? Math.round(me.eCredits || 0) : 0,
+      energy: me ? Math.round(me.pop || 0) : 0,
+      mines: [...state.mines.values()].filter((mine) => mine.ownerId === state.myPlayerId).length
+    };
+    const summary = coreMatchStateApi && typeof coreMatchStateApi.finishMatch === "function"
+      ? coreMatchStateApi.finishMatch("defeat", {
+          reason,
+          mode: state._soloGameMode === "quad" ? "quad" : "duel",
+          difficulty: state._soloDifficulty || "easy",
+          durationSec: coreMatchStateApi.getCurrentDurationSec ? coreMatchStateApi.getCurrentDurationSec() : Math.round(state.t || 0),
+          economy
+        })
+      : { reason, mode: state._soloGameMode === "quad" ? "quad" : "duel", difficulty: state._soloDifficulty || "easy", durationSec: Math.round(state.t || 0), economy };
+    const rewards = singleProfileApi && typeof singleProfileApi.recordMatch === "function"
+      ? singleProfileApi.recordMatch(summary)
+      : null;
+    if (summary) summary.rewards = rewards;
     state._gameOver = true;
     const overlay = document.getElementById("victoryOverlay");
     const text = document.getElementById("victoryText");
@@ -19268,7 +19883,9 @@
     if (title) { title.textContent = "ПОРАЖЕНИЕ"; title.style.color = "#ff4444"; }
     if (overlay) overlay.style.display = "flex";
     if (text) text.textContent = reason;
+    if (singleMenuUiApi && singleMenuUiApi.renderVictorySummary) singleMenuUiApi.renderVictorySummary(summary);
     document.getElementById("dominationTimer").style.display = "none";
+    syncPlatformGameplayState();
   }
 
   document.getElementById("victoryRestart")?.addEventListener("click", () => {
@@ -19280,6 +19897,7 @@
       if (title) { title.textContent = "ПОБЕДА!"; title.style.color = "#ffd700"; }
       resetWorld();
       for (const p of state.players.values()) { redrawZone(p); rebuildTurrets(p); }
+      syncPlatformGameplayState();
     };
     if (platformApi && typeof platformApi.showFullscreenAd === "function") {
       const shown = platformApi.showFullscreenAd({
@@ -19290,6 +19908,14 @@
       return;
     }
     restartMatch();
+  });
+  document.getElementById("victoryMenu")?.addEventListener("click", () => {
+    const overlay = document.getElementById("victoryOverlay");
+    if (overlay) overlay.style.display = "none";
+    const title = document.querySelector(".victory-title");
+    if (title) { title.textContent = "ПОБЕДА!"; title.style.color = "#ffd700"; }
+    if (singleMenuUiApi && singleMenuUiApi.renderResultsPanels) singleMenuUiApi.renderResultsPanels();
+    showScreen("mainMenu");
   });
 
   // ------------------------------------------------------------
@@ -19306,11 +19932,194 @@
   const roomCodeInputEl = document.getElementById("roomCodeInput");
   const menuSimBackdropEl = document.getElementById("menuSimBackdrop");
   const menuSimCanvasEl = document.getElementById("menuSimCanvas");
+  const rotatePromptEl = document.getElementById("rotatePrompt");
+  const mobileGameHudBarEl = document.getElementById("mobileGameHudBar");
+  const mobileServiceBtnEl = document.getElementById("mobileServiceBtn");
+  const musicPlayerDockEl = document.getElementById("musicPlayerDock");
+  const musicPopupBtnEl = document.getElementById("musicPopupBtn");
+  const gameMenuBtnEl = document.getElementById("gameMenuBtn");
+  const gameTopActionsEl = document.getElementById("gameTopActions");
 
   const SOLO_PALETTE = [0xff8800, 0xcc2222, 0xddcc00, 0x4488ff, 0x22aa44, 0xaa44cc, 0x44cccc];
   state._soloColorIndex = 0;
+  state._soloDifficulty = state._soloDifficulty || "easy";
   state._quickStartScenario = null;
   state._soloNoBotAi = false;
+
+  function getCurrentNicknameValue() {
+    return (
+      state._myNickname
+      || (typeof window !== "undefined" ? window._myNickname : "")
+      || (nicknameInputEl ? nicknameInputEl.value : "")
+      || ""
+    ).trim();
+  }
+
+  function isPrivilegedDebugNickname() {
+    return getCurrentNicknameValue() === "qD319";
+  }
+
+  function isMobileViewportLike() {
+    if (typeof window === "undefined") return false;
+    const ua = typeof navigator !== "undefined" ? String(navigator.userAgent || "") : "";
+    return ("ontouchstart" in window)
+      || (typeof navigator !== "undefined" && navigator.maxTouchPoints > 0)
+      || /android|iphone|ipad|ipod|mobile/i.test(ua);
+  }
+
+  function shouldShowRotatePrompt() {
+    if (!rotatePromptEl || typeof window === "undefined") return false;
+    if (!isMobileViewportLike()) return false;
+    return window.innerHeight > window.innerWidth;
+  }
+
+  function isCompactMobileUi() {
+    return false;
+  }
+
+  function getMobilePanelElements() {
+    return ["hud", "bottomRightPanel"]
+      .map((id) => document.getElementById(id))
+      .filter(Boolean);
+  }
+
+  function setMobileHudMode(mode) {
+    const hud = document.getElementById("hud");
+    const nextMode = mode === "stats" ? "stats" : "shipyard";
+    state._mobileHudMode = nextMode;
+    if (!hud) return;
+    hud.classList.toggle("hud-mobile-mode-shipyard", nextMode === "shipyard");
+    hud.classList.toggle("hud-mobile-mode-stats", nextMode === "stats");
+  }
+
+  function syncMobileHudButtons() {
+    if (!mobileGameHudBarEl) return;
+    mobileGameHudBarEl.querySelectorAll("[data-mobile-panel]").forEach((btn) => {
+      const panelId = btn.getAttribute("data-mobile-panel");
+      const hudMode = btn.getAttribute("data-mobile-hud-mode");
+      const active = panelId === (state._mobileHudOpenPanelId || "")
+        && (panelId !== "hud" || hudMode === (state._mobileHudMode || "shipyard"));
+      btn.classList.toggle("is-active", active);
+    });
+  }
+
+  function closeAllMobilePanels() {
+    state._mobileHudOpenPanelId = null;
+    getMobilePanelElements().forEach((panel) => panel.classList.remove("is-mobile-panel-open"));
+    syncMobileHudButtons();
+  }
+
+  function openMobilePanel(panelId, options) {
+    if (!isCompactMobileUi()) return;
+    const opts = options || {};
+    state._mobileHudOpenPanelId = panelId || null;
+    if (panelId === "hud") setMobileHudMode(opts.hudMode || state._mobileHudMode || "shipyard");
+    getMobilePanelElements().forEach((panel) => {
+      const shouldOpen = !!panelId && panel.id === panelId;
+      panel.classList.toggle("is-mobile-panel-open", shouldOpen);
+      if (shouldOpen && panel.tagName === "DETAILS") panel.open = true;
+    });
+    syncMobileHudButtons();
+  }
+
+  function syncMobileUiState() {
+    const mobileUi = isCompactMobileUi();
+    if (typeof document !== "undefined") document.body.classList.toggle("mobile-ui", mobileUi);
+    const gameVisible = !!(gameWrapEl && gameWrapEl.style.display !== "none");
+    if (mobileGameHudBarEl) mobileGameHudBarEl.style.display = mobileUi && gameVisible ? "flex" : "none";
+    if (gameTopActionsEl) gameTopActionsEl.style.display = gameVisible ? "flex" : "none";
+    if (!mobileUi || !gameVisible) {
+      closeAllMobilePanels();
+      return;
+    }
+    if (!state._mobileHudInitDone) {
+      state._mobileHudInitDone = true;
+      setMobileHudMode("shipyard");
+      closeAllMobilePanels();
+    } else if (state._mobileHudOpenPanelId) {
+      openMobilePanel(state._mobileHudOpenPanelId, { hudMode: state._mobileHudMode || "shipyard" });
+    } else {
+      syncMobileHudButtons();
+    }
+  }
+
+  function syncPrivilegedUi() {
+    const privileged = isPrivilegedDebugNickname();
+    const bottomRightPanel = document.getElementById("bottomRightPanel");
+    if (bottomRightPanel) bottomRightPanel.style.display = privileged ? "flex" : "none";
+    if (mobileServiceBtnEl) mobileServiceBtnEl.style.display = privileged ? "" : "none";
+    if (!privileged && state._mobileHudOpenPanelId === "bottomRightPanel") closeAllMobilePanels();
+  }
+
+  function syncPlatformGameplayState() {
+    syncMobileUiState();
+    syncPrivilegedUi();
+    syncAbilityTargetHint();
+    const showRotatePrompt = shouldShowRotatePrompt();
+    if (rotatePromptEl) {
+      rotatePromptEl.style.display = showRotatePrompt ? "flex" : "none";
+      rotatePromptEl.setAttribute("aria-hidden", showRotatePrompt ? "false" : "true");
+    }
+    if (showRotatePrompt) pauseGameplay("rotate-prompt");
+    else resumeGameplay("rotate-prompt");
+    const isGameScreenVisible = !!(gameWrapEl && gameWrapEl.style.display !== "none");
+    const shouldMarkGameplayActive = isGameScreenVisible && !state._gameOver && !showRotatePrompt;
+    if (platformApi && typeof platformApi.stopGameplay === "function" && !shouldMarkGameplayActive) {
+      platformApi.stopGameplay();
+    } else if (platformApi && typeof platformApi.startGameplay === "function" && shouldMarkGameplayActive) {
+      platformApi.startGameplay();
+    }
+  }
+
+  if (typeof window !== "undefined") {
+    window.addEventListener("resize", syncPlatformGameplayState);
+    window.addEventListener("orientationchange", syncPlatformGameplayState);
+  }
+  if (typeof document !== "undefined") {
+    document.addEventListener("contextmenu", (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (!target) return;
+      if (target.closest("canvas, #gameWrap, #hud, #topRightPanel, #bottomRightPanel, #cardHud, #victoryOverlay, #rotatePrompt, #mobileGameHudBar, #gameTopActions, #musicPlayerDock")) {
+        event.preventDefault();
+      }
+    }, true);
+    document.addEventListener("pointerdown", (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (!target || !document.body.classList.contains("mobile-ui")) return;
+      if (target.closest("#mobileGameHudBar, #hud, #topRightPanel, #bottomRightPanel, #cardHud, #victoryOverlay, #abilityOverlay, #cardModal, #gameChatWrap, #enemyComparePanel, #gameTopActions, #musicPlayerDock")) return;
+      if (target.closest("canvas, #gameWrap")) closeAllMobilePanels();
+    }, true);
+    document.addEventListener("pointerdown", (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (!target || !musicPlayerDockEl || !musicPlayerDockEl.classList.contains("popup-open")) return;
+      if (target.closest("#musicPlayerDock, #musicPopupBtn")) return;
+      musicPlayerDockEl.classList.remove("popup-open");
+    }, true);
+  }
+  if (mobileGameHudBarEl) {
+    mobileGameHudBarEl.querySelectorAll(".mobile-game-hud-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const panelId = btn.getAttribute("data-mobile-panel");
+        if (!panelId) return;
+        const hudMode = btn.getAttribute("data-mobile-hud-mode");
+        const sameHudMode = panelId === "hud" && hudMode === (state._mobileHudMode || "shipyard");
+        if (state._mobileHudOpenPanelId === panelId && (panelId !== "hud" || sameHudMode)) closeAllMobilePanels();
+        else openMobilePanel(panelId, { hudMode });
+      });
+    });
+  }
+  if (musicPopupBtnEl && musicPlayerDockEl) {
+    musicPopupBtnEl.addEventListener("click", () => {
+      musicPlayerDockEl.classList.toggle("popup-open");
+    });
+  }
+  if (gameMenuBtnEl) {
+    gameMenuBtnEl.addEventListener("click", () => {
+      closeAllMobilePanels();
+      if (musicPlayerDockEl) musicPlayerDockEl.classList.remove("popup-open");
+      showScreen("mainMenu");
+    });
+  }
 
   const menuSimApi = (() => {
     if (!menuSimBackdropEl || !menuSimCanvasEl) return null;
@@ -20362,6 +21171,7 @@
     state.ghosts = [];
     state.bullets = [];
     state.floatingDamage = [];
+    state._deathBursts = [];
     state._shipBuildQueues = new Map();
     state.selectedUnitIds.clear();
     state.prevInCombatIds.clear();
@@ -20414,16 +21224,17 @@
       if (el) el.style.display = id === visibleId ? "flex" : "none";
     }
     if (gameWrapEl) gameWrapEl.style.display = visibleId === "gameWrap" ? "block" : "none";
-    const showRealMenuWorld = visibleId === "mainMenu";
+    const showRealMenuWorld = visibleId === "mainMenu" || visibleId === "nicknameScreen" || visibleId === "soloLobbyScreen";
     if (menuSimBackdropEl) menuSimBackdropEl.classList.toggle("real-world", showRealMenuWorld);
     setMenuWorldCanvasVisibility(visibleId === "gameWrap" || showRealMenuWorld, visibleId === "gameWrap");
     if (menuSimApi && menuSimApi.setVisible) menuSimApi.setVisible(visibleId !== "gameWrap");
     if (showRealMenuWorld) startMenuBackdropBattle();
     else stopMenuBackdropBattle();
+    if (coreMatchStateApi && typeof coreMatchStateApi.setScreen === "function") {
+      coreMatchStateApi.setScreen(visibleId);
+    }
     if (visibleId === "soloLobbyScreen" && typeof window !== "undefined") {
       state._myNickname = state._myNickname || window._myNickname || "";
-    }
-    if (visibleId === "nicknameScreen" && state._menuMode === "single") {
       const row = document.getElementById("soloColorRow");
       const picker = document.getElementById("soloColorPicker");
       if (row) row.style.display = "block";
@@ -20452,7 +21263,18 @@
       const botRow = document.getElementById("soloBotCountRow");
       if (botRow) botRow.style.display = "none";
     }
-    if (visibleId === "multiConnectScreen" && typeof refreshLobbyList === "function") refreshLobbyList();
+    if ((visibleId === "mainMenu" || visibleId === "soloLobbyScreen" || visibleId === "nicknameScreen") && singleMenuUiApi) {
+      if (singleMenuUiApi.renderResultsPanels) singleMenuUiApi.renderResultsPanels();
+      if (singleMenuUiApi.renderSoloSpawnPicker && visibleId === "soloLobbyScreen") singleMenuUiApi.renderSoloSpawnPicker();
+    }
+    if (!singleReleaseOnly && visibleId === "multiConnectScreen" && typeof refreshLobbyList === "function") refreshLobbyList();
+    if (visibleId === "gameWrap" && platformApi && typeof platformApi.requestFullscreen === "function") {
+      platformApi.requestFullscreen();
+    }
+    if (visibleId !== "gameWrap" && musicPlayerDockEl) {
+      musicPlayerDockEl.classList.remove("popup-open");
+    }
+    syncPlatformGameplayState();
   }
   (function bindMainMenuButtonsEarly() {
     const btnSingle = document.getElementById("btnSingle");
@@ -20467,8 +21289,13 @@
       if (fpsEl) fpsEl.style.display = "none";
       if (netEl) netEl.style.display = "none";
     }
-    if (btnMulti) btnMulti.addEventListener("click", () => { state._quickStartScenario = null; state._menuMode = "multi"; showScreen("nicknameScreen"); });
-    if (btnSingle) btnSingle.addEventListener("click", () => { state._quickStartScenario = null; state._menuMode = "single"; showScreen("nicknameScreen"); });
+    if (singleReleaseOnly && btnMulti) btnMulti.style.display = "none";
+    if (btnSingle) {
+      btnSingle.addEventListener("click", () => {
+        state._quickStartScenario = null;
+        state._menuMode = "single";
+      });
+    }
     if (btnTestMap400) btnTestMap400.addEventListener("click", () => {
       if (!testUiEnabled) return;
       state._menuMode = "single";
@@ -20508,8 +21335,22 @@
       state._pendingSnap = null;
     }
     PLAYER_NAMES[1] = (nickname || "Игрок").trim().slice(0, 24) || "Игрок";
+    if (singleProfileApi && typeof singleProfileApi.setNickname === "function") {
+      singleProfileApi.setNickname(PLAYER_NAMES[1]);
+    }
     state.myPlayerId = 1;
     state.botPlayerIds = null;
+    state._gameOver = false;
+    state._domTimers = {};
+    if (coreMatchStateApi && typeof coreMatchStateApi.beginMatch === "function") {
+      coreMatchStateApi.beginMatch({
+        mode: state._soloGameMode === "quad" ? "quad" : "duel",
+        difficulty: state._soloDifficulty || "easy",
+        botCount: state._soloGameMode === "quad" ? 3 : 1,
+        playerId: 1,
+        seed: state._customMapSeed != null ? state._customMapSeed : null
+      });
+    }
     showScreen("gameWrap");
     const seedForMap = state._customMapSeed != null ? state._customMapSeed : undefined;
     rebuildMap(seedForMap);
@@ -20520,6 +21361,7 @@
       rebuildTurrets(p);
     }
     const me = state.players.get(state.myPlayerId);
+    applyCurrentBotDifficulty();
     if (me) {
       cam.zoom = CFG.CAMERA_START_ZOOM;
       centerOn(me.x, me.y);
@@ -20528,11 +21370,12 @@
       const len = Math.hypot(dx, dy) || 1;
       state.rallyPoint = { x: me.x + (dx / len) * 180, y: me.y + (dy / len) * 180 };
     }
-    document.getElementById("net").textContent = "локально • боты";
+    document.getElementById("net").textContent = "локально • " + getBotDifficultyLabel(state._soloDifficulty || "easy");
     const gameChatWrap = document.getElementById("gameChatWrap");
     if (gameChatWrap) gameChatWrap.style.display = "none";
     if (typeof updateMultiHostOnlyControls === "function") updateMultiHostOnlyControls();
     syncHiddenHostTick();
+    syncPlatformGameplayState();
   }
 
   function startGameMulti(slots, mySlot, matchMeta) {
@@ -21025,6 +21868,16 @@
     stopMenuBackdropBattle,
     matchSession: matchSessionApi
   });
+  singleMenuUiApi = installRuntime(window.SingleMenuUI, {
+    state,
+    showScreen,
+    startGameSingle,
+    nicknameInputEl,
+    profileApi: singleProfileApi
+  });
+  if (singleMenuUiApi && typeof singleMenuUiApi.init === "function") {
+    singleMenuUiApi.init();
+  }
 
   if (socketSessionApi) {
     socketSessionApi.on("connect", () => {
