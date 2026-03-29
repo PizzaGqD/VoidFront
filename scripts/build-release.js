@@ -123,15 +123,27 @@ function writeRuntimeConfig() {
 
 function createZipArchive() {
   fs.rmSync(ZIP_PATH, { force: true });
+  const rootEntries = fs.readdirSync(CLIENT_DIST);
+  if (!rootEntries.length) {
+    throw new Error("Client release directory is empty, nothing to archive.");
+  }
   if (process.platform === "win32") {
-    childProcess.execFileSync("powershell", [
-      "-NoProfile",
-      "-Command",
-      `Compress-Archive -Path "${CLIENT_DIST.replace(/\\/g, "\\\\")}\\*" -DestinationPath "${ZIP_PATH.replace(/\\/g, "\\\\")}" -Force`
-    ], { stdio: "inherit" });
+    // `Compress-Archive` writes Windows-style entry names (`\`) into the zip.
+    // Yandex Games serves uploaded files over HTTP and expects URL-style paths (`/`).
+    // We also avoid archiving "." because some tools then prefix every entry with "./",
+    // and the Yandex archive validator may fail to detect the root `index.html`.
+    childProcess.execFileSync("tar", [
+      "-a",
+      "-cf",
+      ZIP_PATH,
+      ...rootEntries
+    ], {
+      cwd: CLIENT_DIST,
+      stdio: "inherit"
+    });
     return;
   }
-  childProcess.execFileSync("zip", ["-qr", ZIP_PATH, "."], {
+  childProcess.execFileSync("zip", ["-qr", ZIP_PATH, ...rootEntries], {
     cwd: CLIENT_DIST,
     stdio: "inherit"
   });

@@ -519,13 +519,15 @@
     return sq;
   }
 
-  function issueAttackUnitOrder(state, squadId, targetUnitId, waypoints, commandQueue) {
+  function issueAttackUnitOrder(state, squadId, targetUnitId, waypoints, commandQueue, opts) {
     const order = {
       type: "attackUnit",
       targetUnitId,
       waypoints: cloneWaypoints(waypoints),
       commandQueue: cloneCommandQueue(commandQueue),
-      suppressPathPreview: true
+      suppressPathPreview: true,
+      strictLaneApproach: !!opts?.strictLaneApproach,
+      laneHoldPoint: clonePoint(opts?.laneHoldPoint)
     };
     const queued = queueIfLocked(state, squadId, order);
     if (queued) return queued;

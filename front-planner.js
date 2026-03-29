@@ -1094,7 +1094,9 @@
             const waypoints = laneReturnPoint
               ? [{ x: laneReturnPoint.x, y: laneReturnPoint.y }, { x: laneThreat.x, y: laneThreat.y }]
               : [{ x: laneThreat.x, y: laneThreat.y }];
-            squadLogic.issueAttackUnitOrder(state, squad.id, laneThreat.id, waypoints);
+            squadLogic.issueAttackUnitOrder(state, squad.id, laneThreat.id, waypoints, undefined, {
+              strictLaneApproach: entry.frontType === "left" || entry.frontType === "right"
+            });
           });
         }
         continue;
