@@ -11,7 +11,7 @@
 Сервер раздаёт игру и лобби на одном порту:
 
 ```bash
-cd "c:\Users\7StepToHell\Desktop\DTF\public\Hoi2D"
+
 npm install
 npm start
 ```
