@@ -1167,6 +1167,10 @@ function createAuthoritativeMatchRuntime(options) {
   }
 
   function getAutoFrontSpecs(ownerId) {
+    if (FrontPlanner && typeof FrontPlanner.getSpawnFrontSpecs === "function") {
+      const specs = FrontPlanner.getSpawnFrontSpecs(state, ownerId);
+      if (Array.isArray(specs) && specs.length > 0) return specs;
+    }
     const me = state.players.get(ownerId);
     if (!me) return [];
     let enemy = null;
@@ -1282,6 +1286,35 @@ function createAuthoritativeMatchRuntime(options) {
     return { ok: true, player, type, costPerPurchase, totalCost };
   }
 
+  function seedFrontAssignment(ownerId, squadId, frontType) {
+    if (squadId == null || !frontType) return;
+    const graph = state.frontGraph && state.frontGraph[ownerId] ? state.frontGraph[ownerId] : null;
+    const targetCoreId = frontType === "left"
+      ? graph && graph.leftTargetCoreId
+      : frontType === "right"
+        ? graph && graph.rightTargetCoreId
+        : (state.centerObjectives && state.centerObjectives.securedByPlayerId === ownerId
+            ? (graph && Array.isArray(graph.enemyCoreIds) ? (graph.enemyCoreIds[0] || null) : null)
+            : null);
+    state.squadFrontAssignments = state.squadFrontAssignments || {};
+    const existing = state.squadFrontAssignments[squadId] || {};
+    const squad = state.squads && state.squads.get(squadId);
+    if (squad) squad.frontType = frontType;
+    state.squadFrontAssignments[squadId] = {
+      squadId,
+      ownerId,
+      frontId: ownerId + ":" + frontType,
+      frontType,
+      role: frontType === "center" ? "center" : "pressure",
+      originCoreId: ownerId,
+      targetCoreId,
+      assignedAt: state.t || 0,
+      assignmentLockUntil: (state.t || 0) + 3,
+      lastIssuedAt: existing.lastIssuedAt || 0,
+      lastOrderSignature: existing.lastOrderSignature || ""
+    };
+  }
+
   function spawnPurchasedSquad(ownerId, unitTypeKey, waypoints, opts) {
     const player = state.players.get(ownerId);
     const type = UNIT_TYPES[unitTypeKey];
@@ -1340,10 +1373,12 @@ function createAuthoritativeMatchRuntime(options) {
       formationRows: 1,
       formationWidth: 1,
       sourceTag: opts && opts.sourceTag ? opts.sourceTag : "spawn",
+      frontType: opts && opts.frontType ? opts.frontType : null,
       autoGroupUntil: state.t + gs(3),
       allowAutoJoinRecentSpawn: !!(opts && opts.allowAutoJoinRecentSpawn),
       order: { type: "move", waypoints: cloneWaypoints(unit.waypoints), holdPoint: null }
     });
+    if (squad && opts && opts.frontType) seedFrontAssignment(ownerId, squad.id, opts.frontType);
     return { ok: true, spawned: 1, squadId: squad ? squad.id : null, leaderId: id, unitIds: [id] };
   }
 
@@ -1367,7 +1402,10 @@ function createAuthoritativeMatchRuntime(options) {
         x: point.x + nx * offset + vx * forwardStep * i,
         y: point.y + ny * offset + vy * forwardStep * i
       };
-      const out = spawnPurchasedSquad(ownerId, unitTypeKey, [spawnPoint], options || null);
+      const out = spawnPurchasedSquad(ownerId, unitTypeKey, [spawnPoint], {
+        ...(options || {}),
+        frontType: spec.frontType
+      });
       if (out.ok) {
         unitIds.push(...(out.unitIds || []));
         if (out.squadId != null) squadIds.push(out.squadId);
@@ -1387,6 +1425,7 @@ function createAuthoritativeMatchRuntime(options) {
     for (const spec of frontSpecs) {
       const result = spawnPurchasedSquad(ownerId, unitTypeKey, spec.waypoints, {
         sourceTag: spec.sourceTag,
+        frontType: spec.frontType,
         allowAutoJoinRecentSpawn: true
       });
       if (result.ok) spawned.push(result);
@@ -2042,29 +2081,21 @@ function createAuthoritativeMatchRuntime(options) {
 
   function stepLaneFighterWaves() {
     if (state._laneFighterWaveNextAt == null) state._laneFighterWaveNextAt = 0;
-    state._laneFighterWaveIndex = state._laneFighterWaveIndex || 0;
     const waveInterval = 30;
     while (state.t >= (state._laneFighterWaveNextAt || 0)) {
-      const firstWave = (state._laneFighterWaveIndex || 0) === 0;
       for (const player of state.players.values()) {
         if (!player || player.id == null || player.id <= 0 || player.eliminated) continue;
-        const wavePlan = firstWave
-          ? [
-              { frontType: "left", count: 1 },
-              { frontType: "center", count: 1 },
-              { frontType: "right", count: 1 }
-            ]
-          : [
-              { frontType: "left", count: 3 },
-              { frontType: "center", count: 3 },
-              { frontType: "right", count: 3 }
-            ];
+        const wavePlan = [
+          { frontType: "left", count: 3 },
+          { frontType: "center", count: 3 },
+          { frontType: "right", count: 3 }
+        ];
         for (const plan of wavePlan) {
           spawnLaneAbilityUnits(player.id, plan.frontType, "fighter", plan.count, {
             sourceTag: "timed:laneFighters:" + player.id + ":" + plan.frontType,
             spread: 22,
             forwardStep: 7,
-            allowAutoJoinRecentSpawn: true,
+            allowAutoJoinRecentSpawn: false,
             mutateUnit: (unit) => {
               unit._autoLaneFighterWave = true;
             }
@@ -2072,7 +2103,6 @@ function createAuthoritativeMatchRuntime(options) {
         }
       }
       state._laneFighterWaveNextAt = (state._laneFighterWaveNextAt || 0) + waveInterval;
-      state._laneFighterWaveIndex = (state._laneFighterWaveIndex || 0) + 1;
       if (waveInterval <= 0) break;
     }
   }

@@ -105,8 +105,14 @@
     return Math.max(min, Math.min(max, value));
   }
 
+  function getFrontTypeFromSourceTag(tag) {
+    if (typeof tag !== "string") return null;
+    const match = /(?:^front:|:)(left|center|right)$/.exec(tag);
+    return match ? match[1] : null;
+  }
+
   function isFrontLaneTag(tag) {
-    return typeof tag === "string" && tag.startsWith("front:");
+    return getFrontTypeFromSourceTag(tag) != null;
   }
 
   function buildCaptureQueueOrders(captureQueue) {
@@ -307,6 +313,7 @@
       createdAt: opts.createdAt ?? state.t ?? 0,
       autoGroupUntil: opts.autoGroupUntil ?? null,
       sourceTag: opts.sourceTag || null,
+      frontType: opts.frontType || null,
       anchor: { x: center.x, y: center.y }
     };
 
@@ -341,6 +348,7 @@
     }
     target.autoGroupUntil = Math.max(target.autoGroupUntil ?? 0, source.autoGroupUntil ?? 0, (state.t ?? 0) + config.spawnAutoGroupWindow);
     target.createdAt = Math.min(target.createdAt ?? state.t ?? 0, source.createdAt ?? state.t ?? 0);
+    if (!target.frontType && source.frontType) target.frontType = source.frontType;
     target.formation.dirty = true;
     target.formation.dirtyAt = state.t ?? 0;
     state.squads.delete(source.id);
@@ -405,6 +413,7 @@
       formationRows: formationRows ?? 3,
       formationWidth: formationWidth ?? 1,
       sourceTag: first?.sourceTag || null,
+      frontType: first?.frontType || null,
       order: { type: "idle", waypoints: [] }
     });
   }
@@ -426,7 +435,7 @@
     const out = [];
     for (const key of [...byType.keys()].sort()) {
       const ns = createSquad(state, byType.get(key), {
-        formationType: form.type, formationRows: form.rows, formationWidth: form.width, sourceTag: sq.sourceTag || null, order: existing
+        formationType: form.type, formationRows: form.rows, formationWidth: form.width, sourceTag: sq.sourceTag || null, frontType: sq.frontType || null, order: existing
       });
       if (ns) out.push(ns);
     }
@@ -1536,7 +1545,9 @@
     if (!sq) return null;
     const assignment = state.squadFrontAssignments && state.squadFrontAssignments[sq.id];
     if (assignment && assignment.frontType) return assignment.frontType;
-    if (isFrontLaneTag(sq.sourceTag)) return String(sq.sourceTag).slice(6);
+    if (sq.frontType === "left" || sq.frontType === "center" || sq.frontType === "right") return sq.frontType;
+    const taggedFrontType = getFrontTypeFromSourceTag(sq.sourceTag);
+    if (taggedFrontType) return taggedFrontType;
     const targetCityId = sq.order?.targetCityId ?? null;
     const ownerGraph = state.frontGraph && state.frontGraph[sq.ownerId] ? state.frontGraph[sq.ownerId] : null;
     if (!ownerGraph) return null;

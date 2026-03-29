@@ -12,7 +12,7 @@ function makeRuntime(options) {
     roomId: "room-auth-test",
     seed: 12345,
     enableLaneFighterWaves: opts.enableLaneFighterWaves === true,
-    slots: [
+    slots: opts.slots || [
       { id: "socket_a", name: "Alpha", colorIndex: 0 },
       { id: "socket_b", name: "Bravo", colorIndex: 1 }
     ]
@@ -49,6 +49,87 @@ function testPurchaseFrontTripletSpawnsServerUnits() {
   assert(ownUnits.every((unit) => unit.unitType === "destroyer"), "spawned units preserve requested type");
   assert(ownUnits.every((unit) => unit.squadId != null), "spawned units are attached to squads");
   console.log("  [OK] testPurchaseFrontTripletSpawnsServerUnits");
+}
+
+function testBotOpeningPurchaseUsesFrontTriplet() {
+  const runtime = makeRuntime({
+    slots: [
+      { id: "socket_a", name: "Alpha", colorIndex: 0 },
+      { id: null, name: "Bot", colorIndex: 1, isBot: true }
+    ]
+  });
+  runtime.state.players.get(2).eCredits = 2000;
+  tick(runtime, 420);
+
+  const frontSquads = [...runtime.state.squads.values()].filter((squad) =>
+    squad &&
+    squad.ownerId === 2 &&
+    typeof squad.sourceTag === "string" &&
+    squad.sourceTag.startsWith("front:")
+  );
+  assert(frontSquads.length >= 3, "bot opening purchase creates front-tagged triplet squads");
+  const frontTypes = new Set(frontSquads.map((squad) => squad.frontType).filter(Boolean));
+  assert(frontTypes.size === 3, "bot opening purchase spreads across left, center, and right fronts");
+  assert(frontTypes.has("left") && frontTypes.has("center") && frontTypes.has("right"), "bot opening purchase preserves all three triplet fronts");
+  const centerWaypoint = frontSquads
+    .filter((squad) => squad.frontType === "center")
+    .flatMap((squad) => Array.isArray(squad.order?.waypoints) ? [squad.order.waypoints[0]] : [])
+    .find(Boolean);
+  assert(centerWaypoint, "bot opening center triplet keeps an explicit center waypoint");
+  assert(
+    Math.abs(centerWaypoint.x - runtime.state.centerObjectives.centerX) < 2 &&
+      Math.abs(centerWaypoint.y - runtime.state.centerObjectives.centerY) < 2,
+    "bot opening center triplet first heads to the map center"
+  );
+  console.log("  [OK] testBotOpeningPurchaseUsesFrontTriplet");
+}
+
+function testLaneFighterWaveKeepsCenterFrontAssignment() {
+  const runtime = makeRuntime({ enableLaneFighterWaves: true });
+  tick(runtime, 5);
+
+  const timedSquads = [...runtime.state.squads.values()].filter((squad) =>
+    squad &&
+    squad.ownerId === 1 &&
+    typeof squad.sourceTag === "string" &&
+    squad.sourceTag.startsWith("timed:laneFighters:1:")
+  );
+  const centerSquad = timedSquads.find((squad) => squad.sourceTag === "timed:laneFighters:1:center");
+  assert(centerSquad, "lane fighter wave spawns a dedicated center squad for player 1");
+  assert(centerSquad.frontType === "center", "center wave squad stores explicit center frontType on the authoritative server");
+  assert(
+    runtime.state.squadFrontAssignments &&
+      runtime.state.squadFrontAssignments[centerSquad.id] &&
+      runtime.state.squadFrontAssignments[centerSquad.id].frontType === "center",
+    "center wave squad keeps center front assignment in authoritative state"
+  );
+  console.log("  [OK] testLaneFighterWaveKeepsCenterFrontAssignment");
+}
+
+function testFourPlayerBottomRightCenterWaveMovesTowardMapCenter() {
+  const runtime = makeRuntime({
+    enableLaneFighterWaves: true,
+    slots: [
+      { id: "socket_a", name: "Alpha", colorIndex: 0 },
+      { id: "socket_b", name: "Bravo", colorIndex: 1 },
+      { id: "socket_c", name: "Charlie", colorIndex: 2 },
+      { id: "socket_d", name: "Delta", colorIndex: 3 }
+    ]
+  });
+  tick(runtime, 5);
+
+  const player = runtime.state.players.get(3);
+  const centerSquad = [...runtime.state.squads.values()].find((squad) =>
+    squad &&
+    squad.ownerId === 3 &&
+    squad.sourceTag === "timed:laneFighters:3:center"
+  );
+  assert(player && centerSquad, "bottom-right player center wave squad exists in 4-player authoritative runtime");
+  const firstWaypoint = Array.isArray(centerSquad.order?.waypoints) ? centerSquad.order.waypoints[0] : null;
+  assert(firstWaypoint, "center wave keeps an initial waypoint");
+  assert(firstWaypoint.x < player.x - 80, "bottom-right center wave first heads left toward map center instead of straight up a side lane");
+  assert(firstWaypoint.y < player.y - 80, "bottom-right center wave first heads upward toward map center");
+  console.log("  [OK] testFourPlayerBottomRightCenterWaveMovesTowardMapCenter");
 }
 
 function testMoveActionRepathsServerOwnedSquad() {
@@ -443,8 +524,8 @@ function testInitialLaneFighterWavesSpawnOnServer() {
   const p1Fighters = getUnitsFor(runtime, 1).filter((unit) => unit.unitType === "fighter" && unit._autoLaneFighterWave);
   const p2Fighters = getUnitsFor(runtime, 2).filter((unit) => unit.unitType === "fighter" && unit._autoLaneFighterWave);
 
-  assert(p1Fighters.length === 3, "server runtime spawns opening lane fighter wave for player one");
-  assert(p2Fighters.length === 3, "server runtime spawns opening lane fighter wave for player two");
+  assert(p1Fighters.length === 9, "server runtime spawns three opening fighters per front for player one");
+  assert(p2Fighters.length === 9, "server runtime spawns three opening fighters per front for player two");
   console.log("  [OK] testInitialLaneFighterWavesSpawnOnServer");
 }
 
@@ -466,6 +547,9 @@ function testFrontPlannerPushesOpeningWaveTowardEnemy() {
 function runAll() {
   console.log("authoritative-match-runtime tests:");
   testPurchaseFrontTripletSpawnsServerUnits();
+  testBotOpeningPurchaseUsesFrontTriplet();
+  testLaneFighterWaveKeepsCenterFrontAssignment();
+  testFourPlayerBottomRightCenterWaveMovesTowardMapCenter();
   testMoveActionRepathsServerOwnedSquad();
   testHpBuffUpdatesExistingAndFutureShips();
   testBlackHoleActionMutatesAuthoritativeState();

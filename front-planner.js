@@ -424,10 +424,18 @@
     return ["left", "center", "right"].includes(frontType) ? ("front:" + frontType) : null;
   }
 
-  function getTaggedFrontType(squad) {
-    if (!squad || typeof squad.sourceTag !== "string") return null;
-    const match = /^front:(left|center|right)$/.exec(squad.sourceTag);
+  function getFrontTypeFromSourceTag(tag) {
+    if (typeof tag !== "string") return null;
+    const match = /(?:^front:|:)(left|center|right)$/.exec(tag);
     return match ? match[1] : null;
+  }
+
+  function getTaggedFrontType(squad) {
+    if (!squad) return null;
+    if (squad.frontType === "left" || squad.frontType === "center" || squad.frontType === "right") {
+      return squad.frontType;
+    }
+    return getFrontTypeFromSourceTag(squad.sourceTag);
   }
 
   function buildCenterObjectives(state) {
@@ -1073,7 +1081,15 @@
         const desiredSignature = ["defend", defenseTarget.id, Math.round(defenseTarget.x), Math.round(defenseTarget.y)].join("|");
         if (currentSig !== desiredSignature) {
           issuePlannerOrder(state, squadLogic, squad, entry, desiredSignature, () => {
-            squadLogic.issueAttackUnitOrder(state, squad.id, defenseTarget.id, [{ x: defenseTarget.x, y: defenseTarget.y }]);
+            const strictLaneApproach = entry.frontType === "left" || entry.frontType === "right";
+            const waypoints = [];
+            if (strictLaneApproach && laneReturnPoint) {
+              waypoints.push({ x: laneReturnPoint.x, y: laneReturnPoint.y });
+            }
+            waypoints.push({ x: defenseTarget.x, y: defenseTarget.y });
+            squadLogic.issueAttackUnitOrder(state, squad.id, defenseTarget.id, waypoints, undefined, {
+              strictLaneApproach
+            });
           });
         }
         continue;

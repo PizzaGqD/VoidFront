@@ -572,6 +572,11 @@
     return state._frontControlEnabled !== false;
   }
 
+  function isBotIndirectControlEnabled() {
+    if (state._menuBackdropActive) return isIndirectControlEnabled();
+    return true;
+  }
+
   function isCoreRosterUnitType(unitTypeKey) {
     return CORE_ROSTER_UNIT_TYPES.includes(unitTypeKey);
   }
@@ -7234,6 +7239,7 @@
       const sy = option.spawnPoint.y + Math.sin(sideAngle) * sideOffset + Math.sin(option.angle) * forwardOffset;
       const unit = spawnUnitAt(sx, sy, ownerId, unitTypeKey, cloneWaypointsSafe(option.waypoints), {
         sourceTag,
+        frontType: option.frontType,
         autoGroupUntil: (state.t || 0) + 5,
         allowAutoJoinRecentSpawn: true
       });
@@ -10292,6 +10298,7 @@
         formationRows: u.formationRows ?? 3,
         formationWidth: u.formationPigWidth ?? 1,
         sourceTag: opts && opts.sourceTag ? opts.sourceTag : null,
+        frontType: opts && opts.frontType ? opts.frontType : null,
         autoGroupUntil: opts && opts.autoGroupUntil != null ? opts.autoGroupUntil : null,
         allowAutoJoinRecentSpawn: !!(opts && opts.allowAutoJoinRecentSpawn),
         order: { type: "move", waypoints: cloneWaypointsSafe(waypoints), holdPoint: null }
@@ -10376,6 +10383,8 @@
             : null);
     state.squadFrontAssignments = state.squadFrontAssignments || {};
     const existing = state.squadFrontAssignments[squadId] || {};
+    const squad = state.squads && state.squads.get(squadId);
+    if (squad) squad.frontType = frontType;
     state.squadFrontAssignments[squadId] = {
       squadId,
       ownerId,
@@ -10480,6 +10489,7 @@
         formationRows,
         formationWidth: pigW,
         sourceTag: (opts && opts.sourceTag) || "spawn",
+        frontType: opts && opts.frontType ? opts.frontType : null,
         autoGroupUntil: state.t + 3,
         allowAutoJoinRecentSpawn: true,
         order: {
@@ -12617,7 +12627,7 @@
       const tick = p._botAcc >= Math.max(0.45, profile.thinkIntervalSec || BOT_TICK);
       if (tick) p._botAcc = 0;
 
-      if (tick && !isIndirectControlEnabled()) botMergeSmallSquads(p.id);
+      if (tick && !isBotIndirectControlEnabled()) botMergeSmallSquads(p.id);
       if (!tick) continue;
 
       autoPlayBotCardHands(p);
@@ -12629,7 +12639,7 @@
       const squads = getSquads().filter(s => s.length > 0 && s[0].owner === p.id);
       const myUnitCount = myUnits.length;
       const stagingMinSize = profile.id === "easy" ? 5 : 4;
-      const indirectLanes = isIndirectControlEnabled();
+      const indirectLanes = isBotIndirectControlEnabled();
 
       function estimatePower(units) {
         let total = 0;
@@ -17441,28 +17451,21 @@
     if (state._laneFighterWaveNextAt == null) {
       state._laneFighterWaveNextAt = 0;
     }
-    state._laneFighterWaveIndex = state._laneFighterWaveIndex || 0;
     const waveInterval = toSimSeconds(30);
     while (state.t >= (state._laneFighterWaveNextAt || 0)) {
-      const firstWave = (state._laneFighterWaveIndex || 0) === 0;
       for (const player of state.players.values()) {
         if (!player || player.id == null || player.id <= 0 || player.eliminated) continue;
-        const wavePlan = firstWave
-          ? [
-              { frontType: "left", count: 1 },
-              { frontType: "center", count: 1 },
-              { frontType: "right", count: 1 }
-            ]
-          : [
-              { frontType: "left", count: 3 },
-              { frontType: "center", count: 3 },
-              { frontType: "right", count: 3 }
-            ];
+        const wavePlan = [
+          { frontType: "left", count: 3 },
+          { frontType: "center", count: 3 },
+          { frontType: "right", count: 3 }
+        ];
         for (const plan of wavePlan) {
           spawnLaneAbilityUnits(player.id, plan.frontType, "fighter", plan.count, {
             sourceTag: "timed:laneFighters:" + player.id + ":" + plan.frontType,
             spread: 22,
             forwardStep: 7,
+            allowAutoJoinRecentSpawn: false,
             mutateUnit: (u) => {
               u._autoLaneFighterWave = true;
             }
@@ -17470,7 +17473,6 @@
         }
       }
       state._laneFighterWaveNextAt = (state._laneFighterWaveNextAt || 0) + waveInterval;
-      state._laneFighterWaveIndex = (state._laneFighterWaveIndex || 0) + 1;
       if (waveInterval <= 0) break;
     }
   }

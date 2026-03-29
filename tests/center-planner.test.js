@@ -179,7 +179,9 @@ function testBaseDefenseBubbleOverridesAndResumesRoute() {
   addUnit(state, { id: 90, owner: 2, x: 10, y: -120, hp: 100 });
 
   FrontPlanner.step(state, 0.1, { squadLogic: SQUADLOGIC, getFormationOffsets });
-  assert(state.squads.get(squad.id).order.type === "attackUnit", "near-core threat temporarily overrides lane order");
+  const defendOrder = state.squads.get(squad.id).order;
+  assert(defendOrder.type === "attackUnit", "near-core threat temporarily overrides lane order");
+  assert(defendOrder.strictLaneApproach === true, "side-lane defense keeps lane lock while reacting to core threats");
 
   state.units.get(90).hp = 0;
   FrontPlanner.step(state, 0.1, { squadLogic: SQUADLOGIC, getFormationOffsets });
@@ -291,6 +293,31 @@ function testSideLaneProgressDoesNotResetToDeadCore() {
   console.log("  [OK] testSideLaneProgressDoesNotResetToDeadCore");
 }
 
+function testExplicitFrontTypeKeepsLaneForNonFrontSourceTags() {
+  const state = makeState();
+  addPlayer(state, 1, 0, -240);
+  addPlayer(state, 2, 240, 0);
+  addPlayer(state, 3, 0, 240);
+  addPlayer(state, 4, -240, 0);
+  const squad = createSquad(state, [
+    { id: 61, owner: 1, x: 4, y: -214 },
+    { id: 62, owner: 1, x: 16, y: -206 }
+  ], {
+    sourceTag: "timed:laneFighters:1:right",
+    frontType: "right"
+  });
+
+  FrontPlanner.step(state, 0.1, { squadLogic: SQUADLOGIC, getFormationOffsets });
+
+  const entry = state.squadFrontAssignments[squad.id];
+  const order = state.squads.get(squad.id).order;
+  assert(entry && entry.frontType === "right", "explicit squad frontType preserves right-lane assignment");
+  assert(order.type === "siege", "explicit frontType still produces a side-lane siege order");
+  assert(order.targetCityId === 2 || order.targetCityId === 3, "side-lane order targets a live flank enemy core");
+  assert(Array.isArray(order.waypoints) && order.waypoints.length > 0, "side-lane order keeps route waypoints");
+  console.log("  [OK] testExplicitFrontTypeKeepsLaneForNonFrontSourceTags");
+}
+
 function runAll() {
   console.log("center-planner tests:");
   testCenterPlannerAttacksPiratesFirst();
@@ -301,6 +328,7 @@ function runAll() {
   testCenterSecuredStopsRetargetingOwnedMines();
   testSideLaneRoutesThroughEliminatedCore();
   testSideLaneProgressDoesNotResetToDeadCore();
+  testExplicitFrontTypeKeepsLaneForNonFrontSourceTags();
   console.log("All center-planner tests passed.");
 }
 
